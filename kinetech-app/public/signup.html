@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="signupTitle">Sign up · KineTech</title>
+<meta name="description" content="Create your KineTech account." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@500;700&family=Valley+Sans:wght@100..900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+<main class="auth">
+<div aria-labelledby="signup-h">
+<a class="brandmark" href="/"><img src="assets/logo.png" data-i18n-alt="backAlt" alt="KineTech home" /></a>
+<h1 id="signup-h" data-i18n="upH1">Create your account!</h1>
+<p class="sub" data-i18n="upSub">Join KineTech Academy — learn programming, data, and CAD with engineers, from ZERO level to certification</p>
+<form id="signupForm" action="#">
+<div class="frow">
+<div class="field">
+<label for="firstname" data-i18n="fn">First name</label>
+<input id="firstname" name="firstname" type="text" data-i18n-ph="fnPh" placeholder="Mohamed" autocomplete="given-name" required />
+</div>
+<div class="field">
+<label for="lastname" data-i18n="ln">Last name</label>
+<input id="lastname" name="lastname" type="text" data-i18n-ph="lnPh" placeholder="Ahmed" autocomplete="family-name" required />
+</div>
+</div>
+<div class="frow">
+<div class="field">
+<label for="email" data-i18n="email">Email</label>
+<input id="email" name="email" type="email" data-i18n-ph="emailPh" placeholder="youremail@yourdomain.com" autocomplete="email" required />
+</div>
+<div class="field">
+<label for="password" data-i18n="pw">Password</label>
+<input id="password" name="password" type="password" data-i18n-ph="pwPh" placeholder="Create a password" autocomplete="new-password" required minlength="8" />
+</div>
+</div>
+<div class="frow">
+<div class="field">
+<label for="phone" data-i18n="phone">Phone / WhatsApp</label>
+<input id="phone" name="phone" type="tel" data-i18n-ph="phonePh" placeholder="+20 1x xxxx xxxx" autocomplete="tel" required />
+</div>
+<div class="field">
+<label id="trackLabel" for="trackBtn" data-i18n="track">Service Category</label>
+<div class="dd" id="trackDd">
+<button type="button" class="dd-btn placeholder" id="trackBtn" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="trackLabel trackBtnLabel">
+<span id="trackBtnLabel">Choose a service category</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+</button>
+<ul class="dd-list" role="listbox" id="trackList" aria-labelledby="trackLabel" hidden>
+<li class="dd-opt" role="option" tabindex="-1" aria-selected="false" data-en="Educational Services / Tutoring"><span data-i18n="opt1">Educational Services / Tutoring</span><svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg></li>
+<li class="dd-opt" role="option" tabindex="-1" aria-selected="false" data-en="Marketing &amp; Growth"><span data-i18n="opt2">Marketing &amp; Growth</span><svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg></li>
+<li class="dd-opt" role="option" tabindex="-1" aria-selected="false" data-en="Software &amp; Web Development"><span data-i18n="opt3">Software &amp; Web Development</span><svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg></li>
+<li class="dd-opt" role="option" tabindex="-1" aria-selected="false" data-en="Design &amp; Creative"><span data-i18n="opt4">Design &amp; Creative</span><svg class="tick" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"/></svg></li>
+</ul>
+<input type="hidden" name="track" id="trackVal" />
+</div>
+</div>
+</div>
+<div id="studentFields" hidden>
+<div class="frow">
+<div class="field">
+<label for="natid" data-i18n="natId">National ID</label>
+<input id="natid" name="natid" type="text" inputmode="numeric" maxlength="14" pattern="[0-9]{14}" data-i18n-ph="natIdPh" placeholder="14-digit number" autocomplete="off" required />
+</div>
+<div class="field">
+<label for="grade" data-i18n="grade">Grade</label>
+<select id="grade" name="grade" required>
+<option value="" selected disabled data-i18n="gradePh">Choose your grade</option>
+<option value="sec1" data-i18n="g1">First Secondary Grade</option>
+<option value="sec2" data-i18n="g2">Second Secondary Grade</option>
+</select>
+</div>
+</div>
+</div>
+<button class="primary" type="submit" data-i18n="upSubmit">Create account</button>
+<div class="divider" aria-hidden="true"><span data-i18n="or">or</span></div>
+<button class="googlebtn" type="button" data-i18n-aria="googleAria" aria-label="Continue with Google">
+<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+<span data-i18n="google">Continue with Google</span>
+</button>
+</form>
+<p class="foot"><span data-i18n="upFootPre">Already have an account? </span><a href="signin.html" data-i18n="upFootLink">Sign in</a></p>
+</div>
+<aside class="panel" aria-label="KineTech"><a class="brandlock panel-brand" href="/"><img class="logo-img" src="assets/logo.png" width="48" height="48" alt="KineTech home" style="width:48px;height:48px" /><span class="wordmark"><span class="k">KINE</span><span class="t">TECH</span></span></a></aside>
+</main>
+<div class="msl" id="msl" hidden role="status" aria-live="polite">
+<div class="msl-box"><div class="msl-list" id="mslList"></div></div>
+<div class="msl-fade"></div>
+</div>
+<script src="auth-lang.js"></script>
+<script>
+(function(){
+var dd=document.getElementById('trackDd'),btn=document.getElementById('trackBtn'),
+    list=document.getElementById('trackList'),label=document.getElementById('trackBtnLabel'),
+    hidden=document.getElementById('trackVal'),
+    opts=Array.prototype.slice.call(list.querySelectorAll('.dd-opt')),hi=-1;
+function dict(){return window.__authDict?window.__authDict():{trackPh:'Choose a service category'}}
+window.syncTrackLabel=function(d){
+  var sel=list.querySelector('[aria-selected="true"]');
+  if(sel){label.textContent=sel.querySelector('span').textContent;btn.classList.remove('placeholder')}
+  else{label.textContent=d.trackPh;btn.classList.add('placeholder')}
+};
+function open(){dd.classList.add('open');list.hidden=false;btn.setAttribute('aria-expanded','true')}
+function close(){dd.classList.remove('open');list.hidden=true;btn.setAttribute('aria-expanded','false');hi=-1}
+function pick(li){
+  opts.forEach(function(o){o.setAttribute('aria-selected','false')});
+  li.setAttribute('aria-selected','true');
+  hidden.value=li.getAttribute('data-en');
+  btn.classList.remove('error');
+  var student=hidden.value==='Educational Services / Tutoring';
+  var box=document.getElementById('studentFields');
+  if(box){
+    box.hidden=!student;
+    if(!student){
+      var nid=document.getElementById('natid'),gr=document.getElementById('grade');
+      if(nid)nid.value='';if(gr)gr.selectedIndex=0;
+    }
+  }
+  window.syncTrackLabel(dict());
+}
+/* default: Educational Services preselected (courses first priority) */
+(function preselect(){
+  if(hidden.value||!opts.length)return;
+  opts[0].setAttribute('aria-selected','true');
+  hidden.value=opts[0].getAttribute('data-en');
+  var box=document.getElementById('studentFields');
+  if(box)box.hidden=false;
+  window.syncTrackLabel(dict());
+})();
+btn.addEventListener('click',function(){list.hidden?open():close()});
+document.addEventListener('click',function(e){if(!dd.contains(e.target))close()});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
+opts.forEach(function(li){
+  li.addEventListener('click',function(){pick(li);close();btn.focus()});
+});
+btn.addEventListener('keydown',function(e){
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(list.hidden)open();
+    hi=e.key==='ArrowDown'?(hi+1)%opts.length:(hi-1+opts.length)%opts.length;
+    opts.forEach(function(o,i){o.style.background=i===hi?'#F4F3F6':''});opts[hi].scrollIntoView({block:'nearest'})}
+  else if(e.key==='Enter'||e.key===' '){if(!list.hidden&&hi>=0){e.preventDefault();pick(opts[hi]);close()}}
+});
+window.syncTrackLabel(dict());
+document.getElementById('signupForm').addEventListener('submit',function(e){
+e.preventDefault();
+var form=e.target;
+if(!hidden.value){btn.classList.add('error');btn.focus();return}
+if(!form.checkValidity()){form.reportValidity();return}
+window.runAuthLoader(form.querySelector('.primary'),['upS1','upS2','upS3'],'upDone');
+});
+})();
+</script>
+</body>
+</html>

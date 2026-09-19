@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="signinTitle">Sign in · KineTech</title>
+<meta name="description" content="Sign in to your KineTech account." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@500;700&family=Valley+Sans:wght@100..900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+<main class="auth auth-roomy">
+<div aria-labelledby="signin-h">
+<a class="brandmark" href="/"><img src="assets/logo.png" data-i18n-alt="backAlt" alt="KineTech home" /></a>
+<h1 id="signin-h" data-i18n="inH1">Welcome back!</h1>
+<p class="sub" data-i18n="inSub">We empower developers and technical teams to create, simulate, and manage AI-driven workflows visually</p>
+<form id="signinForm" action="#">
+<div class="field">
+<label for="email" data-i18n="email">Email</label>
+<input id="email" name="email" type="email" data-i18n-ph="emailPh" placeholder="youremail@yourdomain.com" autocomplete="email" required />
+</div>
+<div class="field">
+<label for="password" data-i18n="pw">Password</label>
+<input id="password" name="password" type="password" data-i18n-ph="pwPh" placeholder="Create a password" autocomplete="current-password" required />
+</div>
+<button class="primary" type="submit" data-i18n="inSubmit">Sign in</button>
+<div class="divider" aria-hidden="true"><span data-i18n="or">or</span></div>
+<button class="googlebtn" type="button" data-i18n-aria="googleAria" aria-label="Continue with Google">
+<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+<span data-i18n="google">Continue with Google</span>
+</button>
+</form>
+<p class="foot"><span data-i18n="inFootPre">Already have an account? </span><a href="signup.html" data-i18n="inFootLink">Sign up</a></p>
+</div>
+<aside class="panel" aria-label="KineTech"><a class="brandlock panel-brand" href="/"><img class="logo-img" src="assets/logo.png" width="48" height="48" alt="KineTech home" style="width:48px;height:48px" /><span class="wordmark"><span class="k">KINE</span><span class="t">TECH</span></span></a></aside>
+</main>
+<div class="msl" id="msl" hidden role="status" aria-live="polite">
+<div class="msl-box"><div class="msl-list" id="mslList"></div></div>
+<div class="msl-fade"></div>
+</div>
+<script src="auth-lang.js"></script>
+<script>
+(function(){
+document.getElementById('signinForm').addEventListener('submit',function(e){
+e.preventDefault();
+var email=document.getElementById('email'),pw=document.getElementById('password');
+if(!email.value||!pw.value){(email.value?pw:email).focus();return}
+window.runAuthLoader(e.target.querySelector('.primary'),['inS1','inS2','inS3'],'inDone');
+});
+})();
+</script>
+</body>
+</html>
