@@ -1,3 +1,4 @@
+import { getPosts, getProcess, getService, useContent } from "../store";
 import { useLang } from "../components/lang";
 
 const WA = "https://wa.me/201042031062";
@@ -5,17 +6,14 @@ const WA = "https://wa.me/201042031062";
 const SLUGS = ["marketing", "software", "design"] as const;
 
 export function ServicePage({ slug }: { slug: (typeof SLUGS)[number] }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const s = t.services;
-  const data =
-    slug === "marketing"
-      ? { title: s.mktT, desc: s.mktD, items: s.mktI, delv: s.mktG }
-      : slug === "software"
-        ? { title: s.softT, desc: s.softD, items: s.softI, delv: s.softG }
-        : { title: s.desT, desc: s.desD, items: s.desI, delv: s.desG };
+  useContent();
+  const data = getService(lang, slug);
+  const process = getProcess(lang);
+  const posts = getPosts(lang, slug);
   const others = SLUGS.filter((x) => x !== slug);
-  const otherTitle = (x: (typeof SLUGS)[number]) =>
-    x === "marketing" ? s.mktT : x === "software" ? s.softT : s.desT;
+  const otherTitle = (x: (typeof SLUGS)[number]) => getService(lang, x).title;
   return (
     <main id="content" className="section">
       <div className="kt-wrap">
@@ -58,7 +56,7 @@ export function ServicePage({ slug }: { slug: (typeof SLUGS)[number] }) {
               {s.gets}
             </h2>
             <ul className="mt-4 grid gap-3 text-[15px] font-bold">
-              {data.delv.map((g) => (
+              {data.gets.map((g) => (
                 <li key={g} className="flex items-center gap-3">
                   <span
                     className="grid h-7 w-7 flex-none place-items-center rounded-lg"
@@ -93,7 +91,7 @@ export function ServicePage({ slug }: { slug: (typeof SLUGS)[number] }) {
           {s.processT}
         </h2>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {s.process.map((p, i) => (
+          {process.map((p, i) => (
             <div
               key={p.t}
               className="rounded-[20px] border bg-white p-6"
@@ -129,7 +127,7 @@ export function ServicePage({ slug }: { slug: (typeof SLUGS)[number] }) {
           {s.portfolioT}
         </h2>
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          {data.delv.map((g, i) => (
+          {data.gets.map((g, i) => (
             <div
               key={g}
               className="flex min-h-[150px] flex-col justify-end overflow-hidden rounded-[20px] p-5"
@@ -155,6 +153,51 @@ export function ServicePage({ slug }: { slug: (typeof SLUGS)[number] }) {
             {s.noteCta}
           </a>
         </div>
+
+        {posts.length > 0 && (
+          <>
+            <h2
+              className="mt-14 text-2xl font-bold md:text-3xl"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              {t.admin.postsT}
+            </h2>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {posts.map((p, i) => (
+                <article
+                  key={`${p.title}-${i}`}
+                  className="overflow-hidden rounded-[20px] border bg-white"
+                  style={{ borderColor: "var(--kt-line)" }}
+                >
+                  {p.image && (
+                    <img src={p.image} alt="" loading="lazy" className="h-44 w-full object-cover" />
+                  )}
+                  <div className="p-5">
+                    <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                      {p.title}
+                    </h3>
+                    {p.text && (
+                      <p className="mt-1.5 text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
+                        {p.text}
+                      </p>
+                    )}
+                    {p.link && (
+                      <a
+                        href={p.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-block text-sm font-bold"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        →
+                      </a>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </main>
   );
