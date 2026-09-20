@@ -22,6 +22,9 @@ import { LangContext } from "./components/lang";
 import { STR, getInitialLang, type Lang } from "./i18n";
 import { clearUser, getUser, type KtUser } from "./auth";
 import { parseHash, type Route } from "./router";
+import { wireStoreSync } from "./store";
+import { AdminLogin } from "./admin/AdminLogin";
+import { AdminApp } from "./admin/AdminApp";
 
 function syncDoc(lang: Lang) {
   document.documentElement.lang = lang;
@@ -98,6 +101,10 @@ export default function App() {
   );
 
   useEffect(() => {
+    wireStoreSync();
+  }, []);
+
+  useEffect(() => {
     if (route.name !== "home") return;
     if (!("IntersectionObserver" in window)) {
       document
@@ -120,8 +127,16 @@ export default function App() {
     return () => io.disconnect();
   }, [lang, route.name]);
 
+  const isAdminRoute = route.name === "adminLogin" || route.name === "admin";
+
   return (
     <LangContext.Provider value={ctx}>
+      {isAdminRoute ? (
+        <div className="langfade" style={{ opacity: fading ? 0 : 1 }} aria-busy={fading}>
+          {route.name === "adminLogin" && <AdminLogin />}
+          {route.name === "admin" && <AdminApp page={route.page} />}
+        </div>
+      ) : (
       <div
         className="langfade"
         style={{ opacity: fading ? 0 : 1 }}
@@ -146,6 +161,7 @@ export default function App() {
         {route.name === "notfound" && <NotFound />}
         <Footer />
       </div>
+      )}
     </LangContext.Provider>
   );
 }

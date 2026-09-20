@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { COURSE_DETAIL_PHOTOS } from "../course-media";
-import { courseIndex } from "../router";
+import { getCourse, useContent } from "../store";
 import { useLang } from "../components/lang";
 const WA = "https://wa.me/201042031062";
 
@@ -20,10 +19,11 @@ function FactIcon({ path }: { path: string }) {
 }
 
 export function CourseDetail({ slug }: { slug: string }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const d = t.detail;
-  const id = courseIndex(slug);
-  const course = id >= 0 ? t.academy.courses[id] : null;
+  useContent();
+  const course = getCourse(lang, slug);
+  const price = course?.price ?? d.contactPricing;
   const topRef = useRef<HTMLDivElement>(null);
   const [past, setPast] = useState(false);
   const [denied, setDenied] = useState(false);
@@ -105,7 +105,7 @@ export function CourseDetail({ slug }: { slug: string }) {
               </span>
             )}
             <img
-              src={COURSE_DETAIL_PHOTOS[id]}
+              src={course.photoDetail}
               alt={course.name}
               className="w-full rounded-[20px] object-contain"
               style={{ background: "var(--surface)" }}
@@ -156,7 +156,7 @@ export function CourseDetail({ slug }: { slug: string }) {
                 letterSpacing: "-0.02em",
               }}
             >
-              {d.contactPricing}
+              {price}
             </p>
             <a
               href={WA}
@@ -218,6 +218,8 @@ export function CourseDetail({ slug }: { slug: string }) {
               </p>
             </div>
           </div>
+          {course.outcomes.length > 0 && (
+          <>
           <h2
             className="mt-8 text-2xl font-bold"
             style={{ fontFamily: "var(--font-display)" }}
@@ -241,6 +243,8 @@ export function CourseDetail({ slug }: { slug: string }) {
               </li>
             ))}
           </ul>
+          </>
+          )}
         </section>
         </div>
       </div>
@@ -264,7 +268,7 @@ export function CourseDetail({ slug }: { slug: string }) {
               dir="auto"
               style={{ color: "var(--accent)" }}
             >
-              {d.contactPricing}
+              {price}
             </span>
           </p>
           <a

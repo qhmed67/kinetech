@@ -1,8 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CardBody, CardContainer, CardItem } from "@/components/ui/3d-card";
-import { COURSE_PHOTOS } from "../course-media";
-import { COURSE_SLUGS } from "../router";
+import { listCourses, useContent } from "../store";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import { useLang } from "../components/lang";
 
@@ -11,24 +10,26 @@ const WA = "https://wa.me/201042031062";
 export function Courses() {
   const { lang, t } = useLang();
   const c = t.catalog;
+  const v = useContent();
+  const all = useMemo(() => listCourses(lang), [lang, v]);
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [focused, setFocused] = useState<number | null>(null);
   const [active, setActive] = useState<number | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const uid = useId();
-  const trackRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ down: false, startX: 0, startScroll: 0, moved: false });
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 16;
 
   const filters = [
     { key: "all", label: c.filterAll },
     { key: "bac", label: c.catBac },
-    { key: "prog", label: c.catProg },
-    { key: "cad", label: c.catCad },
+    { key: "tech", label: c.catProg },
+    { key: "other", label: c.catOther },
   ];
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return t.academy.courses
+    return all
       .map((course, i) => ({ course, i }))
       .filter(({ course }) => {
         if (filter === "bac" && !course.bac) return false;
@@ -43,7 +44,7 @@ export function Courses() {
           return false;
         return true;
       });
-  }, [t, filter, q]);
+  }, [all, filter, q]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,49 +61,20 @@ export function Courses() {
 
   useOutsideClick(modalRef, () => setActive(null));
 
-  const scrollBy = (dir: 1 | -1) => {
-    const el = trackRef.current;
-    if (!el) return;
-    const card = el.querySelector<HTMLElement>(":scope > article");
-    const step = card ? card.offsetWidth + 24 : 360;
-    el.scrollBy({ left: dir * step, behavior: "smooth" });
-  };
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    const el = trackRef.current;
-    if (!el) return;
-    drag.current = {
-      down: true,
-      startX: e.clientX,
-      startScroll: el.scrollLeft,
-      moved: false,
-    };
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const el = trackRef.current;
-    if (!el || !drag.current.down) return;
-    const dx = e.clientX - drag.current.startX;
-    if (Math.abs(dx) > 6) drag.current.moved = true;
-    el.scrollLeft = drag.current.startScroll - dx;
-  };
-  const endDrag = () => {
-    drag.current.down = false;
-  };
-  const suppressClick = (e: React.SyntheticEvent) => {
-    if (drag.current.moved) {
-      e.preventDefault();
-      e.stopPropagation();
-      drag.current.moved = false;
-    }
-  };
-
   const openCard = (e: React.SyntheticEvent, i: number) => {
-    if (drag.current.moved) return;
     if ((e.target as HTMLElement).closest("a")) return;
     setActive(i);
   };
 
-  const activeCourse = active !== null ? t.academy.courses[active] : null;
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const safePage = Math.min(page, pages);
+  const visible = list.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const goPage = (p: number) => {
+    setPage(Math.min(pages, Math.max(1, p)));
+    setActive(null);
+  };
+
+  const activeCourse = active !== null ? all[active] ?? null : null;
 
   return (
     <main id="content" className="section overflow-hidden">
@@ -115,9 +87,10 @@ export function Courses() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => scrollBy(-1)}
+              onClick={() => goPage(safePage - 1)}
+              disabled={safePage <= 1}
               aria-label={lang === "ar" ? "السابق" : "Previous courses"}
-              className="arrowbtn"
+              className="arrowbtn disabled:opacity-30"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
                 <path d="M15 5l-7 7 7 7" />
@@ -125,9 +98,10 @@ export function Courses() {
             </button>
             <button
               type="button"
-              onClick={() => scrollBy(1)}
+              onClick={() => goPage(safePage + 1)}
+              disabled={safePage >= pages}
               aria-label={lang === "ar" ? "التالي" : "Next courses"}
-              className="arrowbtn next"
+              className="arrowbtn next disabled:opacity-30"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
                 <path d="M9 5l7 7-7 7" />
@@ -138,7 +112,7 @@ export function Courses() {
         <div className="mt-6 flex flex-wrap items-center gap-2">
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setPage(1); }}
             placeholder={c.searchPh}
             aria-label={c.searchPh}
             dir={lang === "ar" ? "rtl" : "ltr"}
@@ -150,7 +124,7 @@ export function Courses() {
               <button
                 key={f.key}
                 type="button"
-                onClick={() => setFilter(f.key)}
+                onClick={() => { setFilter(f.key); setPage(1); }}
                 aria-pressed={filter === f.key}
                 className="rounded-full px-5 py-2.5 text-sm font-bold transition-all"
                 style={
@@ -178,31 +152,20 @@ export function Courses() {
         {list.length === 0 ? (
           <p style={{ color: "var(--muted)" }}>{c.empty}</p>
         ) : (
-          <div
-            ref={trackRef}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerLeave={() => {
-              endDrag();
-              setFocused(null);
-            }}
-            onClickCapture={suppressClick}
-            className="noscroll flex cursor-grab snap-x snap-mandatory gap-6 overflow-x-auto pb-2 active:cursor-grabbing"
-            style={{ scrollbarWidth: "none" } as React.CSSProperties}
-          >
-            {list.map(({ course, i }) => {
+          <>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {visible.map(({ course, i }) => {
               const dimmed = focused !== null && focused !== i;
               return (
                 <motion.article
-                  key={course.name}
+                  key={course.slug}
                   layoutId={`cat-card-${i}-${uid}`}
                   onClick={(e) => openCard(e, i)}
                   onMouseEnter={() => setFocused(i)}
                   onMouseLeave={() => setFocused(null)}
                   onFocus={() => setFocused(i)}
                   onBlur={() => setFocused(null)}
-                  className="w-[82vw] max-w-[340px] flex-none cursor-pointer snap-center overflow-hidden rounded-[22px] border bg-white transition-all duration-300 ease-out motion-reduce:transition-none"
+                  className="cursor-pointer overflow-hidden rounded-[22px] border bg-white transition-all duration-300 ease-out motion-reduce:transition-none"
                   style={{
                     borderColor: "var(--kt-line)",
                     filter: dimmed ? "blur(2px)" : "none",
@@ -215,7 +178,7 @@ export function Courses() {
                   <div className="relative h-56 overflow-hidden">
                     <motion.img
                       layoutId={`cat-img-${i}-${uid}`}
-                      src={COURSE_PHOTOS[i]}
+                      src={course.photoCard}
                       alt={course.name}
                       loading="lazy"
                       decoding="async"
@@ -269,10 +232,10 @@ export function Courses() {
                         className="btn btn-primary self-start"
                         draggable={false}
                       >
-                        {t.academy.ctas[i]}
+                        {course.cta}
                       </a>
                       <a
-                        href={`#/courses/${COURSE_SLUGS[i]}`}
+                        href={`#/courses/${course.slug}`}
                         className="text-sm font-bold"
                         style={{ color: "var(--accent)" }}
                       >
@@ -286,6 +249,29 @@ export function Courses() {
               );
             })}
           </div>
+          {pages > 1 && (
+            <nav className="mt-8 flex items-center justify-center gap-2" aria-label="pages">
+              {Array.from({ length: pages }, (_, p) => p + 1).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => goPage(p)}
+                  aria-current={p === safePage ? "page" : undefined}
+                  aria-label={`Page ${p}`}
+                  className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold transition-all"
+                  dir="ltr"
+                  style={
+                    p === safePage
+                      ? { background: "var(--accent)", color: "#fff", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }
+                      : { background: "var(--surface)", color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }
+                  }
+                >
+                  {p}
+                </button>
+              ))}
+            </nav>
+          )}
+          </>
         )}
       </div>
 
@@ -321,7 +307,7 @@ export function Courses() {
             >
               <motion.img
                 layoutId={`cat-img-${active}-${uid}`}
-                src={COURSE_PHOTOS[active]}
+                src={activeCourse.photoCard}
                 alt={activeCourse.name}
                 width={500}
                 height={500}
@@ -352,10 +338,10 @@ export function Courses() {
                   {activeCourse.quote}
                 </p>
                 <a href={WA} className="btn btn-primary mt-5 w-full">
-                  {t.academy.ctas[active]}
+                  {activeCourse.cta}
                 </a>
                 <a
-                  href={`#/courses/${COURSE_SLUGS[active]}`}
+                  href={`#/courses/${activeCourse.slug}`}
                   className="mt-3 block text-center text-sm font-bold"
                   style={{ color: "var(--accent)" }}
                 >

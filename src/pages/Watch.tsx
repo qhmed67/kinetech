@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { courseIndex } from "../router";
+import { getCourse, getVideos, useContent, type VideoView } from "../store";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import {
   MAX_VIEWS,
-  VIDEO_MINS,
   getViews,
   isDone,
   isUnlocked,
   recordDone,
   recordPlay,
-  videoRes,
-  videoSource,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
@@ -117,10 +114,11 @@ export function Watch({
   video: number;
   user: KtUser | null;
 }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const w = t.watch;
-  const id = courseIndex(slug);
-  const course = id >= 0 ? t.academy.courses[id] : null;
+  useContent();
+  const course = getCourse(lang, slug);
+  const videos: VideoView[] = getVideos(slug);
   const [open, setOpen] = useState<number | null>(null);
   const [plays, setPlays] = useState(0);
   const [, setDoneTick] = useState(0);
@@ -155,10 +153,14 @@ export function Watch({
 
   const idx = Math.min(video, course.modules.length - 1);
   const mod = course.modules[idx];
-  const src = videoSource(slug, idx);
+  const vid = videos[idx] ?? { src: "", mins: 10, assign: "", exam: "" };
+  const src = vid.src || null;
   const left = Math.max(0, MAX_VIEWS - plays);
   const unlocked = isUnlocked(user, slug, idx);
-  const res = videoRes(slug, idx);
+  const links = [
+    vid.assign ? { label: w.assignL, href: vid.assign } : null,
+    vid.exam ? { label: w.examL, href: vid.exam } : null,
+  ].filter((x): x is { label: string; href: string } => x !== null);
 
   const onProgress = (seconds: number) => {
     // count only after 3s of REAL playback — stalls/reloads before that burn nothing
@@ -255,22 +257,26 @@ export function Watch({
               </p>
             )}
 
-            {res.length > 0 && (
+            {links.length > 0 && (
               <div className="mt-6">
                 <h2 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
                   {w.resourcesT}
                 </h2>
                 <div className="mt-3 flex flex-wrap gap-3">
-                  {res.map((r) => (
-                    <a
-                      key={r}
-                      href={r === "assign" ? "#/dashboard/assignments" : "#/dashboard/exams"}
-                      className="btn btn-secondary"
-                      style={{ minHeight: 44 }}
-                    >
-                      {r === "assign" ? w.assignL : w.examL} →
-                    </a>
-                  ))}
+                  {links.map((r) => {
+                    const external = /^(https?:|data:|blob:)/.test(r.href);
+                    return (
+                      <a
+                        key={r.label}
+                        href={r.href}
+                        {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+                        className="btn btn-secondary"
+                        style={{ minHeight: 44 }}
+                      >
+                        {r.label} →
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -316,7 +322,7 @@ export function Watch({
                         {m.t}
                       </span>
                       <span className="mt-0.5 block text-xs" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
-                        {VIDEO_MINS[i] ?? 10} {w.min}
+                        {videos[i]?.mins ?? 10} {w.min}
                       </span>
                     </span>
                   </button>

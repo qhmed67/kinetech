@@ -1,16 +1,16 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useOutsideClick } from "@/hooks/use-outside-click";
-import { COURSE_PHOTOS } from "../course-media";
-import { COURSE_SLUGS } from "../router";
+import { listCourses, useContent } from "../store";
 import { useLang } from "./lang";
 
 const WA = "https://wa.me/201042031062";
-const SRCS = COURSE_PHOTOS;
 
 export function Academy() {
   const { lang, t } = useLang();
   const a = t.academy;
+  const v = useContent();
+  const courses = useMemo(() => listCourses(lang), [lang, v]);
   const [focused, setFocused] = useState<number | null>(null);
   const [active, setActive] = useState<number | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -136,7 +136,7 @@ export function Academy() {
           className="noscroll flex cursor-grab snap-x snap-mandatory gap-6 overflow-x-auto pb-2 active:cursor-grabbing"
           style={{ scrollbarWidth: "none" } as React.CSSProperties}
         >
-          {a.courses.map((c, i) => {
+          {courses.map((c, i) => {
             const dimmed = focused !== null && focused !== i;
             return (
               <motion.article
@@ -158,7 +158,7 @@ export function Academy() {
                 <div className="h-56 overflow-hidden">
                   <motion.img
                     layoutId={`course-img-${i}-${uid}`}
-                    src={SRCS[i]}
+                    src={c.photoCard}
                     alt={c.name}
                     width={500}
                     height={500}
@@ -198,10 +198,10 @@ export function Academy() {
                       className="btn btn-primary self-start"
                       draggable={false}
                     >
-                      {a.ctas[i]}
+                      {c.cta}
                     </a>
                     <a
-                      href={`#/courses/${COURSE_SLUGS[i]}`}
+                      href={`#/courses/${c.slug}`}
                       className="text-sm font-bold"
                       style={{ color: "var(--accent)" }}
                     >
@@ -247,8 +247,8 @@ export function Academy() {
             >
               <motion.img
                 layoutId={`course-img-${active}-${uid}`}
-                src={SRCS[active]}
-                alt={a.courses[active].name}
+                src={courses[active]?.photoCard ?? ""}
+                alt={courses[active]?.name ?? ""}
                 width={500}
                 height={500}
                 className="h-80 w-full shrink-0 object-cover object-top sm:h-96"
@@ -262,26 +262,26 @@ export function Academy() {
                     fontFamily: "var(--font-display)",
                   }}
                 >
-                  {a.courses[active].designation}
+                  {courses[active]?.designation ?? ""}
                 </motion.p>
                 <motion.h3
                   layoutId={`course-title-${active}-${uid}`}
                   className="mt-1 text-2xl font-bold"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
-                  {a.courses[active].name}
+                  {courses[active]?.name ?? ""}
                 </motion.h3>
                 <p
                   className="mt-2 text-sm leading-relaxed"
                   style={{ color: "var(--muted)" }}
                 >
-                  {a.courses[active].quote}
+                  {courses[active]?.quote ?? ""}
                 </p>
                 <a href={WA} className="btn btn-primary mt-5 w-full">
-                  {a.ctas[active]}
+                  {courses[active]?.cta ?? ""}
                 </a>
                 <a
-                  href={`#/courses/${COURSE_SLUGS[active]}`}
+                  href={`#/courses/${courses[active]?.slug ?? ""}`}
                   className="mt-3 block text-center text-sm font-bold"
                   style={{ color: "var(--accent)" }}
                 >

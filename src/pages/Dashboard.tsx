@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { COURSE_PHOTOS } from "../course-media";
-import { COURSE_SLUGS, courseIndex } from "../router";
+import { courseExists, getCourse, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { useLang } from "../components/lang";
 
@@ -9,9 +8,9 @@ const TRACKS = ["courses", "marketing", "programming", "design"] as const;
 type Track = (typeof TRACKS)[number];
 const TABS_ALL = ["overview", "courses", "exams", "assignments", "profile", "settings"] as const;
 type Tab = string;
-const MOCK_PROG: Record<number, { progress: number; hours: number }> = {
-  0: { progress: 68, hours: 12 },
-  2: { progress: 32, hours: 6 },
+const MOCK_PROG: Record<string, { progress: number; hours: number }> = {
+  "python-data": { progress: 68, hours: 12 },
+  solidworks: { progress: 32, hours: 6 },
 };
 
 export function Dashboard({
@@ -25,9 +24,10 @@ export function Dashboard({
   tab?: string;
   onUserChange?: () => void;
 }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const d = t.dashboard;
   const w = t.watch;
+  useContent();
   const [tracks, setTracks] = useState<string[]>(user?.tracks ?? ["courses"]);
   const [modal, setModal] = useState<Track | null>(null);
 
@@ -59,10 +59,8 @@ export function Dashboard({
 
   if (!user) return null;
 
-  const enrolledIdx = (user.enrolled ?? [])
-    .map(courseIndex)
-    .filter((i) => i >= 0);
-  const hours = enrolledIdx.reduce((a, i) => a + (MOCK_PROG[i]?.hours ?? 0), 0);
+  const enrolledSlugs = (user.enrolled ?? []).filter(courseExists);
+  const hours = enrolledSlugs.reduce((a, s) => a + (MOCK_PROG[s]?.hours ?? 0), 0);
 
   const switchTab = (tb: Tab) => {
     setActive(tb);
@@ -194,7 +192,7 @@ export function Dashboard({
               <div className="grid gap-4">
                 <div className="grid gap-4 sm:grid-cols-3">
                   {[
-                    { label: d.enrolled, value: String(enrolledIdx.length) },
+                    { label: d.enrolled, value: String(enrolledSlugs.length) },
                     { label: d.hours, value: String(hours) },
                     { label: d.streak, value: "6" },
                   ].map((s) => (
@@ -232,7 +230,7 @@ export function Dashboard({
               <div className="grid gap-4">
                 {!hasCourses ? (
                   lockedCard(d.noCoursesT, d.noCoursesD, d.turnOn, () => setModal("courses"))
-                ) : enrolledIdx.length === 0 ? (
+                ) : enrolledSlugs.length === 0 ? (
                   <div className="grid gap-4">
                     <p style={{ color: "var(--muted)" }}>{d.noCoursesD}</p>
                     <a href="#/courses" className="text-[15px] font-bold" style={{ color: "var(--accent)" }}>
@@ -241,12 +239,13 @@ export function Dashboard({
                   </div>
                 ) : (
                   <>
-                    {enrolledIdx.map((ci) => {
-                      const course = t.academy.courses[ci];
-                      const prog = MOCK_PROG[ci] ?? { progress: 0, hours: 0 };
+                    {enrolledSlugs.map((slug) => {
+                      const course = getCourse(lang, slug);
+                      if (!course) return null;
+                      const prog = MOCK_PROG[slug] ?? { progress: 0, hours: 0 };
                       return (
-                        <article key={ci} className="flex flex-col gap-4 rounded-[20px] border bg-white p-5 sm:flex-row" style={{ borderColor: "var(--kt-line)" }}>
-                          <img src={COURSE_PHOTOS[ci]} alt={course.name} loading="lazy" className="h-28 w-full rounded-2xl object-cover object-top sm:w-36" />
+                        <article key={slug} className="flex flex-col gap-4 rounded-[20px] border bg-white p-5 sm:flex-row" style={{ borderColor: "var(--kt-line)" }}>
+                          <img src={course.photoCard} alt={course.name} loading="lazy" className="h-28 w-full rounded-2xl object-cover object-top sm:w-36" />
                           <div className="flex-1">
                             <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{course.name}</h3>
                             <div className="mt-3 h-2.5 overflow-hidden rounded-full" style={{ background: "var(--surface)" }} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100}>
@@ -255,7 +254,7 @@ export function Dashboard({
                             <div className="mt-3 flex items-center justify-between gap-3">
                               <span className="text-sm" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>{prog.progress}% · {prog.hours}h</span>
                               <span className="flex gap-2">
-                                <a href={`#/courses/${COURSE_SLUGS[ci]}/watch`} className="btn btn-primary" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
+                                <a href={`#/courses/${slug}/watch`} className="btn btn-primary" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
                                   {w.watchBtn}
                                 </a>
                               </span>
@@ -273,7 +272,7 @@ export function Dashboard({
             )}
 
             {active === "exams" && (
-              enrolledIdx.length === 0 ? (
+              enrolledSlugs.length === 0 ? (
                 lockedCard(d.examsT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
               <div className="grid gap-4">
@@ -319,7 +318,7 @@ export function Dashboard({
             )}
 
             {active === "assignments" && (
-              enrolledIdx.length === 0 ? (
+              enrolledSlugs.length === 0 ? (
                 lockedCard(d.assignT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
               <div className="grid gap-3">
