@@ -8,7 +8,7 @@ const WA = "https://wa.me/201042031062";
 const WAVE_COLORS = ["#927BB3", "#7F639E", "#6E4E9C", "#472885", "#3BBCD9"];
 
 function HeroBackdrop({ children }: { children: ReactNode }) {
-  const cls = "mx-auto w-full max-w-7xl px-4 py-10 md:py-20";
+  const cls = "mx-auto w-full max-w-7xl px-4 pt-8 pb-3 md:pt-12 md:pb-5";
   if (
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches

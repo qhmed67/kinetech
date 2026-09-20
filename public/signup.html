@@ -151,7 +151,10 @@ if(!form.checkValidity()){form.reportValidity();return}
 window.runAuthLoader(form.querySelector('.primary'),['upS1','upS2','upS3'],'upDone',function(){
 var fn=document.getElementById('firstname').value,ln=document.getElementById('lastname').value;
 var em=document.getElementById('email').value;
-try{window.localStorage.setItem('kt-user',JSON.stringify({name:(fn+' '+ln).trim()||'Student',email:em}));}catch(err){}
+var cat=hidden.value||'Educational Services / Tutoring';
+var tk=cat.indexOf('Marketing')>=0?'marketing':cat.indexOf('Software')>=0?'programming':cat.indexOf('Design')>=0?'design':'courses';
+var en=tk==='courses'?['python-data','solidworks']:[];
+try{window.localStorage.setItem('kt-user',JSON.stringify({name:(fn+' '+ln).trim()||'Student',email:em,enrolled:en,tracks:[tk]}));}catch(err){}
 window.location.href='/#/dashboard';
 });
 });

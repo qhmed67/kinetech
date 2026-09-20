@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion } from "motion/react";
+import { BrandLines } from "@/components/ui/background-lines-brand";
 import { useLang } from "../components/lang";
 
 const WA = "https://wa.me/201042031062";
@@ -12,14 +13,7 @@ export function Baccalaureate() {
     <main id="content">
       {/* hero */}
       <section className="relative overflow-hidden" style={{ background: "var(--kt-deep)" }}>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(720px 360px at 80% 0%, color-mix(in oklch, var(--kt-tint) 35%, transparent), transparent 70%), radial-gradient(560px 320px at 10% 100%, color-mix(in oklch, var(--kt-teal) 20%, transparent), transparent 70%)",
-          }}
-        />
+        <BrandLines className="absolute inset-0" svgOptions={{ duration: 14 }}><span /></BrandLines>
         <div className="kt-wrap relative py-16 md:py-24" style={{ maxWidth: 860 }}>
           <motion.div
             initial={{ opacity: 0, y: 28 }}

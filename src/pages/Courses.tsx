@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { CardBody, CardContainer, CardItem } from "@/components/ui/3d-card";
 import { COURSE_PHOTOS } from "../course-media";
 import { COURSE_SLUGS } from "../router";
 import { useOutsideClick } from "@/hooks/use-outside-click";
@@ -209,6 +210,8 @@ export function Courses() {
                     opacity: dimmed ? 0.8 : 1,
                   }}
                 >
+                  <CardContainer containerClassName="block w-full p-0" className="block w-full">
+                    <CardBody className="block h-auto w-full">
                   <div className="relative h-56 overflow-hidden">
                     <motion.img
                       layoutId={`cat-img-${i}-${uid}`}
@@ -250,13 +253,17 @@ export function Courses() {
                     >
                       {course.name}
                     </motion.h3>
-                    <p
-                      className="mt-1 text-sm"
+                    <CardItem
+                      translateZ={30}
+                      className="mt-1 w-full text-sm"
                       style={{ color: "var(--muted)" }}
                     >
                       <span dir="ltr">{course.duration}</span> · {course.level}
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-4">
+                    </CardItem>
+                    <CardItem
+                      translateZ={20}
+                      className="mt-3 flex w-full flex-wrap items-center gap-4"
+                    >
                       <a
                         href={WA}
                         className="btn btn-primary self-start"
@@ -271,8 +278,10 @@ export function Courses() {
                       >
                         {c.details}
                       </a>
-                    </div>
+                    </CardItem>
                   </div>
+                    </CardBody>
+                  </CardContainer>
                 </motion.article>
               );
             })}

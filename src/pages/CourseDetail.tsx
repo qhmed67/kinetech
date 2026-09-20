@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { COURSE_DETAIL_PHOTOS } from "../course-media";
 import { courseIndex } from "../router";
 import { useLang } from "../components/lang";
-
 const WA = "https://wa.me/201042031062";
 
 function FactIcon({ path }: { path: string }) {
@@ -27,6 +26,18 @@ export function CourseDetail({ slug }: { slug: string }) {
   const course = id >= 0 ? t.academy.courses[id] : null;
   const topRef = useRef<HTMLDivElement>(null);
   const [past, setPast] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem("kt-watch-denied")) {
+        setDenied(true);
+        window.sessionStorage.removeItem("kt-watch-denied");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [slug]);
 
   useEffect(() => {
     const el = topRef.current;
@@ -59,7 +70,7 @@ export function CourseDetail({ slug }: { slug: string }) {
   ];
 
   return (
-    <main id="content" className="section">
+    <main id="content" className="section" style={{ paddingTop: 20 }}>
       <div className="kt-wrap">
         <a
           href="#/courses"
@@ -68,6 +79,15 @@ export function CourseDetail({ slug }: { slug: string }) {
         >
           {d.back}
         </a>
+        {denied && (
+          <p
+            role="alert"
+            className="mt-4 rounded-2xl border px-5 py-3.5 text-sm font-bold"
+            style={{ borderColor: "#B3261E", background: "#FDECEA", color: "#B3261E" }}
+          >
+            {d.denied}
+          </p>
+        )}
 
         {/* TOP — image / info */}
         <div ref={topRef} className="mt-6 grid items-start gap-10 md:grid-cols-2 md:items-center">

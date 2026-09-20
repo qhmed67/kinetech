@@ -55,6 +55,29 @@ export function Footer() {
               <path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
             </svg>
           </a>
+          <span
+            title="YouTube — soon"
+            aria-label="YouTube — soon"
+            className="grid h-8 w-8 place-items-center rounded-full border opacity-45"
+            style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true" className="h-4 w-4">
+              <path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17" />
+              <path d="m10 15 5-3-5-3z" />
+            </svg>
+          </span>
+          <span
+            title="Instagram — soon"
+            aria-label="Instagram — soon"
+            className="grid h-8 w-8 place-items-center rounded-full border opacity-45"
+            style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true" className="h-4 w-4">
+              <rect width="18" height="18" x="3" y="3" rx="5" />
+              <circle cx="12" cy="12" r="3.5" />
+              <circle cx="17" cy="7" r="0.5" fill="currentColor" />
+            </svg>
+          </span>
         </span>
         </div>
         <span className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t pt-4 text-[13px]" style={{ borderColor: "var(--kt-line)" }}>
