@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { GooeyInput } from "@/components/ui/gooey-input";
+import { Seek } from "@/components/ui/seek-search";
 import { initialsOf, type KtUser } from "../auth";
 import { useLang } from "./lang";
-
-const SEARCH_BG = "bg-white text-neutral-500 ring-1 ring-neutral-200";
-const SEARCH_INPUT = "text-neutral-700 placeholder:text-neutral-400";
 
 function sectionFor(query: string): string | null {
   const q = query.trim().toLowerCase();
@@ -91,16 +88,14 @@ export function TopNav({
             className="hidden md:block"
             aria-label={lang === "ar" ? "بحث" : "Search"}
           >
-            <GooeyInput
+            <Seek
+              corner={32}
+              give={50}
+              spring={50}
+              width={320}
               placeholder={lang === "ar" ? "ابحث" : "Search"}
-              collapsedWidth={132}
-              expandedWidth={200}
-              expandedOffset={50}
-              classNames={{
-                trigger: SEARCH_BG,
-                bubbleSurface: SEARCH_BG,
-                input: SEARCH_INPUT,
-              }}
+              dir={lang === "ar" ? "rtl" : "ltr"}
+              ariaLabel={lang === "ar" ? "بحث" : "Search"}
             />
           </form>
           <a href="#/courses" className="nav-bare">
@@ -140,7 +135,7 @@ export function TopNav({
                 </svg>
                 {unread > 0 && (
                   <span
-                    className="num absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold text-white"
+                    className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold text-white"
                     style={{ background: "#B3261E" }}
                   >
                     {unread}

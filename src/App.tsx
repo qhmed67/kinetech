@@ -9,6 +9,7 @@ import { Contact } from "./components/Contact";
 import { Footer } from "./components/Footer";
 import { Courses } from "./pages/Courses";
 import { CourseDetail } from "./pages/CourseDetail";
+import { Watch } from "./pages/Watch";
 import { Dashboard } from "./pages/Dashboard";
 import { Baccalaureate } from "./pages/Baccalaureate";
 import { ServicePage } from "./pages/ServicePage";
@@ -130,9 +131,12 @@ export default function App() {
         {route.name === "home" && <Landing />}
         {route.name === "courses" && <Courses />}
         {route.name === "course" && <CourseDetail slug={route.slug} />}
+        {route.name === "watch" && (
+          <Watch slug={route.slug} video={route.video} user={user} />
+        )}
         {route.name === "baccalaureate" && <Baccalaureate />}
         {route.name === "dashboard" && (
-          <Dashboard user={user} onSignout={signout} tab={route.tab} />
+          <Dashboard user={user} onSignout={signout} tab={route.tab} onUserChange={() => setUser(getUser())} />
         )}
         {route.name === "service" && <ServicePage slug={route.slug} />}
         {route.name === "about" && <About />}

@@ -50,7 +50,9 @@ if(!email.value||!pw.value){(email.value?pw:email).focus();return}
 window.runAuthLoader(e.target.querySelector('.primary'),['inS1','inS2','inS3'],'inDone',function(){
 var em=document.getElementById('email').value;
 var nm=em.split('@')[0].replace(/[._-]+/g,' ').trim()||'Student';
-try{window.localStorage.setItem('kt-user',JSON.stringify({name:nm,email:em}));}catch(err){}
+var prev=null;try{prev=JSON.parse(window.localStorage.getItem('kt-user')||'null');}catch(err){prev=null;}
+var keep=prev&&prev.email===em&&prev.tracks?prev:null;
+try{window.localStorage.setItem('kt-user',JSON.stringify(keep?{name:nm,email:em,enrolled:keep.enrolled||[],tracks:keep.tracks}:{name:nm,email:em,enrolled:['python-data','solidworks'],tracks:['courses']}));}catch(err){}
 window.location.href='/#/dashboard';
 });
 });
