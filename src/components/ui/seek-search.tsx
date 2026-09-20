@@ -106,9 +106,10 @@ export function Seek({
   const radius = Math.max(HEIGHT / 2, corner);
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
       data-seek-box
+      role="button"
+      tabIndex={0}
       aria-label={ariaLabel}
       aria-expanded={open}
       onClick={() => {
@@ -119,6 +120,13 @@ export function Seek({
         /* THE PRESS IS A REAL BEAT — yields 90ms before it moves */
         setOpen(true);
         inputRef.current?.focus();
+      }}
+      onKeyDown={(e) => {
+        if ((e.key === "Enter" || e.key === " ") && !open) {
+          e.preventDefault();
+          setOpen(true);
+          inputRef.current?.focus();
+        }
       }}
       whileTap={open ? undefined : { scale: 0.9, transition: { duration: 0.09 } }}
       style={{ width: ws, height: HEIGHT, borderRadius: radius, x: magX, y: magY }}
@@ -167,6 +175,6 @@ export function Seek({
         style={{ paddingInlineStart: SHUT }}
         className="absolute inset-0 h-full w-full bg-transparent pe-4 text-sm text-neutral-700 outline-none"
       />
-    </motion.button>
+    </motion.div>
   );
 }

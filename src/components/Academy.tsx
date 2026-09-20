@@ -97,7 +97,7 @@ export function Academy() {
               {a.bacLink}
             </a>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-3 md:flex">
             <button
               type="button"
               onClick={() => scrollBy(-1)}
@@ -212,6 +212,29 @@ export function Academy() {
               </motion.article>
             );
           })}
+        </div>
+        {/* mobile arrows — below the rail, thumb-first */}
+        <div className="mt-6 flex items-center justify-center gap-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => scrollBy(-1)}
+            aria-label={lang === "ar" ? "السابق" : "Previous courses"}
+            className="arrowbtn"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollBy(1)}
+            aria-label={lang === "ar" ? "التالي" : "Next courses"}
+            className="arrowbtn next"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
       </div>
 

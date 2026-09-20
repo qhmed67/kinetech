@@ -52,7 +52,7 @@ function HeroDemo() {
     <HeroBackdrop>
       <h1
         key={lang}
-        className="relative z-10 mx-auto max-w-4xl whitespace-nowrap text-center text-2xl font-bold text-[#1A1A1A] md:text-4xl lg:text-6xl"
+        className="relative z-10 mx-auto max-w-4xl text-center text-2xl font-bold text-[#1A1A1A] md:whitespace-nowrap md:text-4xl lg:text-6xl"
         style={{ fontFamily: "var(--font-display)" }}
       >
         {words1.map((word, i) => renderWord(word, i, false))}

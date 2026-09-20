@@ -140,7 +140,7 @@ export function Pillars() {
           </h2>
         </motion.div>
 
-        <div className="mt-10 grid gap-5 md:grid-cols-12">
+        <div className="mt-10 grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-12">
           {cards.map((c, i) => (
             <motion.article
               key={c.n}
@@ -148,28 +148,28 @@ export function Pillars() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-60px" }}
               transition={{ duration: 0.5, delay: i * 0.08, ease: "easeOut" }}
-              className={`relative flex min-h-[280px] flex-col justify-between overflow-hidden rounded-[22px] p-7 transition-transform duration-200 hover:-translate-y-1 ${c.span} md:p-8`}
+              className={`relative flex min-h-[190px] flex-col justify-between overflow-hidden rounded-[22px] p-4 transition-transform duration-200 hover:-translate-y-1 sm:p-6 ${c.span} md:min-h-[280px] md:p-8`}
               style={{ background: c.bg, color: c.fg }}
             >
               <div className="flex items-start justify-between gap-4">
                 <span
                   aria-hidden="true"
-                  className="text-5xl font-bold leading-none md:text-6xl"
+                  className="text-3xl font-bold leading-none md:text-6xl"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {c.n}
                 </span>
-                <c.Art className="h-16 w-16 flex-none md:h-20 md:w-20 lg:h-28 lg:w-28" />
+                <c.Art className="h-10 w-10 flex-none sm:h-16 sm:w-16 md:h-20 md:w-20 lg:h-28 lg:w-28" />
               </div>
-              <div className="mt-8">
+              <div className="mt-4 md:mt-8">
                 <h3
-                  className="text-xl font-bold md:text-2xl"
+                  className="text-base font-bold sm:text-xl md:text-2xl"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {c.title}
                 </h3>
                 <p
-                  className="mt-2 max-w-[38ch] text-[14.5px] leading-relaxed"
+                  className="mt-1.5 max-w-[38ch] text-xs leading-snug sm:text-[14.5px] sm:leading-relaxed md:mt-2"
                   style={{ color: c.sub }}
                 >
                   {c.desc}
@@ -183,13 +183,13 @@ export function Pillars() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-60px" }}
             transition={{ duration: 0.5, delay: 0.32, ease: "easeOut" }}
-            className="relative flex min-h-[260px] flex-col justify-between overflow-hidden rounded-[22px] p-7 transition-transform duration-200 hover:-translate-y-1 md:col-span-5 md:p-8"
+            className="relative col-span-2 flex min-h-[190px] flex-col justify-between overflow-hidden rounded-[22px] p-4 transition-transform duration-200 hover:-translate-y-1 sm:p-6 md:col-span-5 md:min-h-[260px] md:p-8"
             style={{ background: "var(--kt-deep)", color: "#fff" }}
           >
             <div className="flex items-start justify-between gap-4">
               <span
                 aria-hidden="true"
-                className="text-5xl font-bold leading-none md:text-6xl"
+                className="text-3xl font-bold leading-none md:text-6xl"
                 style={{
                   fontFamily: "var(--font-display)",
                   color: "var(--kt-teal)",
@@ -197,16 +197,16 @@ export function Pillars() {
               >
                 5
               </span>
-              <SendArt className="h-16 w-16 flex-none md:h-20 md:w-20 lg:h-28 lg:w-28" />
+              <SendArt className="h-10 w-10 flex-none sm:h-16 sm:w-16 md:h-20 md:w-20 lg:h-28 lg:w-28" />
             </div>
-            <div className="mt-8">
+            <div className="mt-4 md:mt-8">
               <h3
-                className="text-xl font-bold md:text-2xl"
+                className="text-base font-bold sm:text-xl md:text-2xl"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 {f.ctaTitle}
               </h3>
-              <p className="mt-2 max-w-[38ch] text-[14.5px] leading-relaxed text-white/72">
+              <p className="mt-1.5 max-w-[38ch] text-xs leading-snug text-white/72 sm:text-[14.5px] sm:leading-relaxed md:mt-2">
                 {f.ctaText}
               </p>
               <a

@@ -105,6 +105,76 @@ function StatusIcon({ state }: { state: "current" | "done" | "locked" | "todo" }
   );
 }
 
+function ContentList({
+  modules,
+  videos,
+  user,
+  slug,
+  idx,
+  open,
+  setOpen,
+  go,
+  minLabel,
+}: {
+  modules: { t: string; d: string }[];
+  videos: VideoView[];
+  user: KtUser;
+  slug: string;
+  idx: number;
+  open: number | null;
+  setOpen: (v: number | null) => void;
+  go: (i: number) => void;
+  minLabel: string;
+}) {
+  return (
+    <>
+      {modules.map((m, i) => {
+        const st = !isUnlocked(user, slug, i)
+          ? "locked"
+          : isDone(user, slug, i) || getViews(user, slug, i) > 0
+            ? i === idx ? "current" : "done"
+            : i === idx ? "current" : "todo";
+        const isOpen = open === i;
+        const canOpen = isUnlocked(user, slug, i);
+        return (
+          <div key={m.t} className="overflow-hidden rounded-xl">
+            <button
+              type="button"
+              disabled={!canOpen}
+              onClick={() => {
+                if (isOpen) {
+                  setOpen(null);
+                } else {
+                  setOpen(i);
+                  if (i !== idx) go(i);
+                }
+              }}
+              aria-expanded={isOpen}
+              className="flex w-full items-center gap-2.5 px-3 py-3 text-start text-sm"
+              style={!canOpen ? { opacity: 0.65 } : undefined}
+            >
+              <StatusIcon state={st} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-bold" style={i === idx ? { color: "var(--accent)" } : undefined}>
+                  {m.t}
+                </span>
+                <span className="mt-0.5 block text-xs" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
+                  {videos[i]?.mins ?? 10} {minLabel}
+                </span>
+              </span>
+            </button>
+            {isOpen && canOpen && (
+              <p className="px-3 pb-3 ps-9 text-[13px] leading-relaxed" style={{ color: "var(--muted)" }}>
+                {m.d}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function Watch({
   slug,
   video,
@@ -282,58 +352,46 @@ export function Watch({
             )}
           </div>
 
-          {/* SIDEBAR — grid order flips it LTR/RTL automatically */}
+          {/* MOBILE — course content always visible, no collapsing */}
+          <div className="rounded-[20px] border bg-white p-3 lg:hidden" style={{ borderColor: "var(--kt-line)" }}>
+            <p className="flex items-center gap-3 px-2 py-2 text-sm font-bold" style={{ fontFamily: "var(--font-display)" }}>
+              <span className="flex-1">{w.contentT} · {course.modules[idx]?.t}</span>
+            </p>
+            <div className="pt-1">
+              <ContentList
+                modules={course.modules}
+                videos={videos}
+                user={user}
+                slug={slug}
+                idx={idx}
+                open={open}
+                setOpen={setOpen}
+                go={go}
+                minLabel={w.min}
+              />
+            </div>
+          </div>
+
+          {/* DESKTOP SIDEBAR — grid order flips it LTR/RTL automatically */}
           <aside
-            className="rounded-[20px] border bg-white p-3 lg:sticky lg:top-24"
+            className="hidden rounded-[20px] border bg-white p-3 lg:sticky lg:top-24 lg:block"
             style={{ borderColor: "var(--kt-line)" }}
             aria-label={w.contentT}
           >
             <p className="px-2 pb-2 pt-1 text-sm font-bold" style={{ fontFamily: "var(--font-display)" }}>
               {w.contentT}
             </p>
-            {course.modules.map((m, i) => {
-              const st = !isUnlocked(user, slug, i)
-                ? "locked"
-                : isDone(user, slug, i) || getViews(user, slug, i) > 0
-                  ? i === idx ? "current" : "done"
-                  : i === idx ? "current" : "todo";
-              const isOpen = open === i;
-              const canOpen = isUnlocked(user, slug, i);
-              return (
-                <div key={m.t} className="overflow-hidden rounded-xl">
-                  <button
-                    type="button"
-                    disabled={!canOpen}
-                    onClick={() => {
-                      if (isOpen) {
-                        setOpen(null);
-                      } else {
-                        setOpen(i);
-                        if (i !== idx) go(i);
-                      }
-                    }}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center gap-2.5 px-3 py-3 text-start text-sm"
-                    style={!canOpen ? { opacity: 0.65 } : undefined}
-                  >
-                    <StatusIcon state={st} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-bold" style={i === idx ? { color: "var(--accent)" } : undefined}>
-                        {m.t}
-                      </span>
-                      <span className="mt-0.5 block text-xs" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
-                        {videos[i]?.mins ?? 10} {w.min}
-                      </span>
-                    </span>
-                  </button>
-                  {isOpen && canOpen && (
-                    <p className="px-3 pb-3 ps-9 text-[13px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                      {m.d}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+            <ContentList
+              modules={course.modules}
+              videos={videos}
+              user={user}
+              slug={slug}
+              idx={idx}
+              open={open}
+              setOpen={setOpen}
+              go={go}
+              minLabel={w.min}
+            />
           </aside>
         </div>
       </div>

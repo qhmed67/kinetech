@@ -74,7 +74,7 @@ const BrandSVG = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: reduced ? 0.35 : 1 }}
       transition={{ duration: 1 }}
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      className="pointer-events-none absolute inset-0 hidden h-full w-full sm:block"
       aria-hidden="true"
     >
       {paths.map((path, idx) => (

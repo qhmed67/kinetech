@@ -175,7 +175,7 @@ export function Courses() {
                 >
                   <CardContainer containerClassName="block w-full p-0" className="block w-full">
                     <CardBody className="block h-auto w-full">
-                  <div className="relative h-56 overflow-hidden">
+                  <div className="relative h-44 overflow-hidden md:h-56">
                     <motion.img
                       layoutId={`cat-img-${i}-${uid}`}
                       src={course.photoCard}
