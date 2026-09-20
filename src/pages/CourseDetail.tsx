@@ -148,8 +148,9 @@ export function CourseDetail({ slug }: { slug: string }) {
           </div>
         </div>
 
-        {/* CURRICULUM */}
-        <section className="mx-auto mt-16 max-w-3xl">
+        {/* CURRICULUM + WHAT YOU GET */}
+        <div className="mx-auto mt-16 grid max-w-5xl gap-12 md:grid-cols-2">
+        <section>
           <h2
             className="text-2xl font-bold"
             style={{ fontFamily: "var(--font-display)" }}
@@ -158,7 +159,7 @@ export function CourseDetail({ slug }: { slug: string }) {
           </h2>
           <div className="mt-2 divide-y divide-[var(--kt-line)]">
             {course.modules.map((m) => (
-              <div key={m.t} className="py-5">
+              <div key={m.t} className="py-4">
                 <h3
                   className="font-bold"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -175,16 +176,35 @@ export function CourseDetail({ slug }: { slug: string }) {
             ))}
           </div>
         </section>
-
-        {/* WHAT YOU GET */}
-        <section className="mx-auto mt-12 max-w-3xl">
+        <section>
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="grid h-12 w-12 flex-none place-items-center rounded-full text-lg font-bold"
+              style={{
+                background: "var(--surface)",
+                color: "var(--accent)",
+                fontFamily: "var(--font-display)",
+              }}
+            >
+              {course.instructor.name.replace(/^(ENG\/|م\/)\s*/, "").trim().charAt(0)}
+            </span>
+            <div>
+              <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                {course.instructor.name}
+              </p>
+              <p className="text-sm" style={{ color: "var(--muted)" }}>
+                {course.instructor.spec}
+              </p>
+            </div>
+          </div>
           <h2
-            className="text-2xl font-bold"
+            className="mt-8 text-2xl font-bold"
             style={{ fontFamily: "var(--font-display)" }}
           >
             {d.includesT}
           </h2>
-          <ul className="mt-4 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
+          <ul className="mt-4 grid gap-2.5">
             {course.outcomes.map((o) => (
               <li key={o} className="flex items-start gap-2.5 text-[15px]">
                 <svg
@@ -202,37 +222,7 @@ export function CourseDetail({ slug }: { slug: string }) {
             ))}
           </ul>
         </section>
-
-        {/* INSTRUCTOR */}
-        <section className="mx-auto mt-12 max-w-3xl">
-          <h2
-            className="text-2xl font-bold"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {d.instructor}
-          </h2>
-          <div className="mt-4 flex items-center gap-4">
-            <span
-              aria-hidden="true"
-              className="grid h-14 w-14 flex-none place-items-center rounded-full text-xl font-bold"
-              style={{
-                background: "var(--surface)",
-                color: "var(--accent)",
-                fontFamily: "var(--font-display)",
-              }}
-            >
-              {course.instructor.name.replace(/^(ENG\/|م\/)\s*/, "").trim().charAt(0)}
-            </span>
-            <div>
-              <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                {course.instructor.name}
-              </p>
-              <p className="mt-0.5 text-sm" style={{ color: "var(--muted)" }}>
-                {course.instructor.spec}
-              </p>
-            </div>
-          </div>
-        </section>
+        </div>
       </div>
 
       {/* slim sticky enroll — only after scrolling past the top */}

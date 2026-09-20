@@ -147,19 +147,19 @@ const en = {
         modules: [
           {
             t: "Python core & logic",
-            d: "Variables, loops and functions — the grammar behind every program you will write later.",
+            d: "Variables, loops, functions — the core grammar of all code.",
           },
           {
             t: "Data with Pandas",
-            d: "Load, clean and reshape real spreadsheets: filtering, grouping and missing values.",
+            d: "Clean real spreadsheets: filter, group, fix the gaps.",
           },
           {
             t: "Charts & insight",
-            d: "Turn numbers into charts that answer questions — then present what the data says.",
+            d: "Charts that answer questions — and presenting the story.",
           },
           {
             t: "Capstone project",
-            d: "A full analysis on a dataset you choose, reviewed line by line with an engineer.",
+            d: "Your own end-to-end analysis, reviewed with an engineer.",
           },
         ],
       },
@@ -190,19 +190,19 @@ const en = {
         modules: [
           {
             t: "Robotics basics & safety",
-            d: "How robots move and sense — motors, batteries and safe workshop habits.",
+            d: "Motors, batteries, sensors — plus safe workshop habits.",
           },
           {
             t: "Building your first bot",
-            d: "Assemble a rolling chassis from the kit and drive it with your own code.",
+            d: "Build a rolling chassis and drive it with your code.",
           },
           {
             t: "Sensors & wiring",
-            d: "Read distance, light and line sensors — and wire them without frying anything.",
+            d: "Wire distance, light and line sensors yourself.",
           },
           {
             t: "Line followers & mini challenges",
-            d: "Program autonomous behaviors and compete in timed mini-challenges.",
+            d: "Program autonomous moves, compete in mini-challenges.",
           },
         ],
       },
@@ -233,19 +233,19 @@ const en = {
         modules: [
           {
             t: "Sketching basics",
-            d: "Constrained 2D sketches — the foundation every solid model is built on.",
+            d: "Constrained 2D sketches — every model's foundation.",
           },
           {
             t: "Parts & features",
-            d: "Extrude, revolve and cut your way to realistic 3D machine parts.",
+            d: "Extrude, revolve and cut realistic 3D parts.",
           },
           {
             t: "Assemblies",
-            d: "Mate multiple parts into moving assemblies that fit like the real thing.",
+            d: "Mate parts into moving, real-fitting assemblies.",
           },
           {
             t: "Drawings + CSWA drills",
-            d: "Shop-ready 2D drawings plus timed drills mirroring the actual CSWA exam.",
+            d: "Shop-ready drawings plus timed CSWA-style drills.",
           },
         ],
       },
@@ -751,19 +751,19 @@ const ar: Strings = {
         modules: [
           {
             t: "أساسيات بايثون والمنطق",
-            d: "المتغيرات والحلقات والدوال — القواعد اللي ورا أي برنامج هتكتبه بعد كده.",
+            d: "المتغيرات والحلقات والدوال — قواعد أي كود.",
           },
           {
             t: "الداتا مع Pandas",
-            d: "تحميل وتنضيف جداول حقيقية: فلترة وتجميع والتعامل مع القيم الناقصة.",
+            d: "تنضيف جداول حقيقية: فلترة وتجميع وسد النواقص.",
           },
           {
             t: "الرسوم والاستنتاج",
-            d: "تحويل الأرقام لرسوم بتجاوب على أسئلة — وبعدين تعرض الداتا بتقول إيه.",
+            d: "رسوم بتجاوب على أسئلة — وعرض الحكاية.",
           },
           {
             t: "مشروع التخرج",
-            d: "تحليل كامل لداتا من اختيارك، بمراجعة سطر بسطر مع مهندس.",
+            d: "تحليل كامل من اختيارك بمراجعة مهندس.",
           },
         ],
       },
@@ -794,19 +794,19 @@ const ar: Strings = {
         modules: [
           {
             t: "أساسيات الروبوتكس والأمان",
-            d: "إزاي الروبوت بيتحرك وبيحس — مواتير وبطاريات وعادات أمان في الورشة.",
+            d: "مواتير وبطاريات وحساسات — مع عادات الأمان.",
           },
           {
             t: "بناء أول روبوت",
-            d: "تجميع شاسيه بعجل من الكيت وتشغيله بكود من كتابتك.",
+            d: "شاسيه بعجل من الكيت وتشغيله بكودك.",
           },
           {
             t: "الحساسات والتوصيلات",
-            d: "قراءة حساسات المسافة والضوء والخط — وتوصيلها من غير ما تحرق حاجة.",
+            d: "توصيل حساسات المسافة والضوء والخط بنفسك.",
           },
           {
             t: "تتبع الخط وتحديات مصغرة",
-            d: "برمجة سلوك ذاتي ومنافسة في تحديات مصغرة بوقت.",
+            d: "سلوك ذاتي ومنافسة في تحديات بوقت.",
           },
         ],
       },
@@ -837,19 +837,19 @@ const ar: Strings = {
         modules: [
           {
             t: "أساسيات الرسم",
-            d: "سكتشات ثنائية الأبعاد مقيدة — الأساس اللي بيتبني عليه أي مجسم.",
+            d: "سكتشات مقيدة — أساس أي مجسم.",
           },
           {
             t: "الأجزاء والخصائص",
-            d: "تشكيل أجزاء ميكانيكية واقعية بالبثق والدوران والقطع.",
+            d: "بثق ودوران وقطع لأجزاء واقعية.",
           },
           {
             t: "التجميعات",
-            d: "ربط أجزاء متعددة في تجميعات متحركة بتتركب زي الحقيقة.",
+            d: "ربط الأجزاء في تجميعات متحركة مظبوطة.",
           },
           {
             t: "اللوحات + تدريبات CSWA",
-            d: "لوحات ثنائية الأبعاد جاهزة للتصنيع مع تدريبات بوقت زي امتحان CSWA.",
+            d: "لوحات جاهزة للتصنيع + تدريبات CSWA بوقت.",
           },
         ],
       },
