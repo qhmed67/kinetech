@@ -112,7 +112,7 @@ export function Pillars() {
   ];
   return (
     <section
-      className="py-20 md:py-28"
+      className="py-12 md:py-16"
       data-od-id="pillars"
       id="pillars"
       aria-labelledby="pillars-h"
