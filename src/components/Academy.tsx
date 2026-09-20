@@ -1,14 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useOutsideClick } from "@/hooks/use-outside-click";
+import { COURSE_PHOTOS } from "../course-media";
+import { COURSE_SLUGS } from "../router";
 import { useLang } from "./lang";
 
 const WA = "https://wa.me/201042031062";
-const SRCS = [
-  "assets/Programming.jpg",
-  "assets/Robotics.jpg",
-  "assets/Solidworks.jpg",
-];
+const SRCS = COURSE_PHOTOS;
 
 export function Academy() {
   const { lang, t } = useLang();
@@ -91,6 +89,13 @@ export function Academy() {
             <h2 id="academy-h" style={{ fontSize: "var(--fs-h2)" }}>
               {a.h2}
             </h2>
+            <a
+              href="#/baccalaureate"
+              className="mt-3 inline-block text-[15px] font-bold"
+              style={{ color: "var(--accent)" }}
+            >
+              {a.bacLink}
+            </a>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -187,13 +192,22 @@ export function Academy() {
                   >
                     {c.quote}
                   </p>
-                  <a
-                    href={WA}
-                    className="btn btn-primary mt-3 self-start"
-                    draggable={false}
-                  >
-                    {a.ctas[i]}
-                  </a>
+                  <div className="mt-3 flex flex-wrap items-center gap-4">
+                    <a
+                      href={WA}
+                      className="btn btn-primary self-start"
+                      draggable={false}
+                    >
+                      {a.ctas[i]}
+                    </a>
+                    <a
+                      href={`#/courses/${COURSE_SLUGS[i]}`}
+                      className="text-sm font-bold"
+                      style={{ color: "var(--accent)" }}
+                    >
+                      {t.catalog.details}
+                    </a>
+                  </div>
                 </div>
               </motion.article>
             );
@@ -265,6 +279,13 @@ export function Academy() {
                 </p>
                 <a href={WA} className="btn btn-primary mt-5 w-full">
                   {a.ctas[active]}
+                </a>
+                <a
+                  href={`#/courses/${COURSE_SLUGS[active]}`}
+                  className="mt-3 block text-center text-sm font-bold"
+                  style={{ color: "var(--accent)" }}
+                >
+                  {t.catalog.details}
                 </a>
               </div>
             </motion.div>

@@ -47,7 +47,12 @@ document.getElementById('signinForm').addEventListener('submit',function(e){
 e.preventDefault();
 var email=document.getElementById('email'),pw=document.getElementById('password');
 if(!email.value||!pw.value){(email.value?pw:email).focus();return}
-window.runAuthLoader(e.target.querySelector('.primary'),['inS1','inS2','inS3'],'inDone');
+window.runAuthLoader(e.target.querySelector('.primary'),['inS1','inS2','inS3'],'inDone',function(){
+var em=document.getElementById('email').value;
+var nm=em.split('@')[0].replace(/[._-]+/g,' ').trim()||'Student';
+try{window.localStorage.setItem('kt-user',JSON.stringify({name:nm,email:em}));}catch(err){}
+window.location.href='/#/dashboard';
+});
 });
 })();
 </script>

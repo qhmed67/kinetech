@@ -148,7 +148,12 @@ e.preventDefault();
 var form=e.target;
 if(!hidden.value){btn.classList.add('error');btn.focus();return}
 if(!form.checkValidity()){form.reportValidity();return}
-window.runAuthLoader(form.querySelector('.primary'),['upS1','upS2','upS3'],'upDone');
+window.runAuthLoader(form.querySelector('.primary'),['upS1','upS2','upS3'],'upDone',function(){
+var fn=document.getElementById('firstname').value,ln=document.getElementById('lastname').value;
+var em=document.getElementById('email').value;
+try{window.localStorage.setItem('kt-user',JSON.stringify({name:(fn+' '+ln).trim()||'Student',email:em}));}catch(err){}
+window.location.href='/#/dashboard';
+});
 });
 })();
 </script>
