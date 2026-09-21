@@ -60,7 +60,7 @@ export type StoreService = {
 };
 
 export type ContentStore = {
-  v: 2;
+  v: number;
   courses: StoreCourse[];
   services: {
     marketing: StoreService;
@@ -152,7 +152,7 @@ function seed(): ContentStore {
     posts: { en: [], ar: [] },
   });
   return {
-    v: 2,
+    v: 3,
     courses,
     services: {
       marketing: pick(
@@ -175,14 +175,35 @@ function seed(): ContentStore {
   };
 }
 
+/** v2 → v3: rename of the bundled sample video rewrites stale saved srcs. */
+const OLD_SAMPLE = "assets/2026-08-05%2002-46-32.mp4";
+const SAMPLE_PREFIX = "https://storage.googleapis.com/gtv-videos-bucket/";
+const NEW_SAMPLE = "assets/vid.mp4";
+function healVideoSrc(courses: StoreCourse[]): boolean {
+  let fixed = false;
+  for (const c of courses) {
+    for (const v of c.videos) {
+      if (v.src === OLD_SAMPLE || v.src.startsWith(SAMPLE_PREFIX)) {
+        v.src = NEW_SAMPLE;
+        fixed = true;
+      }
+    }
+  }
+  return fixed;
+}
+
 export function loadStore(): ContentStore {
   if (cache) return cache;
   try {
     const raw = window.localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as ContentStore;
-      if (parsed && parsed.v === 2 && Array.isArray(parsed.courses)) {
+      if (parsed && (parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.courses)) {
+        // heal runs on EVERY load: any stale sample URL becomes the bundled video
+        parsed.v = 3;
+        healVideoSrc(parsed.courses);
         cache = parsed;
+        persist();
         return cache;
       }
       if (parsed && (parsed as unknown as { v: number }).v === 1 && Array.isArray(parsed.courses)) {
@@ -226,6 +247,7 @@ function migrateV1(old: V1Store): ContentStore {
       fresh.courses.push({ ...rest, videos });
     }
   }
+  healVideoSrc(fresh.courses);
   return fresh;
 }
 

@@ -517,6 +517,8 @@ const en = {
     needStudent: "Sign in as a student first (same browser), then come back.",
     resetT: "Reset demo data",
     resetConfirm: "Delete ALL custom courses and restore the 3 defaults? Services edits stay.",
+    resetViews: "Reset test views",
+    resetViewsOk: "Test views reset.",
   },
   bac: {
     eyebrow: "Strategic track",
@@ -1232,6 +1234,8 @@ const ar: Strings = {
     needStudent: "سجل دخول كطالب الأول (نفس المتصفح)، وبعدين ارجع.",
     resetT: "تصفير بيانات التجربة",
     resetConfirm: "تحذف كل الكورسات المخصصة وترجع للـ 3 الأساسيين؟ تعديلات الخدمات هتفضل.",
+    resetViews: "تصفير مشاهدات التجربة",
+    resetViewsOk: "اتصفّرت مشاهدات التجربة.",
   },
   bac: {
     eyebrow: "مسار استراتيجي",
