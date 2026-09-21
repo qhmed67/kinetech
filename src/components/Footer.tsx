@@ -25,7 +25,7 @@ export function Footer() {
             <span className="t">TECH</span>
           </span>
         </a>
-        <nav className="flex flex-wrap items-center gap-x-5 gap-y-1" aria-label="quick">
+        <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1" aria-label="quick">
           <a className={linkCls} href="#/courses">{t.nav.courses}</a>
           <a className={linkCls} href="#/baccalaureate" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>{t.nav.baccalaureate}</a>
           <a className={linkCls} href="#/about">{t.misc.aboutH}</a>
@@ -80,7 +80,7 @@ export function Footer() {
           </span>
         </span>
         </div>
-        <span className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t pt-4 text-[13px]" style={{ borderColor: "var(--kt-line)" }}>
+        <span className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[13px]">
           <span style={{ fontFamily: "var(--font-body)" }}>{f.rights}</span>
           <a href="#/privacy" className={linkCls}>{t.legal.privacyT}</a>
           <a href="#/terms" className={linkCls}>{t.legal.termsT}</a>

@@ -154,7 +154,7 @@ export function Services() {
               </motion.div>
             </AnimatePresence>
           </div>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
+          <div className="mt-7 hidden flex-wrap items-center gap-3 md:flex">
             <button
               type="button"
               onClick={() => go(-1)}
@@ -366,6 +366,32 @@ export function Services() {
               </div>
             </div>
           </div>
+        </div>
+        {/* mobile controls — thumb-first, below the phone */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => go(-1)}
+            aria-label={ar ? "الخدمة السابقة" : "Previous service"}
+            className="arrowbtn"
+          >
+            <Chev />
+          </button>
+          <button
+            type="button"
+            onClick={() => go(1)}
+            aria-label={ar ? "الخدمة التالية" : "Next service"}
+            className="arrowbtn next"
+          >
+            <Chev next />
+          </button>
+          <a
+            className="btn btn-primary ms-2"
+            href={WA}
+            data-od-id="svc-cta-mobile"
+          >
+            {s.noteCta}
+          </a>
         </div>
       </div>
     </section>

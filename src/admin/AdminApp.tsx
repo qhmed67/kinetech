@@ -22,7 +22,7 @@ function Home() {
       <h1 className="text-2xl font-bold" style={{ fontFamily: "var(--font-display)" }}>
         {a.dashT}
       </h1>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         {[
           { label: a.coursesT, value: s.courses.length, to: "#/admin/courses" },
           { label: a.videosL, value: videos, to: "#/admin/courses" },
@@ -32,11 +32,11 @@ function Home() {
           <a
             key={x.label}
             href={x.to}
-            className="rounded-[20px] border bg-white p-5"
+            className="rounded-[20px] border bg-white p-3 sm:p-5"
             style={{ borderColor: "var(--kt-line)" }}
           >
-            <p className="text-sm" style={{ color: "var(--muted)" }}>{x.label}</p>
-            <p className="mt-1 text-3xl font-bold" dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
+            <p className="text-xs sm:text-sm" style={{ color: "var(--muted)" }}>{x.label}</p>
+            <p className="mt-1 text-xl font-bold sm:text-3xl" dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
               {x.value}
             </p>
           </a>

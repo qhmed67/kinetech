@@ -21,7 +21,7 @@ export function AdminShell({
       key={page}
       href={`#/admin/${page}`}
       aria-current={active === page ? "page" : undefined}
-      className="block rounded-xl px-4 py-3 text-sm font-bold"
+      className="block flex-none whitespace-nowrap rounded-xl px-4 py-3 text-sm font-bold transition-colors"
       style={
         active === page
           ? { background: "var(--kt-deep)", color: "#fff" }
@@ -69,7 +69,7 @@ export function AdminShell({
       </header>
       <div className="kt-wrap grid gap-6 py-8 lg:grid-cols-[220px_1fr]">
         <nav
-          className="grid h-fit content-start gap-1 rounded-[20px] border bg-white p-3 lg:sticky lg:top-6"
+          className="flex h-fit gap-1 overflow-x-auto rounded-[20px] border bg-white p-2 sm:p-3 lg:grid lg:content-start lg:overflow-visible lg:sticky lg:top-6"
           style={{ borderColor: "var(--kt-line)" }}
           aria-label="admin"
         >

@@ -44,12 +44,18 @@ export function Academy() {
     if (!el) return;
     const card = el.querySelector<HTMLElement>(":scope > article");
     const step = card ? card.offsetWidth + 24 : 360;
-    el.scrollBy({ left: dir * step, behavior: "smooth" });
+    // RTL scrolls on a mirrored axis — flip so next/prev match the arrows
+    const rtl = document.documentElement.dir === "rtl";
+    el.scrollBy({ left: dir * step * (rtl ? -1 : 1), behavior: "smooth" });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // touch gets native momentum scrolling; custom drag is mouse-only
+    if (e.pointerType !== "mouse") return;
     const el = trackRef.current;
     if (!el) return;
+    // mandatory snap fights the pointer mid-drag — restore on release
+    el.style.scrollSnapType = "none";
     drag.current = {
       down: true,
       startX: e.clientX,
@@ -66,6 +72,8 @@ export function Academy() {
   };
   const endDrag = () => {
     drag.current.down = false;
+    const el = trackRef.current;
+    if (el) el.style.scrollSnapType = "";
   };
   const suppressClick = (e: React.SyntheticEvent) => {
     if (drag.current.moved) {
@@ -97,7 +105,7 @@ export function Academy() {
               {a.bacLink}
             </a>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-3 md:flex">
             <button
               type="button"
               onClick={() => scrollBy(-1)}
@@ -212,6 +220,29 @@ export function Academy() {
               </motion.article>
             );
           })}
+        </div>
+        {/* mobile arrows — below the rail, thumb-first */}
+        <div className="mt-6 flex items-center justify-center gap-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => scrollBy(-1)}
+            aria-label={lang === "ar" ? "السابق" : "Previous courses"}
+            className="arrowbtn"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollBy(1)}
+            aria-label={lang === "ar" ? "التالي" : "Next courses"}
+            className="arrowbtn next"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-5 w-5 rtl:rotate-180">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
       </div>
 

@@ -46,6 +46,7 @@ export function Dashboard({
   const isTab = (x: string | undefined): x is Tab =>
     typeof x === "string" && (TABS as readonly string[]).includes(x);
   const [active, setActive] = useState<Tab>(isTab(tab) ? tab : "overview");
+  const [spacesOpen, setSpacesOpen] = useState(false);
 
   useEffect(() => {
     if (!user) window.location.href = "signin.html";
@@ -64,6 +65,7 @@ export function Dashboard({
 
   const switchTab = (tb: Tab) => {
     setActive(tb);
+    setSpacesOpen(false);
     window.location.hash = tb === "overview" ? "#/dashboard" : `#/dashboard/${tb}`;
   };
 
@@ -91,7 +93,7 @@ export function Dashboard({
       type="button"
       onClick={() => switchTab(tb)}
       aria-current={active === tb ? "page" : undefined}
-      className="block w-full rounded-xl px-4 py-3 text-start text-sm font-bold transition-colors"
+      className="block w-full rounded-xl px-4 py-3 text-start text-sm font-bold transition-colors max-lg:w-auto max-lg:flex-none max-lg:whitespace-nowrap"
       style={
         active === tb
           ? { background: "var(--kt-deep)", color: "#fff" }
@@ -113,7 +115,7 @@ export function Dashboard({
           else switchTab(tr as Tab);
         }}
         aria-pressed={isActive}
-        className="flex w-full items-center gap-2.5 rounded-xl px-4 py-2.5 text-start text-sm transition-colors"
+        className="flex w-full items-center gap-2.5 rounded-xl px-4 py-2.5 text-start text-sm transition-colors max-lg:w-auto max-lg:flex-none max-lg:whitespace-nowrap"
         style={isActive ? undefined : { opacity: 0.55 }}
       >
         <span
@@ -168,15 +170,29 @@ export function Dashboard({
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[240px_1fr]">
           <aside
-            className="grid h-fit content-start gap-1 rounded-[20px] border bg-white p-3 lg:sticky lg:top-24"
+            className="grid h-fit content-start gap-1 rounded-[20px] border bg-white p-2 sm:p-3 lg:sticky lg:top-24"
             style={{ borderColor: "var(--kt-line)" }}
             aria-label="dashboard"
           >
-            {TABS.map((tb) => tabBtn(tb, tabLabel(tb)))}
-            <p className="px-4 pb-1 pt-3 text-xs font-bold uppercase tracking-[0.1em]" style={{ color: "var(--muted)", fontFamily: "var(--font-display)" }}>
-              {d.tracksT}
-            </p>
-            {TRACKS.map(spaceRow)}
+            <div className="flex flex-wrap items-start gap-1.5 lg:grid lg:overflow-visible">
+              {TABS.map((tb) => tabBtn(tb, tabLabel(tb)))}
+              <div className="w-full max-lg:w-auto max-lg:flex-none">
+                <button
+                  type="button"
+                  onClick={() => setSpacesOpen((v) => !v)}
+                  aria-expanded={spacesOpen}
+                  className="block w-full rounded-xl px-4 py-3 text-start text-sm font-bold transition-colors max-lg:whitespace-nowrap"
+                  style={spacesOpen ? { background: "var(--kt-deep)", color: "#fff" } : { color: "var(--muted)" }}
+                >
+                  {d.tracksT}
+                </button>
+                {spacesOpen && (
+                  <div className="mt-1 grid gap-1 rounded-xl p-1 max-lg:min-w-[200px]" style={{ background: "var(--surface)" }}>
+                    {TRACKS.map(spaceRow)}
+                  </div>
+                )}
+              </div>
+            </div>
             <button
               type="button"
               onClick={onSignout}
@@ -190,15 +206,15 @@ export function Dashboard({
           <div>
             {active === "overview" && (
               <div className="grid gap-4">
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
                   {[
                     { label: d.enrolled, value: String(enrolledSlugs.length) },
                     { label: d.hours, value: String(hours) },
                     { label: d.streak, value: "6" },
                   ].map((s) => (
-                    <div key={s.label} className="rounded-[20px] border bg-white p-5" style={{ borderColor: "var(--kt-line)" }}>
-                      <p className="text-sm" style={{ color: "var(--muted)" }}>{s.label}</p>
-                      <p className="mt-1 text-3xl font-bold" dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
+                    <div key={s.label} className="rounded-[20px] border bg-white p-3 sm:p-5" style={{ borderColor: "var(--kt-line)" }}>
+                      <p className="text-xs sm:text-sm" style={{ color: "var(--muted)" }}>{s.label}</p>
+                      <p className="mt-1 text-xl font-bold sm:text-3xl" dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
                         {s.value}
                       </p>
                     </div>

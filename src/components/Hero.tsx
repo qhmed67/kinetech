@@ -52,7 +52,7 @@ function HeroDemo() {
     <HeroBackdrop>
       <h1
         key={lang}
-        className="relative z-10 mx-auto max-w-4xl whitespace-nowrap text-center text-2xl font-bold text-[#1A1A1A] md:text-4xl lg:text-6xl"
+        className="relative z-10 mx-auto max-w-4xl text-center text-2xl font-bold text-[#1A1A1A] md:whitespace-nowrap md:text-4xl lg:text-6xl"
         style={{ fontFamily: "var(--font-display)" }}
       >
         {words1.map((word, i) => renderWord(word, i, false))}
@@ -89,17 +89,18 @@ function HeroDemo() {
         <a
           href={WA}
           data-od-id="hero-cta"
-          className="w-60 transform rounded-lg px-6 py-2 text-center font-bold text-white transition-all duration-300 hover:-translate-y-0.5 hover:brightness-110"
-          style={{ background: "var(--kt-gradient)", fontFamily: "var(--font-display)" }}
+          className="group relative inline-flex w-60 items-center justify-center gap-2 overflow-hidden rounded-full px-6 py-3 text-center font-bold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_32px_-12px_rgba(110,78,156,0.55)] active:translate-y-0"
+          style={{ background: "var(--accent)", fontFamily: "var(--font-display)" }}
         >
-          {h.cta1}
+          <span className="relative">{h.cta1}</span>
         </a>
         <a
           href="#pillars"
           data-od-id="hero-link"
-          className="w-60 transform rounded-lg border border-gray-300 bg-white px-6 py-2 text-center font-medium text-black transition-all duration-300 hover:-translate-y-0.5 hover:bg-gray-100"
+          className="group inline-flex w-60 items-center justify-center gap-2 rounded-full border px-6 py-3 text-center font-bold transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:text-[var(--accent)] hover:shadow-[0_12px_24px_-12px_rgba(110,78,156,0.4)] active:translate-y-0"
+          style={{ borderColor: "var(--border)", color: "var(--fg)", background: "#fff", fontFamily: "var(--font-display)" }}
         >
-          {h.cta2}
+          <span className="relative">{h.cta2}</span>
         </a>
       </motion.div>
     </HeroBackdrop>
