@@ -414,6 +414,13 @@ export function resetStore(): void {
   commit();
 }
 
+/** Restore the 3 built-in courses, keep services edits. */
+export function resetCourses(): void {
+  const s = loadStore();
+  s.courses = seed().courses;
+  commit();
+}
+
 /* ---------------- mock admin auth ---------------- */
 
 export const ADMIN_USER = "admin";

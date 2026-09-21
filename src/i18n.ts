@@ -515,6 +515,8 @@ const en = {
     storageFull: "Browser storage is full — NOT saved. Replace uploaded files with links and try again.",
     testWatch: "Enroll test user",
     needStudent: "Sign in as a student first (same browser), then come back.",
+    resetT: "Reset demo data",
+    resetConfirm: "Delete ALL custom courses and restore the 3 defaults? Services edits stay.",
   },
   bac: {
     eyebrow: "Strategic track",
@@ -1228,6 +1230,8 @@ const ar: Strings = {
     storageFull: "تخزين المتصفح اتملى — متحفظش. استبدل الملفات المرفوعة بروابط وحاول تاني.",
     testWatch: "تسجيل مستخدم تجريبي",
     needStudent: "سجل دخول كطالب الأول (نفس المتصفح)، وبعدين ارجع.",
+    resetT: "تصفير بيانات التجربة",
+    resetConfirm: "تحذف كل الكورسات المخصصة وترجع للـ 3 الأساسيين؟ تعديلات الخدمات هتفضل.",
   },
   bac: {
     eyebrow: "مسار استراتيجي",
