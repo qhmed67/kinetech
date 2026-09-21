@@ -42,14 +42,19 @@ export function Baccalaureate() {
             <div className="mt-10 flex flex-wrap gap-3">
               <a
                 href={WA}
-                className="btn font-bold"
+                className="btn group relative overflow-hidden font-bold transition-all duration-300 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_16px_32px_-12px_rgba(37,211,102,0.65)] active:translate-y-0 motion-reduce:transition-none motion-reduce:hover:transform-none"
                 style={{
-                  background: "var(--kt-teal)",
-                  color: "var(--kt-deep)",
+                  background: "#25D366",
+                  color: "#fff",
                   fontFamily: "var(--font-display)",
                 }}
               >
-                {b.bookNow}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full motion-reduce:hidden rtl:translate-x-full rtl:group-hover:-translate-x-full"
+                />
+                <span aria-hidden="true" className="absolute -inset-1 -z-10 animate-ping rounded-full bg-[#25D366]/30 motion-reduce:hidden" />
+                <span className="relative">{b.bookNow}</span>
               </a>
             </div>
           </motion.div>
@@ -251,14 +256,15 @@ export function Baccalaureate() {
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <a
                 href={WA}
-                className="btn font-bold"
+                className="btn relative font-bold"
                 style={{
-                  background: "var(--kt-teal)",
-                  color: "var(--kt-deep)",
+                  background: "#25D366",
+                  color: "#fff",
                   fontFamily: "var(--font-display)",
                 }}
               >
-                {b.bookNow}
+                <span aria-hidden="true" className="absolute -inset-1 -z-10 animate-ping rounded-full bg-[#25D366]/30 motion-reduce:hidden" />
+                <span className="relative">{b.bookNow}</span>
               </a>
               <a href="#/courses" className="btn btn-outline-light">
                 {t.catalog.h2}

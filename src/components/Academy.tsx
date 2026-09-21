@@ -44,12 +44,18 @@ export function Academy() {
     if (!el) return;
     const card = el.querySelector<HTMLElement>(":scope > article");
     const step = card ? card.offsetWidth + 24 : 360;
-    el.scrollBy({ left: dir * step, behavior: "smooth" });
+    // RTL scrolls on a mirrored axis — flip so next/prev match the arrows
+    const rtl = document.documentElement.dir === "rtl";
+    el.scrollBy({ left: dir * step * (rtl ? -1 : 1), behavior: "smooth" });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // touch gets native momentum scrolling; custom drag is mouse-only
+    if (e.pointerType !== "mouse") return;
     const el = trackRef.current;
     if (!el) return;
+    // mandatory snap fights the pointer mid-drag — restore on release
+    el.style.scrollSnapType = "none";
     drag.current = {
       down: true,
       startX: e.clientX,
@@ -66,6 +72,8 @@ export function Academy() {
   };
   const endDrag = () => {
     drag.current.down = false;
+    const el = trackRef.current;
+    if (el) el.style.scrollSnapType = "";
   };
   const suppressClick = (e: React.SyntheticEvent) => {
     if (drag.current.moved) {

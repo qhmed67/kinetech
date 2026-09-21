@@ -185,6 +185,8 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
 @media(max-width:640px){.mcol.hide-s{display:none}}
 @media(max-width:1200px){.topnav nav{gap:18px}.nav-cta{display:none}.btn{padding:10px 16px;font-size:14px}.topnav-inner{gap:10px}}
 .mobile-toggle{display:none;background:transparent;border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-height:44px;min-width:44px}
+/* very small phones: logo mark only, tighter header so burger never clips */
+@media(max-width:420px){.topnav .wordmark{display:none}.topnav-inner{gap:8px}.lang-toggle{padding:8px 12px;font-size:13px}}
 .noscroll::-webkit-scrollbar{display:none}
 @media(max-width:920px){
 .hero-grid{grid-template-columns:1fr;min-height:0}.hero-left{padding:40px var(--gutter) 32px;max-width:none;justify-self:stretch}
