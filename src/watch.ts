@@ -112,7 +112,7 @@ const SAMPLES = [
 
 export const VIDEO_SOURCES: Record<string, string[]> = {
   "python-data": [
-    "assets/2026-08-05%2002-46-32.mp4",
+    "assets/vid.mp4",
     SAMPLES[1],
     SAMPLES[2],
     SAMPLES[3],
