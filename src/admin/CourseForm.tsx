@@ -7,7 +7,7 @@ import {
   type StoreCourse,
 } from "../store";
 import { useLang } from "../components/lang";
-import { Area, Field, RowActions, Section, Text } from "./ui";
+import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 
 function blank(): StoreCourse {
   const lt = { en: "", ar: "" };
@@ -232,13 +232,38 @@ export function CourseForm({ slug }: { slug?: string }) {
             <Text value={course.name[lt]} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setL("name", e.target.value)} />
           </Field>
           <Field label={a.fDur}>
-            <Text value={course.duration[lt]} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setL("duration", e.target.value)} />
+            <Text
+              type="number"
+              min={1}
+              dir="ltr"
+              value={parseInt(course.duration.en, 10) || ""}
+              placeholder="6"
+              onChange={(e) => {
+                const n = Math.max(1, parseInt(e.target.value, 10) || 0);
+                if (!n) {
+                  set({ duration: { en: "", ar: "" } });
+                  return;
+                }
+                set({
+                  duration: {
+                    en: n === 1 ? "1 week" : `${n} weeks`,
+                    ar: n === 1 ? "أسبوع" : n === 2 ? "أسبوعين" : `${n} أسابيع`,
+                  },
+                });
+              }}
+            />
           </Field>
           <Field label={a.fLessons}>
             <Text value={course.lessons[lt]} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setL("lessons", e.target.value)} />
           </Field>
           <Field label={a.fSched}>
-            <Text value={course.schedule[lt]} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setL("schedule", e.target.value)} />
+            <Text
+              type="date"
+              min={new Date().toISOString().slice(0, 10)}
+              value={/^\d{4}-\d{2}-\d{2}$/.test(course.schedule[lt].trim()) ? course.schedule[lt].trim() : ""}
+              dir="ltr"
+              onChange={(e) => setL("schedule", e.target.value)}
+            />
           </Field>
         </div>
         <Field label={a.fQuote}>
@@ -330,6 +355,13 @@ export function CourseForm({ slug }: { slug?: string }) {
         <button type="button" onClick={addMod} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
           + {a.addMod}
         </button>
+      </Section>
+
+      <Section title={a.outcomesT}>
+        <ChipInput
+          items={course.outcomes[lt]}
+          onChange={(items) => set({ outcomes: { ...course.outcomes, [lt]: items } })}
+        />
       </Section>
 
       <div className="flex gap-3">

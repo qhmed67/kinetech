@@ -149,7 +149,7 @@ export function CourseDetail({ slug }: { slug: string }) {
             </p>
             <p
               className="mt-1 text-4xl font-bold md:text-5xl"
-              dir="auto"
+              dir={lang === "ar" ? "rtl" : "ltr"}
               style={{
                 color: "var(--accent)",
                 fontFamily: "var(--font-display)",
@@ -265,7 +265,7 @@ export function CourseDetail({ slug }: { slug: string }) {
             <span style={{ color: "var(--muted)" }}>·</span>{" "}
             <span
               className="font-bold"
-              dir="auto"
+              dir={lang === "ar" ? "rtl" : "ltr"}
               style={{ color: "var(--accent)" }}
             >
               {price}
