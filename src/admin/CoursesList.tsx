@@ -1,4 +1,4 @@
-import { deleteCourse, loadStore, useContent } from "../store";
+import { deleteCourse, loadStore, resetCourses, useContent } from "../store";
 import { getUser, setUser } from "../auth";
 import { useLang } from "../components/lang";
 
@@ -33,6 +33,21 @@ export function CoursesList() {
         <a href="#/admin/courses/new" className="btn btn-primary">
           + {a.addCourse}
         </a>
+      </div>
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(a.resetConfirm)) {
+              resetCourses();
+              window.location.reload();
+            }
+          }}
+          className="text-sm font-bold"
+          style={{ color: "#B3261E" }}
+        >
+          {a.resetT}
+        </button>
       </div>
       {courses.map((c) => (
         <article
