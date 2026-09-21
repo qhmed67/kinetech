@@ -270,6 +270,22 @@ export function wireStoreSync(): void {
 
 /* ---------------- reads (public pages use these) ---------------- */
 
+/** ISO dates (from the admin date picker) render localized; free text passes through. */
+export function formatSchedule(value: string, lang: Lang): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    try {
+      const d = new Date(`${value.trim()}T12:00:00`);
+      return d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      });
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
 /** Old cats (prog/robot/cad) normalize into the new taxonomy. */
 function normCat(cat: string): string {
   if (cat === "tech" || cat === "other") return cat;
@@ -304,30 +320,42 @@ export function listCourses(lang: Lang): CourseView[] {
 }
 
 export function viewCourse(c: StoreCourse, lang: Lang): CourseView {
+  const other: Lang = lang === "ar" ? "en" : "ar";
+  // new courses are often filled in one language only — fall back instead of blank
+  const pick = (t: LText): string => t[lang].trim() || t[other].trim();
+  const pickList = (t: { en: string[]; ar: string[] }): string[] => {
+    const v = t[lang].filter((s) => s.trim());
+    return v.length ? v : t[other].filter((s) => s.trim());
+  };
+  const pickMods = (): Module[] => {
+    const v = c.modules[lang].filter((m) => m.t.trim() || m.d.trim());
+    const list = v.length ? v : c.modules[other].filter((m) => m.t.trim() || m.d.trim());
+    return list.map((m) => ({ t: m.t, d: m.d }));
+  };
   return {
     slug: c.slug,
     cat: normCat(c.cat),
     bac: c.bac,
-    cta: c.cta[lang],
-    name: c.name[lang],
-    designation: c.designation[lang],
-    quote: c.quote[lang],
-    duration: c.duration[lang],
-    lessons: c.lessons[lang],
-    schedule: c.schedule[lang],
-    level: c.level[lang],
-    seats: c.seats[lang],
+    cta: pick(c.cta),
+    name: pick(c.name),
+    designation: pick(c.designation),
+    quote: pick(c.quote),
+    duration: pick(c.duration),
+    lessons: pick(c.lessons),
+    schedule: formatSchedule(pick(c.schedule), lang),
+    level: pick(c.level),
+    seats: pick(c.seats),
     seatsN: c.seatsN,
-    price: c.price ? c.price[lang] : null,
+    price: c.price ? pick(c.price) || null : null,
     photoCard: c.photoCard,
     photoDetail: c.photoDetail,
     instructor: {
-      name: c.instructor.name[lang],
-      spec: c.instructor.spec[lang],
-      bio: c.instructor.bio[lang],
+      name: pick(c.instructor.name),
+      spec: pick(c.instructor.spec),
+      bio: pick(c.instructor.bio),
     },
-    outcomes: [...c.outcomes[lang]],
-    modules: c.modules[lang].map((m) => ({ t: m.t, d: m.d })),
+    outcomes: pickList(c.outcomes),
+    modules: pickMods(),
   };
 }
 
@@ -411,6 +439,13 @@ export function saveProcess(process: { en: Module[]; ar: Module[] }): void {
 
 export function resetStore(): void {
   cache = seed();
+  commit();
+}
+
+/** Restore the 3 built-in courses, keep services edits. */
+export function resetCourses(): void {
+  const s = loadStore();
+  s.courses = seed().courses;
   commit();
 }
 

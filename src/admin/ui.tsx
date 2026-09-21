@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useLang } from "../components/lang";
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -125,6 +126,75 @@ export function StringList({
       >
         + {addLabel}
       </button>
+    </div>
+  );
+}
+
+/** Chip input: type a phrase, Enter to add it as a chip, × to remove. */
+export function ChipInput({
+  items,
+  onChange,
+  placeholder,
+}: {
+  items: string[];
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+}) {
+  const { lang } = useLang();
+  const [val, setVal] = useState("");
+  const commit = (raw: string) => {
+    const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) onChange([...items, ...parts]);
+    setVal("");
+  };
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-xl border bg-white px-3 py-2"
+      style={{ borderColor: "var(--border)" }}
+      onClick={(e) => {
+        const input = e.currentTarget.querySelector("input");
+        input?.focus();
+      }}
+    >
+      {items.map((s, i) => (
+        <span
+          key={`${s}-${i}`}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold"
+          style={{ background: "var(--teal-soft)", color: "var(--kt-deep)" }}
+        >
+          {s}
+          <button
+            type="button"
+            aria-label="remove"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(items.filter((_, k) => k !== i));
+            }}
+            className="grid h-5 w-5 place-items-center rounded-full"
+            style={{ background: "rgba(0,0,0,0.08)" }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        value={val}
+        dir={lang === "ar" ? "rtl" : "ltr"}
+        placeholder={placeholder ?? (lang === "ar" ? "اكتب واضغط Enter" : "Type and press Enter")}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit(val);
+          } else if (e.key === "Backspace" && !val && items.length) {
+            onChange(items.slice(0, -1));
+          } else if (e.key === "," ) {
+            e.preventDefault();
+            commit(val);
+          }
+        }}
+        className="min-w-[140px] flex-1 bg-transparent py-1.5 text-[15px] outline-none"
+      />
     </div>
   );
 }
