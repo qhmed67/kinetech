@@ -90,6 +90,24 @@ export function recordDone(u: KtUser, slug: string, idx: number): void {
   }
 }
 
+/** Testing helper: wipe this user's views + completions so the watch flow can be retested. */
+export function resetProgress(u: KtUser): void {
+  const uk = userKeyOf(u);
+  try {
+    const db = readDB();
+    delete db[uk];
+    window.localStorage.setItem(VIEWS_KEY, JSON.stringify(db));
+  } catch {
+    /* ignore */
+  }
+  try {
+    const done = readDone();
+    delete done[uk];
+    window.localStorage.setItem(DONE_KEY, JSON.stringify(done));
+  } catch {
+    /* ignore */
+  }
+}
 /* Sequential unlocking: lesson N opens once lesson N-1 is FINISHED. */
 export function isUnlocked(u: KtUser, slug: string, idx: number): boolean {
   if (idx <= 0) return true;
@@ -98,27 +116,15 @@ export function isUnlocked(u: KtUser, slug: string, idx: number): boolean {
 }
 
 /* ---------------------------------------------------------------
-   PLACEHOLDER VIDEO SOURCES — REPLACE WITH REAL FILES.
-   The user will provide actual per-course video files or embeds.
-   Adapter-ready: when moving to YouTube/Vimeo/Stream, add
-   { kind: "embed", embedUrl } handling in the player component.
+   DEFAULT VIDEO — every built-in course uses the bundled sample
+   until real per-course files are uploaded via the admin dashboard.
 ---------------------------------------------------------------- */
-const SAMPLES = [
-  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-];
+const LOCAL_VIDEO = "assets/vid.mp4";
 
 export const VIDEO_SOURCES: Record<string, string[]> = {
-  "python-data": [
-    "assets/vid.mp4",
-    SAMPLES[1],
-    SAMPLES[2],
-    SAMPLES[3],
-  ],
-  robotics: [SAMPLES[1], SAMPLES[2], SAMPLES[3], SAMPLES[0]],
-  solidworks: [SAMPLES[2], SAMPLES[3], SAMPLES[0], SAMPLES[1]],
+  "python-data": [LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO],
+  robotics: [LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO],
+  solidworks: [LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO, LOCAL_VIDEO],
 };
 
 export function videoSource(slug: string, idx: number): string | null {

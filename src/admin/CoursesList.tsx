@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { deleteCourse, loadStore, resetCourses, useContent } from "../store";
 import { getUser, setUser } from "../auth";
+import { resetProgress } from "../watch";
 import { useLang } from "../components/lang";
 
 export function CoursesList() {
@@ -7,6 +9,7 @@ export function CoursesList() {
   const a = t.admin;
   useContent();
   const courses = loadStore().courses;
+  const [viewsReset, setViewsReset] = useState(false);
 
   const enrollTest = (slug: string) => {
     const u = getUser() ?? {
@@ -34,7 +37,7 @@ export function CoursesList() {
           + {a.addCourse}
         </a>
       </div>
-      <div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
         <button
           type="button"
           onClick={() => {
@@ -47,6 +50,24 @@ export function CoursesList() {
           style={{ color: "#B3261E" }}
         >
           {a.resetT}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const u = getUser();
+            if (!u) {
+              window.alert(a.needStudent);
+              return;
+            }
+            resetProgress(u);
+            setViewsReset(true);
+          }}
+          className="text-sm font-bold"
+          style={{ color: "var(--accent)" }}
+        >
+          {viewsReset
+            ? (lang === "ar" ? "تصفير مشاهدات التجربة" : "Test views reset.")
+            : (lang === "ar" ? "تصفير مشاهدات التجربة" : "Reset test views")}
         </button>
       </div>
       {courses.map((c) => (
