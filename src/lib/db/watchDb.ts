@@ -1,0 +1,62 @@
+import { supabase } from "./client";
+import type { Lang } from "../../i18n";
+
+export type WatchRow = {
+  video_id: string;
+  sort_order: number;
+  title: string;
+  description: string;
+  src_url: string;
+  mins: number;
+  assign_url: string | null;
+  exam_url: string | null;
+  views_count: number;
+  done: boolean;
+  unlocked: boolean;
+  views_left: number;
+};
+
+/** Single RPC: videos + per-user views + sequential unlock. No N+1. */
+export async function getWatchStateDb(slug: string, lang: Lang): Promise<WatchRow[]> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { data, error } = await sb.rpc("get_watch_state", { p_slug: slug, p_lang: lang });
+  if (error) throw error;
+  return (data ?? []) as WatchRow[];
+}
+
+/** Increments capped at 3, enforces N-1 unlock server-side. */
+export async function recordPlayDb(videoId: string): Promise<{ views_count: number; views_left: number }> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { data, error } = await sb.rpc("record_play", { p_video: videoId });
+  if (error) throw error;
+  const row = ((data ?? []) as Array<{ views_count: number; views_left: number }>)[0];
+  return row ?? { views_count: 0, views_left: 0 };
+}
+
+export async function completeVideoDb(
+  videoId: string,
+  watchedSecs = 0,
+  durationSecs = 0,
+): Promise<void> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("complete_video", {
+    p_video: videoId,
+    p_watched_secs: watchedSecs,
+    p_duration_secs: durationSecs,
+  });
+  if (error) throw error;
+}
+
+/** Watermark identity: lean profile read for overlay (email/phone). */
+export async function watermarkIdentityDb(): Promise<{ email: string; phone: string }> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { data: u } = await sb.auth.getUser();
+  if (!u.user) return { email: "", phone: "" };
+  const { data } = await sb.from("profiles").select("email,phone").eq("id", u.user.id).single();
+  const p = data as { email: string; phone: string | null } | null;
+  return { email: p?.email ?? u.user.email ?? "", phone: p?.phone ?? "" };
+}
