@@ -37,9 +37,11 @@
 <div class="msl-fade"></div>
 </div>
 <script src="auth-lang.js"></script>
+<script src="supabase-config.js"></script>
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";
-const sb = createClient("https://zvtzhcrmqzwkifcwnbcl.supabase.co", "sb_publishable_yMmy1J7tbMpf8bJmCP69nQ_uvhoWSsy");
+// Runtime-injected, never committed. Deploy must provide supabase-config.js.
+const sb = createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__);
 const COOLDOWN_MS = 3000;
 let lastTry = 0;
 let busy = false;
