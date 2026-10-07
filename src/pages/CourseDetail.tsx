@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { getCourse, useContent } from "../store";
+import { getUser } from "../auth";
+import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
 const WA = "https://wa.me/201042031062";
+
+type ReqState = "idle" | "busy" | "pending" | "approved" | "error";
 
 function FactIcon({ path }: { path: string }) {
   return (
@@ -27,6 +31,46 @@ export function CourseDetail({ slug }: { slug: string }) {
   const topRef = useRef<HTMLDivElement>(null);
   const [past, setPast] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [req, setReq] = useState<ReqState>("idle");
+
+  // Enrollment request state (server truth; never grants access locally).
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const u = getUser();
+    if (!u) return;
+    if (u.enrolled.includes(slug)) {
+      setReq("approved");
+      return;
+    }
+    let alive = true;
+    void import("../lib/db/enrollmentsDb")
+      .then((m) => m.myEnrollmentsDb())
+      .then((list) => {
+        if (!alive) return;
+        const found = list.find((e) => e.slug === slug);
+        setReq(found ? found.status : "idle");
+      })
+      .catch(() => {
+        /* stay idle — WhatsApp path remains */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
+
+  const requestEnrollment = () => {
+    if (req === "busy" || req === "pending" || req === "approved") return;
+    const u = getUser();
+    if (!u) {
+      window.location.href = "signin.html";
+      return;
+    }
+    setReq("busy");
+    void import("../lib/db/enrollmentsDb")
+      .then((m) => m.requestEnrollmentDb(slug))
+      .then((s) => setReq(s))
+      .catch(() => setReq("error"));
+  };
 
   useEffect(() => {
     try {
@@ -165,6 +209,29 @@ export function CourseDetail({ slug }: { slug: string }) {
             >
               {d.enroll}
             </a>
+            {req === "approved" ? (
+              <a
+                href={`#/courses/${slug}/watch`}
+                className="btn btn-secondary mt-3 w-full sm:w-auto"
+                style={{ padding: "14px 40px", fontSize: 16 }}
+              >
+                {t.watch.watchBtn}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={requestEnrollment}
+                disabled={req === "busy" || req === "pending"}
+                className="btn btn-secondary mt-3 w-full sm:w-auto disabled:opacity-60"
+                style={{ padding: "14px 40px", fontSize: 16 }}
+              >
+                {req === "pending"
+                  ? d.pendingReview
+                  : req === "error"
+                    ? d.reqFailed
+                    : d.reqEnroll}
+              </button>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,6 @@
-import { adminLogout, isAdmin } from "../store";
 import { useLang } from "../components/lang";
+import { isSupabaseConfigured } from "../lib/db/env";
+import { resetAdminCache, useVerifiedAdmin } from "../lib/db/adminGuard";
 
 export function AdminShell({
   active,
@@ -10,10 +11,22 @@ export function AdminShell({
 }) {
   const { t, toggle } = useLang();
   const a = t.admin;
+  const cloud = isSupabaseConfigured();
+  const verdict = useVerifiedAdmin();
 
-  if (!isAdmin()) {
+  // Zero-trust: verified Supabase role only. Offline/unconfigured = deny.
+  if (!cloud || verdict === "denied") {
     window.location.hash = "#/admin/login";
     return null;
+  }
+  if (verdict === "checking") {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap" style={{ maxWidth: 440 }}>
+          <p style={{ color: "var(--muted)" }}>…</p>
+        </div>
+      </main>
+    );
   }
 
   const nav = (page: string, label: string) => (
@@ -57,7 +70,13 @@ export function AdminShell({
           <button
             type="button"
             onClick={() => {
-              adminLogout();
+              resetAdminCache();
+              void import("../lib/db/sync")
+                .then((m) => m.clearCloudCache())
+                .catch(() => {});
+              void import("../auth")
+                .then((m) => m.signOutEverywhere())
+                .catch(() => {});
               window.location.hash = "#/admin/login";
             }}
             className="text-sm font-bold"

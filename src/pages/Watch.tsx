@@ -16,16 +16,64 @@ const WA = "https://wa.me/201042031062";
 /* Adapter-ready player: file sources resolve through a script-built
    blob/object URL (nothing static in the HTML to copy from view-source).
    A future { kind: "embed", embedUrl } source renders an iframe here. */
+/* Anti-record watermark: verified identity floats over the video in every
+   playback mode (page + container fullscreen). pointer-events-none so it
+   never blocks controls; low opacity so it never blocks content. */
+const WM_SPOTS = [
+  { top: 12, insetInlineStart: 12 },
+  { top: 12, insetInlineEnd: 12 },
+  { bottom: 12, insetInlineStart: 12 },
+  { bottom: 12, insetInlineEnd: 12 },
+] as const;
+
+function Watermark({ email, phone }: { email: string; phone: string }) {
+  const [spot, setSpot] = useState(0);
+  useEffect(() => {
+    setSpot(Math.floor(Math.random() * WM_SPOTS.length));
+    const id = window.setInterval(
+      () => setSpot((s) => (s + 1) % WM_SPOTS.length),
+      18000,
+    );
+    return () => window.clearInterval(id);
+  }, []);
+  if (!email && !phone) return null;
+  const pos = WM_SPOTS[spot % WM_SPOTS.length];
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute z-10 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
+      dir="ltr"
+      style={{
+        ...pos,
+        background: "rgba(0,0,0,0.45)",
+        color: "rgba(255,255,255,0.85)",
+        fontFamily: "var(--font-display)",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
+    >
+      {[email, phone].filter(Boolean).join(" • ")}
+    </div>
+  );
+}
+
 function Player({
   src,
+  email,
+  phone,
   onProgress,
+  onSeeked,
   onEnded,
 }: {
   src: string;
+  email: string;
+  phone: string;
   onProgress: (seconds: number) => void;
+  onSeeked: (seconds: number) => void;
   onEnded: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -62,23 +110,37 @@ function Player({
   }
   return (
     <div
-      className="overflow-hidden rounded-[20px] select-none"
+      ref={boxRef}
+      className="relative overflow-hidden rounded-[20px] select-none"
       style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
+      onDoubleClick={() => {
+        // Container fullscreen (not video-only) keeps the watermark visible.
+        const el = boxRef.current;
+        if (!el) return;
+        try {
+          if (document.fullscreenElement) void document.exitFullscreen();
+          else void el.requestFullscreen();
+        } catch {
+          /* ignore */
+        }
+      }}
     >
       <video
         key={blobUrl}
         src={blobUrl}
         controls
-        controlsList="nodownload noremoteplayback"
+        controlsList="nodownload noremoteplayback nofullscreen"
         disablePictureInPicture
         playsInline
         draggable={false}
         className="aspect-video w-full"
         onTimeUpdate={(e) => onProgress(e.currentTarget.currentTime)}
+        onSeeked={(e) => onSeeked(e.currentTarget.currentTime)}
         onEnded={onEnded}
       />
+      <Watermark email={email} phone={phone} />
     </div>
   );
 }
@@ -179,10 +241,12 @@ export function Watch({
   slug,
   video,
   user,
+  ready,
 }: {
   slug: string;
   video: number;
   user: KtUser | null;
+  ready?: boolean;
 }) {
   const { lang, t } = useLang();
   const w = t.watch;
@@ -193,11 +257,15 @@ export function Watch({
   const [plays, setPlays] = useState(0);
   const [, setDoneTick] = useState(0);
   const counted = useRef(false);
+  // Continuous-watch accumulator: only contiguous playback counts toward
+  // completion. Seek jumps reset continuity, so scrubbing to the end grants
+  // nothing (server re-validates against DB-side minutes).
+  const watchAcc = useRef({ last: 0, total: 0 });
 
   const enrolled = !!user && user.enrolled.includes(slug);
 
   useEffect(() => {
-    if (!user) {
+    if (ready && !user) {
       window.location.href = "signin.html";
       return;
     }
@@ -213,6 +281,7 @@ export function Watch({
 
   useEffect(() => {
     counted.current = false;
+    watchAcc.current = { last: 0, total: 0 };
     // monotonic: remounts (fullscreen transitions, HMR) can never lower the count
     if (user && course) setPlays((p) => Math.max(p, getViews(user, slug, video)));
     setOpen(video);
@@ -233,15 +302,27 @@ export function Watch({
   ].filter((x): x is { label: string; href: string } => x !== null);
 
   const onProgress = (seconds: number) => {
+    // accumulate only contiguous playback — jumps >2s are seeks, never watched
+    const acc = watchAcc.current;
+    const delta = seconds - acc.last;
+    if (delta >= 0 && delta < 2) acc.total += delta;
+    acc.last = seconds;
     // count only after 3s of REAL playback — stalls/reloads before that burn nothing
     if (counted.current || seconds < 3 || left <= 0) return;
     counted.current = true;
     setPlays((p) => Math.max(p, recordPlay(user, slug, idx)));
   };
 
+  const onSeeked = (seconds: number) => {
+    watchAcc.current.last = seconds;
+  };
+
   const onEnded = () => {
-    recordDone(user, slug, idx);
-    setDoneTick((n) => n + 1);
+    // completion requires ~80% genuinely watched (or burned views); a seek
+    // straight to the end accumulates ~0s and grants nothing.
+    if (recordDone(user, slug, idx, watchAcc.current.total, vid.mins)) {
+      setDoneTick((n) => n + 1);
+    }
   };
 
   const go = (i: number) => {
@@ -313,7 +394,7 @@ export function Watch({
                   </a>
                 </div>
               ) : (
-                <Player src={src} onProgress={onProgress} onEnded={onEnded} />
+                <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
               )}
             </div>
 

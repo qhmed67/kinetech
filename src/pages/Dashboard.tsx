@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { courseExists, getCourse, useContent } from "../store";
+import { courseExists, getCourse, getVideos, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
+import { isDone } from "../watch";
+import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
 
 const WA = "https://wa.me/201042031062";
@@ -8,20 +10,57 @@ const TRACKS = ["courses", "marketing", "programming", "design"] as const;
 type Track = (typeof TRACKS)[number];
 const TABS_ALL = ["overview", "courses", "exams", "assignments", "profile", "settings"] as const;
 type Tab = string;
-const MOCK_PROG: Record<string, { progress: number; hours: number }> = {
-  "python-data": { progress: 68, hours: 12 },
-  solidworks: { progress: 32, hours: 6 },
-};
+
+/** Real coursework links from enrolled courses (no fabricated scores). */
+function courseWork(u: KtUser, lang: "en" | "ar"): {
+  exams: { key: string; title: string; course: string; href: string; done: boolean; slug: string; idx: number }[];
+  assignments: { key: string; title: string; course: string; href: string; done: boolean; slug: string; idx: number }[];
+} {
+  const exams: ReturnType<typeof courseWork>["exams"] = [];
+  const assignments: ReturnType<typeof courseWork>["assignments"] = [];
+  for (const slug of u.enrolled ?? []) {
+    const course = getCourse(lang, slug);
+    if (!course) continue;
+    const vids = getVideos(slug);
+    course.modules.forEach((m, i) => {
+      const v = vids[i];
+      if (!v) return;
+      const done = isDone(u, slug, i);
+      if (v.exam) exams.push({ key: `${slug}:${i}:exam`, title: m.t, course: course.name, href: v.exam, done, slug, idx: i });
+      if (v.assign) assignments.push({ key: `${slug}:${i}:assign`, title: m.t, course: course.name, href: v.assign, done, slug, idx: i });
+    });
+  }
+  return { exams, assignments };
+}
+
+/** Real progress from local watch state (server-hydrated when online). */
+function courseProgress(u: KtUser, slug: string): { progress: number; hours: number; done: number; total: number } {
+  const course = getCourse("en", slug);
+  const total = course?.modules.length ?? 0;
+  if (total === 0 || !u) return { progress: 0, hours: 0, done: 0, total: 0 };
+  let done = 0;
+  let mins = 0;
+  const vids = getVideos(slug);
+  for (let i = 0; i < total; i++) {
+    if (isDone(u, slug, i)) {
+      done += 1;
+      mins += vids[i]?.mins ?? 0;
+    }
+  }
+  return { progress: Math.round((done / total) * 100), hours: Math.round((mins / 60) * 10) / 10, done, total };
+}
 
 export function Dashboard({
   user,
   onSignout,
   tab,
+  ready,
   onUserChange,
 }: {
   user: KtUser | null;
   onSignout: () => void;
   tab?: string;
+  ready?: boolean;
   onUserChange?: () => void;
 }) {
   const { lang, t } = useLang();
@@ -47,10 +86,30 @@ export function Dashboard({
     typeof x === "string" && (TABS as readonly string[]).includes(x);
   const [active, setActive] = useState<Tab>(isTab(tab) ? tab : "overview");
   const [spacesOpen, setSpacesOpen] = useState(false);
+  const [pending, setPending] = useState<string[]>([]);
+
+  // Pending enrollment requests (server truth) — approvals land via bootstrap.
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user) return;
+    let alive = true;
+    void import("../lib/db/enrollmentsDb")
+      .then((m) => m.myEnrollmentsDb())
+      .then((list) => {
+        if (!alive) return;
+        setPending(list.filter((e) => e.status === "pending").map((e) => e.slug));
+      })
+      .catch(() => {
+        /* stay empty */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user?.email]);
 
   useEffect(() => {
-    if (!user) window.location.href = "signin.html";
-  }, [user]);
+    // Wait for cloud bootstrap: a valid server session restores shortly.
+    if (ready && !user) window.location.href = "signin.html";
+  }, [user, ready]);
 
   useEffect(() => {
     if (isTab(tab)) setActive(tab);
@@ -61,7 +120,10 @@ export function Dashboard({
   if (!user) return null;
 
   const enrolledSlugs = (user.enrolled ?? []).filter(courseExists);
-  const hours = enrolledSlugs.reduce((a, s) => a + (MOCK_PROG[s]?.hours ?? 0), 0);
+  const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
+  const progBySlug = new Map(enrolledSlugs.map((s) => [s, courseProgress(user, s)]));
+  const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);
+  const lessonsDone = [...progBySlug.values()].reduce((a, p) => a + p.done, 0);
 
   const switchTab = (tb: Tab) => {
     setActive(tb);
@@ -77,6 +139,14 @@ export function Dashboard({
     const next = [...tracks, tr];
     setTracks(next);
     setUser({ ...user, tracks: next });
+    // Persist server-side so the space survives across devices (best-effort).
+    if (isSupabaseConfigured()) {
+      void import("../lib/db/sync")
+        .then((m) => m.addTrackToCloud(tr))
+        .catch(() => {
+          /* offline — local space stays */
+        });
+    }
     onUserChange?.();
     setModal(null);
     switchTab(tr === "courses" ? "courses" : tr);
@@ -210,7 +280,7 @@ export function Dashboard({
                   {[
                     { label: d.enrolled, value: String(enrolledSlugs.length) },
                     { label: d.hours, value: String(hours) },
-                    { label: d.streak, value: "6" },
+                    { label: d.doneLessons, value: String(lessonsDone) },
                   ].map((s) => (
                     <div key={s.label} className="rounded-[20px] border bg-white p-3 sm:p-5" style={{ borderColor: "var(--kt-line)" }}>
                       <p className="text-xs sm:text-sm" style={{ color: "var(--muted)" }}>{s.label}</p>
@@ -248,6 +318,21 @@ export function Dashboard({
                   lockedCard(d.noCoursesT, d.noCoursesD, d.turnOn, () => setModal("courses"))
                 ) : enrolledSlugs.length === 0 ? (
                   <div className="grid gap-4">
+                    {pending.length > 0 && (
+                      <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
+                        <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                          {d.pendingT}
+                        </p>
+                        <ul className="mt-2 grid gap-1.5 text-sm" style={{ color: "var(--muted)" }}>
+                          {pending.map((slug) => (
+                            <li key={slug}>— {getCourse(lang, slug)?.name ?? slug}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+                          {d.pendingD}
+                        </p>
+                      </div>
+                    )}
                     <p style={{ color: "var(--muted)" }}>{d.noCoursesD}</p>
                     <a href="#/courses" className="text-[15px] font-bold" style={{ color: "var(--accent)" }}>
                       {d.explore}
@@ -258,7 +343,7 @@ export function Dashboard({
                     {enrolledSlugs.map((slug) => {
                       const course = getCourse(lang, slug);
                       if (!course) return null;
-                      const prog = MOCK_PROG[slug] ?? { progress: 0, hours: 0 };
+                      const prog = progBySlug.get(slug) ?? { progress: 0, hours: 0 };
                       return (
                         <article key={slug} className="flex flex-col gap-4 rounded-[20px] border bg-white p-5 sm:flex-row" style={{ borderColor: "var(--kt-line)" }}>
                           <img src={course.photoCard} alt={course.name} loading="lazy" className="h-28 w-full rounded-2xl object-cover object-top sm:w-36" />
@@ -290,37 +375,39 @@ export function Dashboard({
             {active === "exams" && (
               enrolledSlugs.length === 0 ? (
                 lockedCard(d.examsT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
+              ) : work.exams.length === 0 ? (
+                lockedCard(d.examsT, d.emptyWork, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
               <div className="grid gap-4">
-                {d.exams.map((ex) => (
+                {work.exams.map((ex) => (
                   <article
-                    key={ex.t}
+                    key={ex.key}
                     className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border bg-white p-5"
                     style={{ borderColor: "var(--kt-line)" }}
                   >
                     <div>
                       <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                        {ex.t}
+                        {ex.title}
                       </h3>
                       <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-                        {ex.c}
+                        {ex.course}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
                       <span
-                        dir="ltr"
                         className="rounded-full px-4 py-1.5 text-sm font-bold"
-                        style={{
-                          background: "var(--teal-soft)",
-                          color: "var(--kt-deep)",
-                          fontFamily: "var(--font-display)",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        style={
+                          ex.done
+                            ? { background: "var(--teal-soft)", color: "var(--kt-deep)", fontFamily: "var(--font-display)" }
+                            : { background: "var(--surface)", color: "var(--muted)", fontFamily: "var(--font-display)" }
+                        }
                       >
-                        {ex.s}
+                        {ex.done ? d.assignDone : d.assignTodo}
                       </span>
                       <a
-                        href="#/courses"
+                        href={ex.href}
+                        target="_blank"
+                        rel="noreferrer"
                         className="btn btn-secondary"
                         style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
                       >
@@ -336,14 +423,17 @@ export function Dashboard({
             {active === "assignments" && (
               enrolledSlugs.length === 0 ? (
                 lockedCard(d.assignT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
+              ) : work.assignments.length === 0 ? (
+                lockedCard(d.assignT, d.emptyWork, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
               <div className="grid gap-3">
-                {d.assign.map((a) => {
+                {work.assignments.map((a) => {
                   const done = a.done;
+                  const external = /^(https?:|data:|blob:)/.test(a.href);
                   return (
                     <article
-                      key={a.t}
-                      aria-label={`${a.t} — ${done ? d.assignDone : d.assignTodo}`}
+                      key={a.key}
+                      aria-label={`${a.title} — ${done ? d.assignDone : d.assignTodo}`}
                       className="flex items-center gap-3 rounded-[20px] border bg-white p-5"
                       style={{ borderColor: "var(--kt-line)" }}
                     >
@@ -358,12 +448,14 @@ export function Dashboard({
                         {done ? "✓" : ""}
                       </span>
                       <span className="flex-1">
-                        <span className="block font-bold">{a.t}</span>
+                        <span className="block font-bold">{a.title}</span>
                         <span className="mt-0.5 block text-sm" style={{ color: "var(--muted)" }}>
-                          {a.c} · {d.assignDue}: {a.due}
+                          {a.course}
                         </span>
                       </span>
-                      <span
+                      <a
+                        href={a.href}
+                        {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
                         className="rounded-full px-3 py-1 text-xs font-bold"
                         style={
                           done
@@ -372,7 +464,7 @@ export function Dashboard({
                         }
                       >
                         {done ? d.assignDone : d.assignTodo}
-                      </span>
+                      </a>
                     </article>
                   );
                 })}

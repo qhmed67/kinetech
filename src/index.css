@@ -208,3 +208,7 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
     animation: none;
   }
 }
+
+/* Watermarked player: hide the native video-only fullscreen button (Chromium)
+   so fullscreen goes through the watermarked container (double-click). */
+video::-webkit-media-controls-fullscreen-button { display: none !important; }

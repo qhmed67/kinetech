@@ -20,7 +20,7 @@ import { Terms } from "./pages/Legal";
 import { NotFound } from "./pages/NotFound";
 import { LangContext } from "./components/lang";
 import { STR, getInitialLang, type Lang } from "./i18n";
-import { clearUser, getUser, type KtUser } from "./auth";
+import { clearUser, getUser, signOutEverywhere, subscribeUserChanged, type KtUser } from "./auth";
 import { parseHash, type Route } from "./router";
 import { wireStoreSync } from "./store";
 import { AdminLogin } from "./admin/AdminLogin";
@@ -54,6 +54,9 @@ export default function App() {
   const [fading, setFading] = useState(false);
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const [user, setUser] = useState<KtUser | null>(() => getUser());
+  // M1: protected pages wait for cloud bootstrap before deciding redirects —
+  // otherwise a valid server session on a fresh cache bounces to sign-in.
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     syncDoc(lang);
@@ -76,6 +79,19 @@ export default function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  useEffect(() => {
+    // Supabase source of truth: catalog hydrate runs via store on first read;
+    // here adopt server session/enrollments/watch progress when configured.
+    const unsub = subscribeUserChanged(() => setUser(getUser()));
+    void import("./lib/db/sync")
+      .then((m) => m.bootstrapFromCloud(() => setUser(getUser())))
+      .catch(() => {
+        /* offline — local session stays */
+      })
+      .finally(() => setAuthReady(true));
+    return unsub;
+  }, []);
+
   const toggle = useCallback(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       setLang((l) => (l === "en" ? "ar" : "en"));
@@ -90,9 +106,16 @@ export default function App() {
   }, []);
 
   const signout = useCallback(() => {
-    clearUser();
-    setUser(null);
-    window.location.hash = "#/";
+    // Full purge: local cache + Supabase session + id/role caches.
+    // clearUser-only sign-outs leak the server session into the next account.
+    void signOutEverywhere()
+      .catch(() => {
+        clearUser();
+      })
+      .finally(() => {
+        setUser(getUser());
+        window.location.hash = "#/";
+      });
   }, []);
 
   const ctx = useMemo(
@@ -147,11 +170,11 @@ export default function App() {
         {route.name === "courses" && <Courses />}
         {route.name === "course" && <CourseDetail slug={route.slug} />}
         {route.name === "watch" && (
-          <Watch slug={route.slug} video={route.video} user={user} />
+          <Watch slug={route.slug} video={route.video} user={user} ready={authReady} />
         )}
         {route.name === "baccalaureate" && <Baccalaureate />}
         {route.name === "dashboard" && (
-          <Dashboard user={user} onSignout={signout} tab={route.tab} onUserChange={() => setUser(getUser())} />
+          <Dashboard user={user} onSignout={signout} tab={route.tab} ready={authReady} onUserChange={() => setUser(getUser())} />
         )}
         {route.name === "service" && <ServicePage slug={route.slug} />}
         {route.name === "about" && <About />}

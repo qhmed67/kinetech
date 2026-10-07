@@ -1,7 +1,8 @@
 import type { KtUser } from "./auth";
 
-/* Watch-layer mock store. Everything lives in localStorage, same
-   pattern as the rest of the mock system. No backend, no real API. */
+/* Watch-layer store. Local keys stay for instant sync UI; every play/done
+   also pushes to Supabase RPCs (3-view cap + sequential lock enforced
+   server-side) when configured. Server state hydrates over local on load. */
 
 export const MAX_VIEWS = 3;
 const VIEWS_KEY = "kt-views";
@@ -43,6 +44,40 @@ export function viewsLeft(u: KtUser, slug: string, idx: number): number {
   return Math.max(0, MAX_VIEWS - getViews(u, slug, idx));
 }
 
+/** Cloud merge helper: server count wins (called by hydrate). */
+export function setViewsCount(u: KtUser, slug: string, idx: number, n: number): void {
+  const db = readDB();
+  const uk = userKeyOf(u);
+  const vk = videoKey(slug, idx);
+  db[uk] = { ...(db[uk] ?? {}), [vk]: Math.min(MAX_VIEWS, Math.max(0, n)) };
+  writeDB(db);
+}
+
+/** Cloud merge helper: mark done from server state. */
+export function setDoneFlag(u: KtUser, slug: string, idx: number): void {
+  const db = readDone();
+  const uk = userKeyOf(u);
+  const list = db[uk]?.[slug] ?? [];
+  if (list.includes(idx)) return;
+  try {
+    window.localStorage.setItem(
+      DONE_KEY,
+      JSON.stringify({ ...db, [uk]: { ...(db[uk] ?? {}), [slug]: [...list, idx] } }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function pushPlay(slug: string, idx: number): void {
+  if (typeof window === "undefined") return;
+  void import("./lib/db/sync")
+    .then((m) => m.pushPlayToCloud(slug, idx))
+    .catch(() => {
+      /* offline — local count stays */
+    });
+}
+
 /** A "play" counts once the video actually starts playing. */
 export function recordPlay(u: KtUser, slug: string, idx: number): number {
   const db = readDB();
@@ -51,6 +86,7 @@ export function recordPlay(u: KtUser, slug: string, idx: number): number {
   const next = Math.min(MAX_VIEWS, (db[uk]?.[vk] ?? 0) + 1);
   db[uk] = { ...(db[uk] ?? {}), [vk]: next };
   writeDB(db);
+  pushPlay(slug, idx);
   return next;
 }
 
@@ -75,19 +111,34 @@ export function isDone(u: KtUser, slug: string, idx: number): boolean {
   return readDone()[userKeyOf(u)]?.[slug]?.includes(idx) ?? false;
 }
 
-export function recordDone(u: KtUser, slug: string, idx: number): void {
-  const db = readDone();
-  const uk = userKeyOf(u);
-  const list = db[uk]?.[slug] ?? [];
-  if (list.includes(idx)) return;
-  try {
-    window.localStorage.setItem(
-      DONE_KEY,
-      JSON.stringify({ ...db, [uk]: { ...(db[uk] ?? {}), [slug]: [...list, idx] } }),
-    );
-  } catch {
-    /* ignore */
-  }
+/**
+ * Completion requires genuinely watched time: >=80% of the lesson's nominal
+ * minutes, or burned views (>=3 plays, completion-equivalent per unlock rule).
+ * Seek jumps are never counted (see Watch accumulator) — dragging to the end
+ * no longer unlocks anything. Server re-checks against DB-side minutes.
+ */
+export function watchRequirementMet(u: KtUser, slug: string, idx: number, watchedSecs: number, nominalMins: number): boolean {
+  if (getViews(u, slug, idx) >= MAX_VIEWS) return true;
+  if (nominalMins > 0 && watchedSecs >= nominalMins * 60 * 0.8) return true;
+  return false;
+}
+
+export function recordDone(
+  u: KtUser,
+  slug: string,
+  idx: number,
+  watchedSecs = 0,
+  nominalMins = 10,
+): boolean {
+  if (!watchRequirementMet(u, slug, idx, watchedSecs, nominalMins)) return false;
+  setDoneFlag(u, slug, idx);
+  if (typeof window === "undefined") return true;
+  void import("./lib/db/sync")
+    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs, nominalMins * 60))
+    .catch(() => {
+      /* offline — local flag stays */
+    });
+  return true;
 }
 
 /** Testing helper: wipe this user's views + completions so the watch flow can be retested. */
