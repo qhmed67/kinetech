@@ -71,7 +71,6 @@ export type ContentStore = {
 };
 
 const KEY = "kt-content-v1";
-const ADMIN_KEY = "kt-admin";
 
 /* ---------------- persistence + reactivity ---------------- */
 
@@ -85,9 +84,33 @@ export function getLastStoreError(): string {
   return lastStoreError;
 }
 
+/* Security: gated video/attachment URLs (unlisted YouTube, exam links) must
+   never sit in plain localStorage where DevTools can exfiltrate them.
+   Memory keeps full URLs for the session; disk keeps only bundled/relative
+   assets. Cloud rehydrate restores gated URLs for entitled users. */
+function isGatedUrl(u: string): boolean {
+  return /^(https?:|data:)/i.test(u.trim());
+}
+
+function toPersistable(s: ContentStore | null): ContentStore | null {
+  if (!s) return null;
+  return {
+    ...s,
+    courses: s.courses.map((c) => ({
+      ...c,
+      videos: c.videos.map((v) => ({
+        ...v,
+        src: isGatedUrl(v.src) ? "" : v.src,
+        assign: isGatedUrl(v.assign) ? "" : v.assign,
+        exam: isGatedUrl(v.exam) ? "" : v.exam,
+      })),
+    })),
+  };
+}
+
 function persist(): boolean {
   try {
-    const text = JSON.stringify(cache);
+    const text = JSON.stringify(toPersistable(cache));
     window.localStorage.setItem(KEY, text);
     lastStoreError = "";
     return true;
@@ -192,31 +215,51 @@ function healVideoSrc(courses: StoreCourse[]): boolean {
   return fixed;
 }
 
+/* Supabase is source of truth when configured: local cache seeds instantly,
+   then hydrateStoreFromDb() replaces it in the background and notifies. */
+let cloudKick = false;
+function kickCloudHydrate(): void {
+  if (cloudKick || typeof window === "undefined") return;
+  cloudKick = true;
+  void import("./lib/db/sync")
+    .then((m) => m.hydrateStoreFromDb())
+    .catch(() => {
+      /* offline — seeds stay */
+    });
+}
+
+/** Replace the whole cache (cloud hydrate). Persists + notifies like commit. */
+export function replaceStore(next: ContentStore): void {
+  cache = next;
+  commit();
+}
+
 export function loadStore(): ContentStore {
-  if (cache) return cache;
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ContentStore;
-      if (parsed && (parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.courses)) {
-        // heal runs on EVERY load: any stale sample URL becomes the bundled video
-        parsed.v = 3;
-        healVideoSrc(parsed.courses);
-        cache = parsed;
-        persist();
-        return cache;
+  if (!cache) {
+    try {
+      const raw = window.localStorage.getItem(KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as ContentStore;
+        if (parsed && (parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.courses)) {
+          // heal runs on EVERY load: any stale sample URL becomes the bundled video
+          parsed.v = 3;
+          healVideoSrc(parsed.courses);
+          cache = parsed;
+          persist();
+        } else if (parsed && (parsed as unknown as { v: number }).v === 1 && Array.isArray(parsed.courses)) {
+          cache = migrateV1(parsed as unknown as V1Store);
+          persist();
+        }
       }
-      if (parsed && (parsed as unknown as { v: number }).v === 1 && Array.isArray(parsed.courses)) {
-        cache = migrateV1(parsed as unknown as V1Store);
-        persist();
-        return cache;
-      }
+    } catch {
+      /* fall through to seed */
     }
-  } catch {
-    /* fall through to seed */
+    if (!cache) {
+      cache = seed();
+      persist();
+    }
   }
-  cache = seed();
-  persist();
+  kickCloudHydrate();
   return cache;
 }
 
@@ -427,18 +470,31 @@ export function getPosts(lang: Lang, slug: "marketing" | "software" | "design"):
 
 /* ---------------- writes (admin) ---------------- */
 
+/** Best-effort cloud write-through (requires Supabase admin session; local always wins for UI). */
+function pushToCloud(fn: (m: typeof import("./lib/db/sync")) => Promise<unknown>): void {
+  if (typeof window === "undefined") return;
+  void import("./lib/db/sync")
+    .then((m) => fn(m))
+    .catch(() => {
+      /* RLS/offline — local change stays */
+    });
+}
+
 export function saveCourse(course: StoreCourse): boolean {
   const s = loadStore();
   const i = s.courses.findIndex((c) => c.slug === course.slug);
   if (i >= 0) s.courses[i] = course;
   else s.courses.push(course);
-  return commit();
+  const ok = commit();
+  pushToCloud((m) => m.pushCourseToDb(course));
+  return ok;
 }
 
 export function deleteCourse(slug: string): void {
   const s = loadStore();
   s.courses = s.courses.filter((c) => c.slug !== slug);
   commit();
+  pushToCloud((m) => m.pushDeleteCourseToDb(slug));
 }
 
 export function getRawCourse(slug: string): StoreCourse | null {
@@ -452,11 +508,13 @@ export function saveService(
 ): void {
   loadStore().services[slug] = svc;
   commit();
+  pushToCloud((m) => m.pushServiceToDb(slug, svc));
 }
 
 export function saveProcess(process: { en: Module[]; ar: Module[] }): void {
   loadStore().services.process = process;
   commit();
+  pushToCloud((m) => m.pushProcessToDb(process));
 }
 
 export function resetStore(): void {
@@ -464,42 +522,35 @@ export function resetStore(): void {
   commit();
 }
 
-/** Restore the 3 built-in courses, keep services edits. */
+/** Restore the built-in courses, keep services edits.
+   Cloud-aware: re-pushes seeds (id-preserving, student progress intact) and
+   deletes custom courses remotely too — otherwise the next hydrate would
+   resurrect everything just "deleted". */
 export function resetCourses(): void {
   const s = loadStore();
-  s.courses = seed().courses;
+  const fresh = seed().courses;
+  const keep = new Set(fresh.map((c) => c.slug));
+  const doomed = s.courses.map((c) => c.slug).filter((slug) => !keep.has(slug));
+  s.courses = fresh;
   commit();
-}
-
-/* ---------------- mock admin auth ---------------- */
-
-export const ADMIN_USER = "admin";
-export const ADMIN_PASS = "1234";
-
-export function isAdmin(): boolean {
-  try {
-    return window.localStorage.getItem(ADMIN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function adminLogin(u: string, p: string): boolean {
-  if (u.trim() === ADMIN_USER && p === ADMIN_PASS) {
-    try {
-      window.localStorage.setItem(ADMIN_KEY, "1");
-    } catch {
-      /* ignore */
+  pushToCloud(async (m) => {
+    for (const c of fresh) {
+      try {
+        await m.pushCourseToDb(c);
+      } catch {
+        /* keep going */
+      }
     }
-    return true;
-  }
-  return false;
+    for (const slug of doomed) {
+      try {
+        await m.pushDeleteCourseToDb(slug);
+      } catch {
+        /* keep going */
+      }
+    }
+  });
 }
 
-export function adminLogout(): void {
-  try {
-    window.localStorage.removeItem(ADMIN_KEY);
-  } catch {
-    /* ignore */
-  }
-}
+/* Admin auth is Supabase-only (verified profiles.role via adminGuard).
+   The legacy localStorage flag + hardcoded credentials were removed —
+   client-side flags are forgeable and must never gate protected routes. */

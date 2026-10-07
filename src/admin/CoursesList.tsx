@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { deleteCourse, loadStore, resetCourses, useContent } from "../store";
-import { getUser, setUser } from "../auth";
+import { getUser } from "../auth";
 import { resetProgress } from "../watch";
 import { useLang } from "../components/lang";
+import { isSupabaseConfigured } from "../lib/db/env";
+import { throttle } from "../lib/db/throttle";
 
 export function CoursesList() {
   const { lang, t } = useLang();
@@ -10,21 +12,32 @@ export function CoursesList() {
   useContent();
   const courses = loadStore().courses;
   const [viewsReset, setViewsReset] = useState(false);
+  const [reqState, setReqState] = useState<Record<string, string>>({});
 
-  const enrollTest = (slug: string) => {
-    const u = getUser() ?? {
-      name: "Test Student",
-      email: "test@kintech.local",
-      enrolled: ["python-data", "solidworks"],
-      tracks: ["courses"],
-    };
-    if (!u.enrolled.includes(slug)) {
-      setUser({ ...u, enrolled: [...u.enrolled, slug] });
-    } else {
-      setUser(u);
+  // Real enrollment request (pending → admin approves). No fabricated users:
+  // requires a signed-in Supabase session; otherwise the student signs in first.
+  const enrollTest = async (slug: string) => {
+    if (!throttle(`enroll-${slug}`, 3000)) return;
+    const u = getUser();
+    if (!u) {
+      window.alert(a.needStudent);
+      return;
     }
-    // App holds its own copy of the user — reload so every page sees it
-    window.location.reload();
+    if (!isSupabaseConfigured()) {
+      window.alert(a.needStudent);
+      return;
+    }
+    setReqState((s) => ({ ...s, [slug]: "…" }));
+    try {
+      const { requestEnrollmentDb } = await import("../lib/db/enrollmentsDb");
+      const status = await requestEnrollmentDb(slug);
+      setReqState((s) => ({
+        ...s,
+        [slug]: status === "approved" ? "✓" : lang === "ar" ? "قيد المراجعة" : "Pending review",
+      }));
+    } catch {
+      setReqState((s) => ({ ...s, [slug]: "!" }));
+    }
   };
 
   return (
@@ -95,11 +108,11 @@ export function CoursesList() {
           <div className="flex flex-none flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => enrollTest(c.slug)}
+              onClick={() => void enrollTest(c.slug)}
               className="btn btn-primary"
               style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
             >
-              {a.testWatch}
+              {reqState[c.slug] ?? a.testWatch}
             </button>
             <a
               href={`#/admin/courses/${c.slug}`}

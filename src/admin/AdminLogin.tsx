@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { adminLogin, isAdmin } from "../store";
+import { useEffect, useState } from "react";
 import { useLang } from "../components/lang";
 import { Field, Text } from "./ui";
+import { isSupabaseConfigured } from "../lib/db/env";
+import { checkAdmin } from "../lib/db/adminGuard";
+import { throttle } from "../lib/db/throttle";
 
 export function AdminLogin() {
   const { t, toggle } = useLang();
@@ -9,11 +11,41 @@ export function AdminLogin() {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  if (isAdmin()) {
-    window.location.hash = "#/admin/dashboard";
-    return null;
-  }
+  useEffect(() => {
+    let alive = true;
+    if (isSupabaseConfigured()) {
+      void checkAdmin().then((ok) => {
+        if (alive && ok) window.location.hash = "#/admin/dashboard";
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || !throttle("admin-login", 3000)) return;
+    setErr(false);
+    if (!isSupabaseConfigured()) {
+      // No backdoor: without Supabase there is no admin auth at all.
+      setErr(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { signInWithDb } = await import("../auth");
+      await signInWithDb(u.trim(), p);
+      if (await checkAdmin()) window.location.hash = "#/admin/dashboard";
+      else setErr(true);
+    } catch {
+      setErr(true);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <main id="content" className="section">
@@ -39,11 +71,7 @@ export function AdminLogin() {
           </button>
           <form
             className="mt-6 grid gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (adminLogin(u, p)) window.location.hash = "#/admin/dashboard";
-              else setErr(true);
-            }}
+            onSubmit={submit}
           >
             <Field label={a.userL}>
               <Text value={u} onChange={(e) => setU(e.target.value)} autoComplete="username" dir="ltr" />
@@ -56,7 +84,7 @@ export function AdminLogin() {
                 {a.loginErr}
               </p>
             )}
-            <button type="submit" className="btn btn-primary w-full">
+            <button type="submit" className="btn btn-primary w-full" disabled={busy}>
               {a.loginBtn}
             </button>
           </form>
