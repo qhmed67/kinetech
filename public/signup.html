@@ -145,7 +145,9 @@ window.syncTrackLabel(dict());
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";
 // Runtime-injected, never committed. Deploy must provide supabase-config.js.
-const sb = createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__);
+// Fail closed when the build ran without env vars: no client, clear error.
+const cfgOk = Boolean(window.__SUPABASE_URL__ && window.__SUPABASE_ANON_KEY__);
+const sb = cfgOk ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
 const COOLDOWN_MS = 3000;
 let lastTry = 0;
 let busy = false;
@@ -195,6 +197,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
   btn.disabled = true;
   window.runAuthLoader(btn, ['upS1', 'upS2', 'upS3'], 'upDone', async function() {
     try {
+      if (!sb) throw new Error('Auth service is not configured. Please try again later.');
       // Stash for the email-confirmation flow (signin completes the profile).
       try {
         window.sessionStorage.setItem('kt-pending-signup', JSON.stringify({
