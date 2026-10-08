@@ -136,6 +136,37 @@ export async function resetUserViews(userId: string, courseSlug: string): Promis
   return count ?? 0;
 }
 
+/**
+ * Per-course watch summary for the admin card: how many lessons the user
+ * finished out of the course total. Lets the admin SEE the reset work.
+ */
+export async function getUserCourseViews(
+  userId: string,
+  courseSlug: string,
+): Promise<{ done: number; total: number }> {
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) return { done: 0, total: 0 };
+  const [{ data: vids }, { data: views }] = await withTimeout(
+    Promise.all([
+      sb.from("videos").select("id").eq("course_id", courseId),
+      sb.from("video_views").select("video_id,done").eq("user_id", userId),
+    ]),
+    NETWORK_TIMEOUT_MS,
+    "views-summary",
+  );
+  const ids = new Set(((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id));
+  if (ids.size === 0) return { done: 0, total: 0 };
+  const done = ((views ?? []) as unknown as Array<{ video_id: string; done: boolean }>)
+    .filter((w) => w.done && ids.has(w.video_id)).length;
+  return { done, total: ids.size };
+}
+
 /** Suspend / unsuspend. Banned users are signed out and blocked everywhere. */
 export async function setBanned(userId: string, banned: boolean): Promise<void> {
   const sb = authed();

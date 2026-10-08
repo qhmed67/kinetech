@@ -3,6 +3,7 @@ import { loadStore, useContent, type StoreCourse } from "../store";
 import { useLang } from "../components/lang";
 import {
   deleteProfile,
+  getUserCourseViews,
   grantEnrollment,
   listOrphans,
   resetUserViews,
@@ -142,6 +143,23 @@ export function UsersManager() {
   const [found, setFound] = useState<FoundUser | null>(null);
   const [err, setErr] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
+  const [progress, setProgress] = useState<Record<string, { done: number; total: number }>>({});
+  const [resetOk, setResetOk] = useState("");
+
+  const loadProgress = async (userId: string, slugs: string[]) => {
+    const entries = await Promise.all(
+      slugs.map(async (slug) => {
+        try {
+          return [slug, await getUserCourseViews(userId, slug)] as const;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const next: Record<string, { done: number; total: number }> = {};
+    for (const e of entries) if (e) next[e[0]] = e[1];
+    setProgress(next);
+  };
   const [orphans, setOrphans] = useState<Orphan[] | null>(null);
   const [orphanBusy, setOrphanBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -181,9 +199,12 @@ export function UsersManager() {
       const r = await searchUser(kind, term);
       setFound(r);
       setSearched(true);
+      setProgress({});
+      setResetOk("");
       if (r) {
         const first = courses.find((c) => !r.enrolled.includes(c.slug))?.slug ?? "";
         setGrantSlug(first);
+        void loadProgress(r.id, r.enrolled);
       }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "error");
@@ -292,20 +313,34 @@ export function UsersManager() {
               <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{u.noneYet}</p>
             ) : (
               <ul className="mt-2 grid gap-2">
-                {found.enrolled.map((slug) => (
+                {found.enrolled.map((slug) => {
+                  const pg = progress[slug];
+                  return (
                   <li key={slug} className="flex items-center justify-between gap-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
-                    <span className="font-bold">{courseName(slug)}</span>
+                    <span className="font-bold">
+                      {courseName(slug)}
+                      {pg && (
+                        <span dir="ltr" className="ms-2 font-medium tabular-nums" style={{ color: "var(--muted)" }}>
+                          {pg.done}/{pg.total}
+                        </span>
+                      )}
+                    </span>
                     <span className="flex flex-none items-center gap-3">
                       <button
                         type="button"
                         onClick={() => {
                           if (!window.confirm(u.confirmResetViews)) return;
-                          void act(() => resetUserViews(found.id, slug));
+                          setResetOk("");
+                          void act(() => resetUserViews(found.id, slug), () => {
+                            setResetOk(slug);
+                            void loadProgress(found.id, found.enrolled);
+                            window.setTimeout(() => setResetOk(""), 2500);
+                          });
                         }}
                         className="text-sm font-bold"
                         style={{ color: "var(--accent)" }}
                       >
-                        {u.resetViews}
+                        {resetOk === slug ? "✓" : u.resetViews}
                       </button>
                       <button
                         type="button"
@@ -317,7 +352,8 @@ export function UsersManager() {
                       </button>
                     </span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
             <div className="mt-3 flex flex-wrap gap-2">

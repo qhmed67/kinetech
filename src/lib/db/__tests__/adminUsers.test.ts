@@ -14,7 +14,7 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { grantEnrollment, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { getUserCourseViews, grantEnrollment, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -90,6 +90,27 @@ describe("resetUserViews", () => {
     };
     mockedSupabase.mockReturnValue(sb as never);
     await expect(resetUserViews("u1", "python-data")).resolves.toBe(3);
+  });
+});
+
+describe("getUserCourseViews", () => {
+  it("counts done lessons within the course only", async () => {
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos") return query({ data: [{ id: "v1" }, { id: "v2" }, { id: "v3" }], error: null });
+        return query({
+          data: [
+            { video_id: "v1", done: true },
+            { video_id: "v2", done: false },
+            { video_id: "other", done: true },
+          ],
+          error: null,
+        });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(getUserCourseViews("u1", "python-data")).resolves.toEqual({ done: 1, total: 3 });
   });
 });
 
