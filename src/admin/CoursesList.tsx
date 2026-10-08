@@ -4,8 +4,6 @@ import { getUser } from "../auth";
 import { SafeImg } from "../components/SafeImg";
 import { resetProgress } from "../watch";
 import { useLang } from "../components/lang";
-import { isSupabaseConfigured } from "../lib/db/env";
-import { throttle } from "../lib/db/throttle";
 
 export function CoursesList() {
   const { lang, t } = useLang();
@@ -13,33 +11,6 @@ export function CoursesList() {
   useContent();
   const courses = loadStore().courses;
   const [viewsReset, setViewsReset] = useState(false);
-  const [reqState, setReqState] = useState<Record<string, string>>({});
-
-  // Real enrollment request (pending → admin approves). No fabricated users:
-  // requires a signed-in Supabase session; otherwise the student signs in first.
-  const enrollTest = async (slug: string) => {
-    if (!throttle(`enroll-${slug}`, 3000)) return;
-    const u = getUser();
-    if (!u) {
-      window.alert(a.needStudent);
-      return;
-    }
-    if (!isSupabaseConfigured()) {
-      window.alert(a.needStudent);
-      return;
-    }
-    setReqState((s) => ({ ...s, [slug]: "…" }));
-    try {
-      const { requestEnrollmentDb } = await import("../lib/db/enrollmentsDb");
-      const status = await requestEnrollmentDb(slug);
-      setReqState((s) => ({
-        ...s,
-        [slug]: status === "approved" ? "✓" : lang === "ar" ? "قيد المراجعة" : "Pending review",
-      }));
-    } catch {
-      setReqState((s) => ({ ...s, [slug]: "!" }));
-    }
-  };
 
   return (
     <div className="grid gap-4">
@@ -104,14 +75,6 @@ export function CoursesList() {
             </p>
           </div>
           <div className="flex flex-none flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void enrollTest(c.slug)}
-              className="btn btn-primary"
-              style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
-            >
-              {reqState[c.slug] ?? a.testWatch}
-            </button>
             <a
               href={`#/admin/courses/${c.slug}`}
               className="btn btn-secondary"

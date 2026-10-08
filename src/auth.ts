@@ -29,7 +29,7 @@ export function getUser(): KtUser | null {
     const u = JSON.parse(raw) as Partial<KtUser>;
     if (typeof u.name !== "string" || !u.name) return null;
     // migrate older records that predate enrollment/tracks/phone.
-    // No auto-enrollment: slugs arrive only from approved server enrollments.
+    // No enrollment model (WhatsApp-only): access = signed-in user.
     const tracks = Array.isArray(u.tracks) && u.tracks.length > 0
       ? u.tracks
       : [...DEFAULT_TRACKS];
@@ -52,7 +52,7 @@ export function setUser(u: KtUser) {
 }
 
 /* Same-tab reactivity: App subscribes; cloud sync notifies after adopting
-   server session/enrollments (storage events only fire cross-tab). */
+   the server session (storage events only fire cross-tab). */
 type UserListener = () => void;
 const userListeners = new Set<UserListener>();
 

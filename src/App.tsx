@@ -81,7 +81,7 @@ export default function App() {
 
   useEffect(() => {
     // Supabase source of truth: catalog hydrate runs via store on first read;
-    // here adopt server session/enrollments/watch progress when configured.
+    // here adopt server session/watch progress when configured.
     const unsub = subscribeUserChanged(() => setUser(getUser()));
     void import("./lib/db/sync")
       .then((m) => m.bootstrapFromCloud(() => setUser(getUser())))

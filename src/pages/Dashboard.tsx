@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { courseExists, getCourse, getVideos, useContent } from "../store";
+import { getCourse, getVideos, listCourses, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { isDone } from "../watch";
 import { SafeImg } from "../components/SafeImg";
@@ -87,7 +87,6 @@ export function Dashboard({
     typeof x === "string" && (TABS as readonly string[]).includes(x);
   const [active, setActive] = useState<Tab>(isTab(tab) ? tab : "overview");
   const [spacesOpen, setSpacesOpen] = useState(false);
-  const [pending, setPending] = useState<string[]>([]);
   const [sessions, setSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
   const [notifs, setNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
 
@@ -142,24 +141,6 @@ export function Dashboard({
   };
   const unread = (notifs ?? []).filter((n) => !n.is_read).length;
 
-  // Pending enrollment requests (server truth) — approvals land via bootstrap.
-  useEffect(() => {
-    if (!isSupabaseConfigured() || !user) return;
-    let alive = true;
-    void import("../lib/db/enrollmentsDb")
-      .then((m) => m.myEnrollmentsDb())
-      .then((list) => {
-        if (!alive) return;
-        setPending(list.filter((e) => e.status === "pending").map((e) => e.slug));
-      })
-      .catch(() => {
-        /* stay empty */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [user?.email]);
-
   useEffect(() => {
     // Wait for cloud bootstrap: a valid server session restores shortly.
     if (ready && !user) window.location.href = "signin.html";
@@ -173,7 +154,8 @@ export function Dashboard({
 
   if (!user) return null;
 
-  const enrolledSlugs = (user.enrolled ?? []).filter(courseExists);
+  // No enrollment model (WhatsApp-only): every signed-in user sees all courses.
+  const enrolledSlugs = user ? listCourses(lang).map((c) => c.slug) : [];
   const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
   const progBySlug = new Map(enrolledSlugs.map((s) => [s, courseProgress(user, s)]));
   const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);
@@ -413,21 +395,6 @@ export function Dashboard({
                   lockedCard(d.noCoursesT, d.noCoursesD, d.turnOn, () => setModal("courses"))
                 ) : enrolledSlugs.length === 0 ? (
                   <div className="grid gap-4">
-                    {pending.length > 0 && (
-                      <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
-                        <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                          {d.pendingT}
-                        </p>
-                        <ul className="mt-2 grid gap-1.5 text-sm" style={{ color: "var(--muted)" }}>
-                          {pending.map((slug) => (
-                            <li key={slug}>— {getCourse(lang, slug)?.name ?? slug}</li>
-                          ))}
-                        </ul>
-                        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-                          {d.pendingD}
-                        </p>
-                      </div>
-                    )}
                     <p style={{ color: "var(--muted)" }}>{d.noCoursesD}</p>
                     <a href="#/courses" className="text-[15px] font-bold" style={{ color: "var(--accent)" }}>
                       {d.explore}

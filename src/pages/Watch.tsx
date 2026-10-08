@@ -262,22 +262,15 @@ export function Watch({
   // nothing (server re-validates against DB-side minutes).
   const watchAcc = useRef({ last: 0, total: 0 });
 
-  const enrolled = !!user && user.enrolled.includes(slug);
+  // No enrollment model (WhatsApp-only): any signed-in user may watch.
+  // Server still enforces sign-in + 3-view cap + sequential unlock per video.
+  const enrolled = !!user;
 
   useEffect(() => {
     if (ready && !user) {
       window.location.href = "signin.html";
-      return;
     }
-    if (!enrolled) {
-      try {
-        window.sessionStorage.setItem("kt-watch-denied", "1");
-      } catch {
-        /* ignore */
-      }
-      window.location.hash = `#/courses/${slug}`;
-    }
-  }, [user, enrolled, slug]);
+  }, [user, ready]);
 
   useEffect(() => {
     counted.current = false;

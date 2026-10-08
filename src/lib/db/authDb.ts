@@ -28,7 +28,7 @@ export type SessionUser = {
   phone: string;
   role: DbRole;
   tracks: TrackId[];
-  /** approved course slugs only (pending excluded until admin approves) */
+  /** Unused (no enrollment model) — kept for shape compat, always []. */
   enrolled: string[];
 };
 
@@ -80,21 +80,19 @@ export async function signInDb(email: string, password: string): Promise<Session
   return loadSessionUser(data.user.id);
 }
 
-/** One profiles row + tracks + approved enrollments. No SELECT *. */
+/** One profiles row + tracks. No SELECT *. */
 export async function loadSessionUser(uid: string): Promise<SessionUser> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const [{ data: p, error }, { data: tr }, { data: en }] = await withTimeout(
+  const [{ data: p, error }, { data: tr }] = await withTimeout(
     Promise.all([
       sb.from("profiles").select("id,email,name,phone,role").eq("id", uid).single(),
       sb.from("user_tracks").select("track").eq("user_id", uid),
-      sb.from("enrollments").select("course_id,courses!inner(slug)").eq("user_id", uid).eq("status", "approved"),
     ]),
     NETWORK_TIMEOUT_MS,
     "session",
   );
   if (error || !p) throw error ?? new Error("profile missing");
-  const enRows = (en ?? []) as unknown as Array<{ courses: { slug: string } | Array<{ slug: string }> }>;
   return {
     id: (p as DbProfile).id,
     email: (p as DbProfile).email,
@@ -102,7 +100,7 @@ export async function loadSessionUser(uid: string): Promise<SessionUser> {
     phone: (p as DbProfile).phone ?? "",
     role: (p as DbProfile).role,
     tracks: ((tr ?? []) as { track: TrackId }[]).map((t) => t.track),
-    enrolled: enRows.map((e) => (Array.isArray(e.courses) ? e.courses[0]?.slug : e.courses.slug)).filter(Boolean) as string[],
+    enrolled: [],
   };
 }
 

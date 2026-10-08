@@ -270,7 +270,16 @@ export async function hydrateWatchForUser(): Promise<void> {
   const sb = supabase();
   const user = getUser();
   if (!sb || !user) return;
-  for (const slug of user.enrolled ?? []) {
+  // No enrollment model: any signed-in user may watch, so hydrate every
+  // catalog course (server still enforces sign-in + 3-view cap per video).
+  let slugs: string[];
+  try {
+    const { loadStore } = await import("../../store");
+    slugs = loadStore().courses.map((c) => c.slug);
+  } catch {
+    return;
+  }
+  for (const slug of slugs) {
     try {
       const rows = await withTimeout(getWatchStateDb(slug, "en"), NETWORK_TIMEOUT_MS, "watch-state");
       for (const r of rows) {
@@ -279,7 +288,7 @@ export async function hydrateWatchForUser(): Promise<void> {
         if (r.done) setDoneFlag(user, slug, r.sort_order);
       }
     } catch {
-      /* not enrolled/approved yet — local stays */
+      /* signed out / offline — local stays */
     }
   }
 }
@@ -341,7 +350,7 @@ export async function pushDoneToCloud(
   }
 }
 
-/* ---------------- session + enrollments: DB -> local ---------------- */
+/* ---------------- session: DB -> local ---------------- */
 
 export async function restoreDbSession(): Promise<boolean> {
   const sb = supabase();
@@ -357,41 +366,12 @@ export async function restoreDbSession(): Promise<boolean> {
       name: s.name || local?.name || "Student",
       email: s.email,
       phone: s.phone || local?.phone || "",
-      enrolled: s.enrolled.length > 0 ? s.enrolled : (local?.enrolled ?? []),
+      // No enrollment model (WhatsApp-only): access = signed-in user.
+      enrolled: [],
       tracks: s.tracks.length > 0 ? [...s.tracks] : (local?.tracks ?? ["courses"]),
     });
     notifyUserChanged();
     return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Approved slugs win over local mock list. */
-export async function refreshEnrollmentsFromCloud(): Promise<boolean> {
-  const sb = supabase();
-  const user = getUser();
-  if (!sb || !user) return false;
-  try {
-    const { data: session } = await withTimeout(sb.auth.getSession(), NETWORK_TIMEOUT_MS, "session");
-    const uid = session.session?.user.id;
-    if (!uid) return false;
-    // Postgrest builders are thenable, not real promises — resolve first.
-    const { data } = await withTimeout(
-      (async () => sb.from("enrollments").select("courses!inner(slug)").eq("user_id", uid).eq("status", "approved"))(),
-      NETWORK_TIMEOUT_MS,
-      "enrollments",
-    );
-    const slugs = ((data ?? []) as unknown as Array<{ courses: { slug: string } | Array<{ slug: string }> }>)
-      .map((r) => (Array.isArray(r.courses) ? r.courses[0]?.slug : r.courses.slug))
-      .filter(Boolean) as string[];
-    const cur = [...(user.enrolled ?? [])].sort().join(",");
-    if ([...slugs].sort().join(",") !== cur) {
-      setUser({ ...user, enrolled: slugs });
-      notifyUserChanged();
-      return true;
-    }
-    return false;
   } catch {
     return false;
   }
@@ -414,7 +394,7 @@ export async function addTrackToCloud(track: string): Promise<void> {
   }
 }
 
-/** One call for App mount: catalog, session, enrollments, watch progress.
+/** One call for App mount: catalog, session, watch progress.
    Never rejects; never leaves the guard set; onUser errors can't break it. */
 export async function bootstrapFromCloud(onUser: () => void): Promise<void> {
   if (bootstrapRunning) return;
@@ -436,11 +416,6 @@ export async function bootstrapFromCloud(onUser: () => void): Promise<void> {
       if (await restoreDbSession()) safeUser();
     } catch {
       /* keep local session */
-    }
-    try {
-      if (await refreshEnrollmentsFromCloud()) safeUser();
-    } catch {
-      /* keep local list */
     }
     try {
       await hydrateWatchForUser();
@@ -573,7 +548,7 @@ export async function pushDeleteCourseToDb(slug: string): Promise<void> {
   await sb.from("courses").delete().eq("slug", slug);
 }
 
-/** NOTE: deleting a course cascades its enrollments + views server-side. */
+/** NOTE: deleting a course cascades its views server-side. */
 export async function pushServiceToDb(
   slug: "marketing" | "software" | "design",
   svc: StoreService,
