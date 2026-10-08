@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { loadStore, useContent } from "../store";
+import { useEffect, useRef, useState } from "react";
+import { loadStore, useContent, type StoreCourse } from "../store";
 import { useLang } from "../components/lang";
 import {
   deleteProfile,
@@ -13,6 +13,116 @@ import {
   type SearchKind,
 } from "../lib/db/adminUsers";
 import { groupCoursesAlpha } from "../lib/alpha";
+
+/**
+ * Custom course picker: native <select> cannot style group headers, so this
+ * renders its own listbox — gray low-opacity letter, thin gray divider line
+ * under each letter, plain rows for the courses themselves.
+ */
+function AlphaCoursePicker({
+  courses,
+  lang,
+  value,
+  placeholder,
+  onPick,
+}: {
+  courses: StoreCourse[];
+  lang: "en" | "ar";
+  value: string;
+  placeholder: string;
+  onPick: (slug: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open ]);
+
+  const groups = groupCoursesAlpha(
+    courses,
+    (c) => c.name[lang] ?? c.name.en,
+    lang,
+  );
+  const selected = courses.find((c) => c.slug === value);
+
+  return (
+    <div ref={boxRef} className="relative min-w-0 flex-1 sm:flex-none">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-full border bg-white px-4 text-sm sm:w-64"
+        style={{ borderColor: "var(--kt-line)" }}
+      >
+        <span className="truncate" style={{ color: selected ? undefined : "var(--muted)" }}>
+          {selected ? (selected.name[lang] ?? selected.name.en) : placeholder}
+        </span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="h-4 w-4 flex-none" style={{ color: "var(--muted)" }}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label={placeholder}
+          className="absolute z-30 mt-2 max-h-72 w-full min-w-56 overflow-y-auto rounded-2xl border bg-white p-2 shadow-xl"
+          style={{ borderColor: "var(--kt-line)" }}
+        >
+          {groups.length === 0 && (
+            <p className="px-3 py-2 text-sm" style={{ color: "var(--muted)" }}>{placeholder}</p>
+          )}
+          {groups.map((g) => (
+            <div key={g.letter}>
+              <div aria-hidden="true" className="px-3 pb-1 pt-2">
+                <span
+                  className="block text-xs font-bold uppercase"
+                  style={{ color: "var(--kt-gray)", opacity: 0.65, fontFamily: "var(--font-display)" }}
+                >
+                  {g.letter}
+                </span>
+                <span aria-hidden="true" className="mt-1 block h-px w-full" style={{ background: "var(--kt-line)", opacity: 0.7 }} />
+              </div>
+              {g.items.map((c) => {
+                const label = c.name[lang] ?? c.name.en;
+                const active = c.slug === value;
+                return (
+                  <button
+                    key={c.slug}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onClick={() => {
+                      onPick(c.slug);
+                      setOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm transition-colors hover:bg-neutral-100"
+                    style={active ? { background: "var(--surface)", fontWeight: 700 } : undefined}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Admin user search + enrollment management.
@@ -197,26 +307,13 @@ export function UsersManager() {
               </ul>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
-              <select
+              <AlphaCoursePicker
+                courses={courses.filter((c) => !found.enrolled.includes(c.slug))}
+                lang={lang}
                 value={grantSlug}
-                onChange={(e) => setGrantSlug(e.target.value)}
-                aria-label={u.grantL}
-                className="min-h-[44px] rounded-full border bg-white px-4 text-sm"
-                style={{ borderColor: "var(--kt-line)" }}
-              >
-                <option value="">{u.grantL}</option>
-                {groupCoursesAlpha(
-                  courses.filter((c) => !found.enrolled.includes(c.slug)),
-                  (c) => c.name[lang] ?? c.name.en,
-                  lang,
-                ).map((g) => (
-                  <optgroup key={g.letter} label={g.letter}>
-                    {g.items.map((c) => (
-                      <option key={c.slug} value={c.slug}>{c.name[lang] ?? c.name.en}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                placeholder={u.grantL}
+                onPick={setGrantSlug}
+              />
               <button
                 type="button"
                 disabled={!grantSlug}
