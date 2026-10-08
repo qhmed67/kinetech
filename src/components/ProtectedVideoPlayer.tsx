@@ -358,12 +358,22 @@ export function ProtectedVideoPlayer({
         onDoubleClick={(e) => e.stopPropagation()}
       />
 
-      {/* Permanent top scrim: masks YouTube's title/avatar/share row in every
-          state (params alone can't remove it anymore). Pure brand chrome. */}
+      {/* Permanent top bar: fully masks YouTube's title/avatar/share row in
+          every state (params alone can't remove it anymore). Solid brand
+          chrome reads as our own header, not a cover-up. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 bg-gradient-to-b from-black/80 to-transparent"
-      />
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-12 items-center px-4"
+        style={{ background: "#000" }}
+      >
+        <span
+          aria-hidden="true"
+          className="text-sm font-bold tracking-wide text-white/90"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          KINE<span style={{ color: "var(--kt-teal)" }}>TECH</span>
+        </span>
+      </div>
 
       {/* Poster: covers the unstarted frame until first playback. */}
       {ready && !started && !failed && (
@@ -400,6 +410,15 @@ export function ProtectedVideoPlayer({
           {wmText}
         </div>
       )}
+
+      {/* Bottom-left brand bug: sits over YouTube's logo zone. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-20 left-3 z-20 rounded-md px-2 py-1 text-[11px] font-bold tracking-wide text-white"
+        style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
+      >
+        KINE<span style={{ color: "var(--kt-teal)" }}>TECH</span>
+      </div>
 
       {!ready && (
         <div className="absolute inset-0 z-20 grid animate-pulse place-items-center" style={{ background: "rgba(0,0,0,0.6)" }} aria-label="loading" />

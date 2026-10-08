@@ -213,6 +213,16 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
    so fullscreen goes through the watermarked container (double-click). */
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
+/* Guarded player frame: force the embed to exactly fill its mount in every
+   direction/mode — kills offset/letterbox drift from the iframe defaults. */
+.pvp iframe {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+  margin: 0;
+}
+
 /* Guarded player fullscreen: true viewport fill (no aspect lock, no radius),
    so the frame geometry never shifts — watermark + controls stay put. */
 .pvp:fullscreen {
