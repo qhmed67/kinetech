@@ -340,11 +340,10 @@ export async function pushDoneToCloud(
   slug: string,
   idx: number,
   watchedSecs = 0,
-  durationSecs = 0,
 ): Promise<void> {
   try {
     const id = await resolveVideoId(slug, idx);
-    if (id) await completeVideoDb(id, watchedSecs, durationSecs);
+    if (id) await completeVideoDb(id, watchedSecs);
   } catch {
     /* offline / requirement unmet — local decides UI, server decides truth */
   }
@@ -360,7 +359,18 @@ export async function restoreDbSession(): Promise<boolean> {
     const uid = data.session?.user.id;
     if (!uid) return false;
     const { loadSessionUser } = await import("./authDb");
-    const s = await loadSessionUser(uid);
+    let s;
+    try {
+      s = await loadSessionUser(uid);
+    } catch (ex) {
+      // Profile row gone (admin-deleted) but the auth account survives:
+      // kill the whole session so the orphan can never linger signed in.
+      if (ex instanceof Error && ex.message === "profile missing") {
+        const { signOutEverywhere } = await import("../../auth");
+        await signOutEverywhere();
+      }
+      return false;
+    }
     const local = getUser();
     setUser({
       name: s.name || local?.name || "Student",

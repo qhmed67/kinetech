@@ -17,14 +17,6 @@ const KEY = "kt-user";
 
 export const DEFAULT_TRACKS: string[] = ["courses"];
 
-/** Signup category (data-en value) → account track. */
-export function trackForCategory(cat: string): TrackId {
-  if (cat.includes("Marketing")) return "marketing";
-  if (cat.includes("Software")) return "programming";
-  if (cat.includes("Design")) return "design";
-  return "courses";
-}
-
 export function getUser(): KtUser | null {
   try {
     const raw = window.localStorage.getItem(KEY);

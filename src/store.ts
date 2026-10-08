@@ -198,15 +198,20 @@ function seed(): ContentStore {
   };
 }
 
-/** v2 → v3: rename of the bundled sample video rewrites stale saved srcs. */
+/** v2 → v3: rename of the bundled sample video rewrites stale saved srcs.
+    Narrow exact-filename match only — never touch admin-pasted URLs that
+    merely share a host prefix. */
 const OLD_SAMPLE = "assets/2026-08-05%2002-46-32.mp4";
-const SAMPLE_PREFIX = "https://storage.googleapis.com/gtv-videos-bucket/";
+const OLD_GTV_SAMPLES = [
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+];
 const NEW_SAMPLE = "assets/vid.mp4";
 function healVideoSrc(courses: StoreCourse[]): boolean {
   let fixed = false;
   for (const c of courses) {
     for (const v of c.videos) {
-      if (v.src === OLD_SAMPLE || v.src.startsWith(SAMPLE_PREFIX)) {
+      if (v.src === OLD_SAMPLE || OLD_GTV_SAMPLES.includes(v.src)) {
         v.src = NEW_SAMPLE;
         fixed = true;
       }

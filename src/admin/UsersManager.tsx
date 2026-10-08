@@ -4,10 +4,12 @@ import { useLang } from "../components/lang";
 import {
   deleteProfile,
   grantEnrollment,
+  listOrphans,
   revokeEnrollment,
   searchUser,
   setBanned,
   type FoundUser,
+  type Orphan,
   type SearchKind,
 } from "../lib/db/adminUsers";
 
@@ -28,6 +30,34 @@ export function UsersManager() {
   const [found, setFound] = useState<FoundUser | null>(null);
   const [err, setErr] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
+  const [orphans, setOrphans] = useState<Orphan[] | null>(null);
+  const [orphanBusy, setOrphanBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const loadOrphans = async () => {
+    if (orphanBusy) return;
+    setOrphanBusy(true);
+    setErr("");
+    try {
+      setOrphans(await listOrphans());
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "error");
+    } finally {
+      setOrphanBusy(false);
+    }
+  };
+
+  const copyCleanupSql = async () => {
+    if (!orphans || orphans.length === 0) return;
+    const sql = `delete from auth.users where id in (\n${orphans.map((o) => `  '${o.user_id}'`).join(",\n")}\n);`;
+    try {
+      await navigator.clipboard.writeText(sql);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setErr(sql);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,6 +247,48 @@ export function UsersManager() {
           </div>
         </div>
       )}
+
+      <div className="grid gap-3 rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
+        <div>
+          <h2 className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>{u.orphansT}</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{u.orphansD}</p>
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={() => void loadOrphans()}
+            disabled={orphanBusy}
+            className="btn btn-secondary disabled:opacity-60"
+            style={{ minHeight: 44 }}
+          >
+            {u.loadOrphans}
+          </button>
+        </div>
+        {orphans !== null && (
+          orphans.length === 0 ? (
+            <p className="text-sm font-bold" style={{ color: "var(--kt-teal)" }}>{u.noneOrphans}</p>
+          ) : (
+            <div className="grid gap-2">
+              <ul className="grid gap-2">
+                {orphans.map((o) => (
+                  <li key={o.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
+                    <span dir="ltr" className="font-bold">{o.email}</span>
+                    <span style={{ color: "var(--muted)" }}>{new Date(o.created_at).toLocaleDateString()}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={() => void copyCleanupSql()}
+                className="btn btn-secondary self-start"
+                style={{ minHeight: 44 }}
+              >
+                {copied ? u.copied : u.copySql}
+              </button>
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }
