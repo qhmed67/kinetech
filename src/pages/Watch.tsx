@@ -4,6 +4,7 @@ import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
 import { isYoutubeSource } from "../lib/videoGuard";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
+import { isSupabaseConfigured } from "../lib/db/env";
 import {
   MAX_VIEWS,
   getViews,
@@ -11,6 +12,8 @@ import {
   isUnlocked,
   recordDone,
   recordPlay,
+  setDoneFlag,
+  setViewsCount,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
@@ -284,6 +287,32 @@ export function Watch({
     setOpen(video);
     window.scrollTo(0, 0);
   }, [slug, video]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Server truth wins on page open: an admin restart (or another device)
+  // only reaches this browser by re-reading — local cache alone would show
+  // stale burned-out counts forever.
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user || !course) return;
+    let alive = true;
+    void import("../lib/db/watchDb")
+      .then((m) => m.getWatchStateDb(slug, lang))
+      .then((rows) => {
+        if (!alive) return;
+        for (const r of rows) {
+          setViewsCount(user, slug, r.sort_order, Math.min(3, Math.max(0, r.views_count)));
+          if (r.done) setDoneFlag(user, slug, r.sort_order);
+          if (r.sort_order === idx) setPlays(r.views_count);
+        }
+        setDoneTick((n) => n + 1);
+      })
+      .catch(() => {
+        /* offline — local counts stay */
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, video, lang, user?.email]);
 
   if (!user || !enrolled || !course) return null;
 
