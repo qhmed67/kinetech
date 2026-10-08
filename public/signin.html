@@ -65,7 +65,7 @@ document.getElementById('signinForm').addEventListener('submit', async function(
   if (busy || now - lastTry < COOLDOWN_MS) return;
   lastTry = now;
   errBox.hidden = true;
-  const email = document.getElementById('email').value.trim();
+  const email = document.getElementById('email').value.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
   const pw = document.getElementById('password').value;
   if (!email || !pw) return;
   busy = true;

@@ -184,7 +184,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
   }
   const fn = document.getElementById('firstname').value.trim();
   const ln = document.getElementById('lastname').value.trim();
-  const em = document.getElementById('email').value.trim();
+  const em = document.getElementById('email').value.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').trim();
   const pw = document.getElementById('password').value;
   const ph = document.getElementById('phone').value.trim();
   const cat = hidden.value || 'Educational Services / Tutoring';
