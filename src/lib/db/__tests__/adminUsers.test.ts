@@ -14,13 +14,13 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { grantEnrollment, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { grantEnrollment, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
 function query(result: unknown) {
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "limit", "single", "insert", "update", "delete", "upsert"]) {
+  for (const m of ["select", "eq", "limit", "single", "maybeSingle", "insert", "update", "delete", "upsert", "in"]) {
     chain[m] = vi.fn().mockReturnValue(chain);
   }
   (chain as { then: unknown }).then =
@@ -64,6 +64,32 @@ describe("searchUser", () => {
     expect(found).toMatchObject({ id: "u1", banned: false, tracks: ["courses"], enrolled: ["python-data"] });
     // email normalized to lowercase for citext lookup
     expect(sb.from).toHaveBeenCalledWith("profiles");
+  });
+});
+
+describe("resetUserViews", () => {
+  it("returns 0 when the course has no videos", async () => {
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        return query({ data: [], error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(resetUserViews("u1", "python-data")).resolves.toBe(0);
+  });
+
+  it("deletes the user's rows for the course videos", async () => {
+    const del = vi.fn().mockReturnValue(query({ data: null, error: null, count: 3 }));
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos") return query({ data: [{ id: "v1" }, { id: "v2" }], error: null });
+        return { delete: del };
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(resetUserViews("u1", "python-data")).resolves.toBe(3);
   });
 });
 

@@ -104,6 +104,38 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
   if (error) throw error;
 }
 
+/**
+ * Restart a user's viewing sheet for one course: deletes their per-video
+ * progress rows, so every lesson returns to 3 of 3 views remaining.
+ * Admin-only via RLS. Idempotent — no rows, no change.
+ */
+export async function resetUserViews(userId: string, courseSlug: string): Promise<number> {
+  if (!throttle(`reset-views-${userId}`, 3000)) throw new Error("too many attempts");
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) throw new Error("course not found");
+  const { data: vids } = await withTimeout(
+    (async () => sb.from("videos").select("id").eq("course_id", courseId))(),
+    NETWORK_TIMEOUT_MS,
+    "video-lookup",
+  );
+  const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
+  if (ids.length === 0) return 0;
+  const { error, count } = await withTimeout(
+    (async () =>
+      sb.from("video_views").delete({ count: "exact" }).eq("user_id", userId).in("video_id", ids))(),
+    NETWORK_TIMEOUT_MS,
+    "reset-views",
+  );
+  if (error) throw error;
+  return count ?? 0;
+}
+
 /** Suspend / unsuspend. Banned users are signed out and blocked everywhere. */
 export async function setBanned(userId: string, banned: boolean): Promise<void> {
   const sb = authed();

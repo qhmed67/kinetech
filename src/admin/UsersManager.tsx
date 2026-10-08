@@ -5,6 +5,7 @@ import {
   deleteProfile,
   grantEnrollment,
   listOrphans,
+  resetUserViews,
   revokeEnrollment,
   searchUser,
   setBanned,
@@ -294,14 +295,27 @@ export function UsersManager() {
                 {found.enrolled.map((slug) => (
                   <li key={slug} className="flex items-center justify-between gap-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
                     <span className="font-bold">{courseName(slug)}</span>
-                    <button
-                      type="button"
-                      onClick={() => void act(() => revokeEnrollment(found.id, slug))}
-                      className="text-sm font-bold"
-                      style={{ color: "#B3261E" }}
-                    >
-                      {u.revoke}
-                    </button>
+                    <span className="flex flex-none items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!window.confirm(u.confirmResetViews)) return;
+                          void act(() => resetUserViews(found.id, slug));
+                        }}
+                        className="text-sm font-bold"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        {u.resetViews}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void act(() => revokeEnrollment(found.id, slug))}
+                        className="text-sm font-bold"
+                        style={{ color: "#B3261E" }}
+                      >
+                        {u.revoke}
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
