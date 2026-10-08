@@ -223,13 +223,13 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
   margin: 0;
 }
 
-/* Oversized centered canvas: 114% bleed pushes YouTube's top/bottom edge
+/* Oversized centered canvas: 120% bleed pushes YouTube's top/bottom edge
    chrome out of the visible area; the rounded container clips it. */
 .pvp-frame {
-  left: -7%;
-  right: -7%;
-  top: -7%;
-  bottom: -7%;
+  left: -10%;
+  right: -10%;
+  top: -10%;
+  bottom: -10%;
 }
 
 /* Guarded player fullscreen: true viewport fill (no aspect lock, no radius),

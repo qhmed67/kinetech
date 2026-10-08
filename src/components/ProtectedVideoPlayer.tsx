@@ -34,6 +34,14 @@ const QUALITY_LABEL: Record<string, string> = {
   auto: "Auto",
 };
 
+/** Quality rung order, low → high. Used to always keep the better segment. */
+const QUALITY_RANK = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
+
+function qualityRank(q: string): number {
+  const i = QUALITY_RANK.indexOf(q);
+  return i < 0 ? -1 : i;
+}
+
 const WM_SPOTS = [
   { top: 12, insetInlineStart: 12 },
   { top: 12, insetInlineEnd: 12 },
@@ -76,6 +84,11 @@ export function ProtectedVideoPlayer({
   const [rate, setRate] = useState(1);
   const [quality, setQuality] = useState("auto");
   const [qualities, setQualities] = useState<string[]>([]);
+  // Per-segment quality memory: [{t, q}] — a user change applies from that
+  // timestamp forward; seeking back restores the earlier segment's quality,
+  // always keeping the better one (auto regions resolve to top available).
+  const qualityMarks = useRef<Array<{ t: number; q: string }>>([{ t: 0, q: "auto" }]);
+  const levelsRef = useRef<string[]>([]);
   const [muted, setMuted] = useState(false);
   const [spot, setSpot] = useState(() => Math.floor(Math.random() * WM_SPOTS.length));
 
@@ -104,6 +117,8 @@ export function ProtectedVideoPlayer({
     gotQualities.current = false;
     setQualities([]);
     setQuality("auto");
+    qualityMarks.current = [{ t: 0, q: "auto" }];
+    levelsRef.current = [];
     setTime(0);
     setDur(0);
     endedRef.current = false;
@@ -175,6 +190,7 @@ export function ProtectedVideoPlayer({
                 const levels = p.getAvailableQualityLevels?.() ?? [];
                 if (levels.length > 0) {
                   gotQualities.current = true;
+                  levelsRef.current = levels;
                   setQualities(["auto", ...levels]);
                 }
               } catch {
@@ -183,6 +199,29 @@ export function ProtectedVideoPlayer({
             }
             const t = p.getCurrentTime() ?? 0;
             const d = p.getDuration() ?? 0;
+            // Segment memory: enforce the quality belonging to this timestamp.
+            // "auto" regions resolve upward — never downgrade a better segment.
+            try {
+              const marks = qualityMarks.current;
+              let active = marks[0];
+              for (const m of marks) {
+                if (m.t <= t + 0.5) active = m;
+                else break;
+              }
+              const cur = p.getPlaybackQuality?.() ?? "auto";
+              if (active.q === "auto") {
+                const top = [...levelsRef.current].sort((a, b) => qualityRank(b) - qualityRank(a))[0];
+                if (top && cur !== "auto" && cur !== top && qualityRank(cur) < qualityRank(top)) {
+                  p.setPlaybackQuality(top);
+                  setQuality(top);
+                }
+              } else if (cur !== active.q) {
+                p.setPlaybackQuality(active.q);
+                setQuality(active.q);
+              }
+            } catch {
+              /* player torn down */
+            }
             // Continuity check: jumps >2s are seeks, reported once.
             if (Math.abs(t - lastPoll.current) > 2 && lastPoll.current > 0) {
               cbRef.current.onSeeked(t);
@@ -264,9 +303,19 @@ export function ProtectedVideoPlayer({
   }, []);
 
   const changeQuality = useCallback((q: string) => {
-    setQuality(q);
+    // A manual change applies from NOW forward: record the segment boundary
+    // so seeking back restores the earlier segment's (better) quality.
     try {
-      if (q !== "auto") playerRef.current?.setPlaybackQuality(q);
+      const p = playerRef.current;
+      const at = p?.getCurrentTime?.() ?? 0;
+      const marks = qualityMarks.current;
+      const last = marks[marks.length - 1];
+      if (!last || Math.abs(last.t - at) > 1 || last.q !== q) {
+        marks.push({ t: Math.max(0, at), q });
+        marks.sort((a, b) => a.t - b.t);
+      }
+      setQuality(q);
+      if (q !== "auto") p?.setPlaybackQuality(q);
     } catch {
       /* ignore */
     }
@@ -360,31 +409,11 @@ export function ProtectedVideoPlayer({
         onDoubleClick={(e) => e.stopPropagation()}
       />
 
-      {/* Permanent brand header: reads as our own chrome, not a cover-up. */}
+      {/* Slim top fade only — no bars, no text, no borders over the video. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 px-4"
-        style={{
-          background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 70%, #3D3250 100%)",
-          borderBottom: "2px solid var(--kt-teal)",
-        }}
-      >
-        <span
-          aria-hidden="true"
-          className="grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold text-white"
-          style={{ background: "#3BBCD9", fontFamily: "var(--font-display)" }}
-        >
-          ▶
-        </span>
-        <span
-          aria-hidden="true"
-          className="text-sm font-bold tracking-wide text-white"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          KINE<span style={{ color: "var(--kt-teal)" }}>TECH</span>
-          <span className="ms-2 font-medium text-white/60">• {formatClock(dur)}</span>
-        </span>
-      </div>
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-black/50 to-transparent"
+      />
 
       {/* Poster: covers the unstarted frame until first playback. */}
       {ready && !started && !failed && (
