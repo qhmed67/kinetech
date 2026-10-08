@@ -16,9 +16,21 @@ export function AdminLogin() {
   useEffect(() => {
     let alive = true;
     if (isSupabaseConfigured()) {
-      void checkAdmin().then((ok) => {
-        if (alive && ok) window.location.hash = "#/admin/dashboard";
-      });
+      // Signed-in non-admins never see the form: admins go to the panel,
+      // everyone else bounces home. Logged-out visitors get the form.
+      void (async () => {
+        try {
+          const { supabase } = await import("../lib/db/client");
+          const sb = supabase();
+          const { data } = await (sb ? sb.auth.getSession() : { data: { session: null } });
+          if (!alive) return;
+          if (!data.session) return;
+          if (await checkAdmin()) window.location.hash = "#/admin/dashboard";
+          else window.location.hash = "#/";
+        } catch {
+          /* stay on the form */
+        }
+      })();
     }
     return () => {
       alive = false;
