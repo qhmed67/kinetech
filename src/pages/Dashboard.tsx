@@ -71,6 +71,14 @@ export function Dashboard({
   const [tracks, setTracks] = useState<string[]>(user?.tracks ?? ["courses"]);
   const [modal, setModal] = useState<Track | null>(null);
 
+  // Spaces can change under us (bootstrap adopting server tracks after the
+  // first paint) — resync instead of freezing the first snapshot.
+  const trackKey = (user?.tracks ?? []).join(",");
+  useEffect(() => {
+    if (user) setTracks(user.tracks ?? ["courses"]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, trackKey]);
+
   const hasCourses = tracks.includes("courses");
   const activeServices = (TRACKS as readonly string[]).filter(
     (tr) => tr !== "courses" && tracks.includes(tr),

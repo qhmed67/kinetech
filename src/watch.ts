@@ -134,7 +134,7 @@ export function recordDone(
   setDoneFlag(u, slug, idx);
   if (typeof window === "undefined") return true;
   void import("./lib/db/sync")
-    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs, nominalMins * 60))
+    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs))
     .catch(() => {
       /* offline — local flag stays */
     });

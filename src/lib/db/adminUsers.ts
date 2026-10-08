@@ -112,6 +112,24 @@ export async function setBanned(userId: string, banned: boolean): Promise<void> 
   if (error) throw error;
 }
 
+export type Orphan = { user_id: string; email: string; created_at: string };
+
+/** Admin-only: auth accounts with no profile row. Empty = healthy. */
+export async function listOrphans(): Promise<Orphan[]> {
+  const sb = authed();
+  const { data, error } = await withTimeout(
+    (async () => sb.rpc("list_orphans"))(),
+    NETWORK_TIMEOUT_MS,
+    "orphans",
+  );
+  if (error) throw error;
+  return ((data ?? []) as unknown as Orphan[]).map((r) => ({
+    user_id: r.user_id,
+    email: r.email,
+    created_at: r.created_at,
+  }));
+}
+
 /**
  * Delete the profile row (cascades tracks, views, enrollments).
  * NOTE: the Supabase Auth account itself can only be deleted from the

@@ -7,7 +7,8 @@ import { isSupabaseConfigured } from "./env";
 
 export type AdminState = "checking" | "admin" | "denied";
 
-let cached: { uid: string; admin: boolean } | null = null;
+const ADMIN_CACHE_TTL_MS = 10 * 60 * 1000;
+let cached: { uid: string; admin: boolean; at: number } | null = null;
 let inflight: Promise<boolean> | null = null;
 
 export function resetAdminCache(): void {
@@ -28,7 +29,11 @@ export async function checkAdmin(): Promise<boolean> {
       cached = null;
       return false;
     }
-    if (cached && cached.uid === uid) return cached.admin;
+    // Time-boxed cache: a demoted admin loses panel access within minutes,
+    // even on shared devices where nobody logs out.
+    if (cached && cached.uid === uid && Date.now() - cached.at < ADMIN_CACHE_TTL_MS) {
+      return cached.admin;
+    }
     if (!inflight) {
       inflight = (async () => {
         const s = supabase();
@@ -40,7 +45,7 @@ export async function checkAdmin(): Promise<boolean> {
       });
     }
     const admin = await inflight;
-    cached = { uid, admin };
+    cached = { uid, admin, at: Date.now() };
     return admin;
   } catch {
     return false;

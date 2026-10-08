@@ -39,11 +39,31 @@
 <script src="auth-lang.js"></script>
 <script src="supabase-config.js"></script>
 <script type="module">
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";
+// Primary CDN with pinned fallback: auth pages must survive one CDN outage.
+async function loadSupabase() {
+  try {
+    return await import("https://esm.sh/@supabase/supabase-js@2.47.0");
+  } catch (e1) {
+    try {
+      return await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.0/+esm");
+    } catch (e2) {
+      void e1; void e2;
+      throw new Error('Auth library failed to load. Check your connection and retry.');
+    }
+  }
+}
+let createClient = null;
+let sdkError = '';
+try {
+  ({ createClient } = await loadSupabase());
+} catch (err) {
+  sdkError = err && err.message ? err.message : 'Auth library failed to load.';
+}
 // Runtime-injected, never committed. Deploy must provide supabase-config.js.
 // Fail closed when the build ran without env vars: no client, clear error.
 const cfgOk = Boolean(window.__SUPABASE_URL__ && window.__SUPABASE_ANON_KEY__);
-const sb = cfgOk ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
+const sb = cfgOk && createClient ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
+if (!sb && !sdkError) sdkError = 'Auth service is not configured. Please try again later.';
 const COOLDOWN_MS = 3000;
 let lastTry = 0;
 let busy = false;
@@ -71,7 +91,7 @@ document.getElementById('signinForm').addEventListener('submit', async function(
   busy = true;
   btn.disabled = true;
   try {
-    if (!sb) throw new Error('Auth service is not configured. Please try again later.');
+    if (!sb) throw new Error(sdkError || 'Auth service is not configured. Please try again later.');
     const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email, password: pw }), NET_TIMEOUT, 'Sign-in');
     if (error || !data.user) throw error || new Error('login failed');
     const uid = data.user.id;
@@ -85,11 +105,11 @@ document.getElementById('signinForm').addEventListener('submit', async function(
       let pending = null;
       try { pending = JSON.parse(window.sessionStorage.getItem('kt-pending-signup') || 'null'); } catch (err) { pending = null; }
       if (pending && pending.email === email) {
-        await withTimeout(sb.from('profiles').insert({
+        await withTimeout(sb.from('profiles').upsert({
           id: uid, email, name: pending.name, phone: pending.phone || null,
           national_id: pending.nationalId || null, grade: pending.grade || null,
-        }), NET_TIMEOUT, 'Profile setup');
-        await withTimeout(sb.from('user_tracks').insert({ user_id: uid, track: pending.track }), NET_TIMEOUT, 'Track setup');
+        }, { onConflict: 'id' }), NET_TIMEOUT, 'Profile setup');
+        await withTimeout(sb.from('user_tracks').upsert({ user_id: uid, track: pending.track }, { onConflict: 'user_id,track' }), NET_TIMEOUT, 'Track setup');
         try { window.sessionStorage.removeItem('kt-pending-signup'); } catch (err) {}
         profile = { name: pending.name, phone: pending.phone || '' };
       } else {

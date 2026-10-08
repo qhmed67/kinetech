@@ -143,11 +143,31 @@ window.syncTrackLabel(dict());
 })();
 </script>
 <script type="module">
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";
+// Primary CDN with pinned fallback: auth pages must survive one CDN outage.
+async function loadSupabase() {
+  try {
+    return await import("https://esm.sh/@supabase/supabase-js@2.47.0");
+  } catch (e1) {
+    try {
+      return await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.0/+esm");
+    } catch (e2) {
+      void e1; void e2;
+      throw new Error('Auth library failed to load. Check your connection and retry.');
+    }
+  }
+}
+let createClient = null;
+let sdkError = '';
+try {
+  ({ createClient } = await loadSupabase());
+} catch (err) {
+  sdkError = err && err.message ? err.message : 'Auth library failed to load.';
+}
 // Runtime-injected, never committed. Deploy must provide supabase-config.js.
 // Fail closed when the build ran without env vars: no client, clear error.
 const cfgOk = Boolean(window.__SUPABASE_URL__ && window.__SUPABASE_ANON_KEY__);
-const sb = cfgOk ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
+const sb = cfgOk && createClient ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
+if (!sb && !sdkError) sdkError = 'Auth service is not configured. Please try again later.';
 const COOLDOWN_MS = 3000;
 let lastTry = 0;
 let busy = false;
@@ -197,7 +217,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
   btn.disabled = true;
   window.runAuthLoader(btn, ['upS1', 'upS2', 'upS3'], 'upDone', async function() {
     try {
-      if (!sb) throw new Error('Auth service is not configured. Please try again later.');
+      if (!sb) throw new Error(sdkError || 'Auth service is not configured. Please try again later.');
       // Stash for the email-confirmation flow (signin completes the profile).
       try {
         window.sessionStorage.setItem('kt-pending-signup', JSON.stringify({
@@ -209,12 +229,12 @@ document.getElementById('signupForm').addEventListener('submit', async function(
       if (error) throw error;
       const uid = data.user && data.user.id;
       if (uid) {
-        const { error: pErr } = await withTimeout(sb.from('profiles').insert({
+        const { error: pErr } = await withTimeout(sb.from('profiles').upsert({
           id: uid, email: em, name: nm, phone: ph,
           national_id: nid || null, grade: grade || null,
-        }), NET_TIMEOUT, 'Profile setup');
+        }, { onConflict: 'id' }), NET_TIMEOUT, 'Profile setup');
         if (pErr) throw pErr;
-        const { error: tErr } = await withTimeout(sb.from('user_tracks').insert({ user_id: uid, track: tk }), NET_TIMEOUT, 'Track setup');
+        const { error: tErr } = await withTimeout(sb.from('user_tracks').upsert({ user_id: uid, track: tk }, { onConflict: 'user_id,track' }), NET_TIMEOUT, 'Track setup');
         if (tErr) throw tErr;
         try { window.sessionStorage.removeItem('kt-pending-signup'); } catch (err) {}
       }
@@ -224,7 +244,14 @@ document.getElementById('signupForm').addEventListener('submit', async function(
       } catch (err) {}
       window.location.href = '/#/dashboard';
     } catch (err) {
-      fail(err && err.message ? err.message : undefined);
+      const msg = err && err.message ? err.message : '';
+      // Half-created recovery: account exists but profile setup never finished
+      // (or user simply re-registers) — sign-in heals the profile.
+      if (/already (registered|exists)|user already/i.test(msg)) {
+        window.location.href = 'signin.html';
+        return;
+      }
+      fail(msg || undefined);
       busy = false;
       btn.disabled = false;
     }

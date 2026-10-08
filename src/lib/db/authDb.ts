@@ -52,18 +52,22 @@ export async function signUpDb(input: {
   );
   if (error || !data.user) throw error ?? new Error("signup failed");
   const uid = data.user.id;
-  const { error: pErr } = await sb.from("profiles").insert({
-    id: uid,
-    email: input.email,
-    name: input.name,
-    phone: input.phone,
-    national_id: input.nationalId ?? null,
-    grade: input.grade ?? null,
-  });
+  // Upserts: the DB trigger may have already created the skeleton row.
+  const { error: pErr } = await sb.from("profiles").upsert(
+    {
+      id: uid,
+      email: input.email,
+      name: input.name,
+      phone: input.phone,
+      national_id: input.nationalId ?? null,
+      grade: input.grade ?? null,
+    },
+    { onConflict: "id" },
+  );
   if (pErr) throw pErr;
   const { error: tErr } = await sb
     .from("user_tracks")
-    .insert({ user_id: uid, track: input.track });
+    .upsert({ user_id: uid, track: input.track }, { onConflict: "user_id,track" });
   if (tErr) throw tErr;
   return { id: uid, email: input.email, name: input.name, phone: input.phone, role: "student", tracks: [input.track], enrolled: [], banned: false };
 }
