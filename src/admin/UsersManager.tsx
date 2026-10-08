@@ -157,8 +157,9 @@ export function UsersManager() {
               {found.role}
             </span>
           </div>
-          {/* EN: details left, enrolled courses right. AR: stacked, right-aligned. */}
-          <div className={lang === "ar" ? "grid gap-4" : "grid gap-6 lg:grid-cols-2"}>
+          {/* Two columns both langs: details first, enrolled second.
+              RTL flips sides automatically, direction stays native. */}
+          <div className="grid gap-6 lg:grid-cols-2">
             <dl className="grid content-start gap-x-6 gap-y-4 text-sm sm:grid-cols-2" style={{ textAlign: lang === "ar" ? "right" : "left" }}>
               {[
                 { label: "Email", value: found.email },
