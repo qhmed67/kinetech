@@ -202,7 +202,7 @@ export function UsersManager() {
     void userId;
   };
 
-  const act = async (fn: () => Promise<void>, after?: () => void) => {
+  const act = async (fn: () => Promise<unknown>, after?: () => void) => {
     setErr("");
     try {
       await fn();
