@@ -84,6 +84,22 @@ export function ProtectedVideoPlayer({
   const [rate, setRate] = useState(1);
   const [quality, setQuality] = useState("auto");
   const [qualities, setQualities] = useState<string[]>([]);
+  // Idle chrome: bar + cursor vanish 3s after the last mouse move (playing only).
+  const [idle, setIdle] = useState(false);
+  const idleTimer = useRef<number | null>(null);
+
+  const wake = useCallback(() => {
+    setIdle(false);
+    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(() => setIdle(true), 3000);
+  }, []);
+
+  useEffect(() => {
+    wake();
+    return () => {
+      if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    };
+  }, [wake]);
   // Per-segment quality memory: [{t, q}] — a user change applies from that
   // timestamp forward; seeking back restores the earlier segment's quality,
   // always keeping the better one (auto regions resolve to top available).
@@ -305,6 +321,8 @@ export function ProtectedVideoPlayer({
   const changeQuality = useCallback((q: string) => {
     // A manual change applies from NOW forward: record the segment boundary
     // so seeking back restores the earlier segment's (better) quality.
+    // Hard switch: pause at once, apply, resume — the new quality takes
+    // effect immediately instead of drifting in segments later.
     try {
       const p = playerRef.current;
       const at = p?.getCurrentTime?.() ?? 0;
@@ -315,7 +333,20 @@ export function ProtectedVideoPlayer({
         marks.sort((a, b) => a.t - b.t);
       }
       setQuality(q);
-      if (q !== "auto") p?.setPlaybackQuality(q);
+      if (!p) return;
+      const wasPlaying =
+        p.getPlayerState() === YT_STATE.PLAYING || p.getPlayerState() === YT_STATE.BUFFERING;
+      p.pauseVideo();
+      if (q !== "auto") p.setPlaybackQuality(q);
+      if (wasPlaying) {
+        window.setTimeout(() => {
+          try {
+            playerRef.current?.playVideo();
+          } catch {
+            /* ignore */
+          }
+        }, 700);
+      }
     } catch {
       /* ignore */
     }
@@ -390,7 +421,8 @@ export function ProtectedVideoPlayer({
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
       onDoubleClick={toggleFullscreen}
-      className="pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none"
+      onMouseMove={wake}
+      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${idle && playing ? "cursor-none" : ""}`}
       style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       aria-label="Protected video player"
     >
@@ -403,7 +435,10 @@ export function ProtectedVideoPlayer({
       <div
         aria-hidden="true"
         className="absolute inset-0 z-10"
-        onClick={togglePlay}
+        onClick={() => {
+          togglePlay();
+          wake();
+        }}
         onContextMenu={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         onDoubleClick={(e) => e.stopPropagation()}
@@ -456,8 +491,10 @@ export function ProtectedVideoPlayer({
       )}
 
       {/* Custom control bar — the only visible chrome. Deep gradient swallows
-          any native bottom-row leftovers. */}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 sm:px-4">
+          any native bottom-row leftovers. Fades out after 3s idle while playing. */}
+      <div
+        className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && playing ? "pointer-events-none opacity-0" : "opacity-100"}`}
+      >
         <input
           type="range"
           min={0}
