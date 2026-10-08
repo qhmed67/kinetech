@@ -8,6 +8,7 @@ import {
 } from "../store";
 import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
+import { isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
 
 function blank(): StoreCourse {
   const lt = { en: "", ar: "" };
@@ -38,66 +39,77 @@ function blank(): StoreCourse {
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
-function fileToDataUrl(f: File): Promise<string> {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(String(r.result ?? ""));
-    r.onerror = () => rej(new Error("read"));
-    r.readAsDataURL(f);
-  });
-}
-
-/** URL text field + file upload writing into the same slot. */
-function UrlOrFile({
+/** Plain absolute-URL text field. No uploads, no local files, no data-URIs:
+    every media asset lives at a production URL (Drive direct link, CDN). */
+function LinkField({
   label,
   value,
-  accept,
+  hint,
   onChange,
 }: {
   label: string;
   value: string;
-  accept?: string;
+  hint?: string;
   onChange: (v: string) => void;
 }) {
-  const { t } = useLang();
-  const a = t.admin;
-  const isFile = value.startsWith("data:");
-  const kb = isFile ? Math.round((value.length * 3) / 4 / 1024) : 0;
   return (
     <Field label={label}>
       <div className="grid gap-2">
         <Text
-          value={isFile ? "" : value}
+          value={value}
           dir="ltr"
           placeholder="https://…"
           onChange={(e) => onChange(e.target.value)}
         />
-        <label className="flex cursor-pointer items-center gap-2 text-[13px] font-bold" style={{ color: "var(--accent)" }}>
-          <input
-            type="file"
-            accept={accept}
-            className="sr-only"
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              if (!f) return;
-              try {
-                onChange(await fileToDataUrl(f));
-              } catch {
-                /* ignore */
-              }
-              e.target.value = "";
+        {hint && <p className="text-xs" style={{ color: "var(--muted)" }}>{hint}</p>}
+      </div>
+    </Field>
+  );
+}
+
+/** Image URL field with Google Drive auto-convert + live preview.
+    Paste any Drive share link — it normalizes to a direct viewable URL. */
+function ImageUrlField({
+  label,
+  value,
+  hint,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  onChange: (v: string) => void;
+}) {
+  const { lang } = useLang();
+  const direct = toDirectImageUrl(value);
+  const ok = !value.trim() || isUsableImageUrl(direct);
+  const preview = ok ? direct : "";
+  return (
+    <Field label={label}>
+      <div className="grid gap-2">
+        <Text
+          value={value}
+          dir="ltr"
+          placeholder="https://drive.google.com/file/d/…"
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {hint && <p className="text-xs" style={{ color: "var(--muted)" }}>{hint}</p>}
+        {value.trim() !== "" && !ok && (
+          <p className="text-xs font-bold" role="alert" style={{ color: "#B3261E" }}>
+            {lang === "ar" ? "رابط غير صالح — الصق رابط Drive أو رابط https مباشر." : "Invalid link — paste a Drive share link or a direct https URL."}
+          </p>
+        )}
+        {preview !== "" && (
+          <img
+            src={preview}
+            alt=""
+            loading="lazy"
+            className="h-28 rounded-xl object-cover"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
           />
-          <span className="rounded-full border px-3 py-1" style={{ borderColor: "var(--border)" }}>
-            {a.uploadL}
-          </span>
-          {isFile && (
-            <span className="font-medium" style={{ color: "var(--muted)" }}>
-              attached (~{kb} KB)
-            </span>
-          )}
-        </label>
-        <p className="text-xs" style={{ color: "var(--muted)" }}>{a.fileBig}</p>
+        )}
       </div>
     </Field>
   );
@@ -188,12 +200,11 @@ export function CourseForm({ slug }: { slug?: string }) {
       while (courseExists(`${s}-${n}`)) n += 1;
       s = `${s}-${n}`;
     }
-    const photo = course.photoCard.trim();
-    // never persist an uploaded data-URL as the detail image: the trimmed
-    // form has no input for it, so a stale one would silently blow the quota
-    const detailRaw = course.photoDetail.trim();
-    const photoDetail = detailRaw && !detailRaw.startsWith("data:") ? detailRaw : photo;
-    const ok = saveCourse({ ...course, slug: s, photoDetail });
+    // Normalize Drive share links to direct URLs; drop any legacy data-URI.
+    const photo = toDirectImageUrl(course.photoCard);
+    const detailRaw = toDirectImageUrl(course.photoDetail);
+    const photoDetail = detailRaw || photo;
+    const ok = saveCourse({ ...course, slug: s, photoCard: photo, photoDetail });
     if (!ok) {
       const detail = getLastStoreError();
       setErr(detail ? `${a.storageFull} (${detail})` : a.storageFull);
@@ -313,10 +324,8 @@ export function CourseForm({ slug }: { slug?: string }) {
             <Text value={course.instructor.spec[lt]} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => set({ instructor: { ...course.instructor, spec: { ...course.instructor.spec, [lt]: e.target.value } } })} />
           </Field>
         </div>
-        <UrlOrFile label={a.fPhotoCard} value={course.photoCard} accept="image/*" onChange={(v) => set({ photoCard: v })} />
-        {course.photoCard && (
-          <img src={course.photoCard} alt="" className="h-28 rounded-xl object-cover" />
-        )}
+        <ImageUrlField label={a.fPhotoCard} value={course.photoCard} onChange={(v) => set({ photoCard: v })} />
+        <ImageUrlField label={a.fPhotoDetail} value={course.photoDetail} onChange={(v) => set({ photoDetail: v })} />
       </Section>
 
       <Section title={a.secCurr}>
@@ -340,14 +349,14 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <Area value={m.d} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setMod(i, "d", e.target.value)} />
               </Field>
               <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
-                <UrlOrFile label={a.vidSrc} value={course.videos[i]?.src ?? ""} accept="video/*" onChange={(v) => setVid(i, { src: v })} />
+                <LinkField label={a.vidSrc} value={course.videos[i]?.src ?? ""} onChange={(v) => setVid(i, { src: v.trim() })} />
                 <Field label={a.vidMins}>
                   <Text type="number" dir="ltr" value={course.videos[i]?.mins ?? 10} onChange={(e) => setVid(i, { mins: parseInt(e.target.value, 10) || 0 })} />
                 </Field>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <UrlOrFile label={a.vidAssign} value={course.videos[i]?.assign ?? ""} onChange={(v) => setVid(i, { assign: v })} />
-                <UrlOrFile label={a.vidExam} value={course.videos[i]?.exam ?? ""} onChange={(v) => setVid(i, { exam: v })} />
+                <LinkField label={a.vidAssign} value={course.videos[i]?.assign ?? ""} onChange={(v) => setVid(i, { assign: v.trim() })} />
+                <LinkField label={a.vidExam} value={course.videos[i]?.exam ?? ""} onChange={(v) => setVid(i, { exam: v.trim() })} />
               </div>
             </div>
           </div>

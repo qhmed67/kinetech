@@ -4,6 +4,7 @@ import { CardBody, CardContainer, CardItem } from "@/components/ui/3d-card";
 import { listCourses, useContent } from "../store";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import { useLang } from "../components/lang";
+import { AnimImg } from "../components/SafeImg";
 
 const WA = "https://wa.me/201042031062";
 
@@ -176,7 +177,7 @@ export function Courses() {
                   <CardContainer containerClassName="block w-full p-0" className="block w-full">
                     <CardBody className="block h-auto w-full">
                   <div className="relative h-44 overflow-hidden md:h-56">
-                    <motion.img
+                    <AnimImg
                       layoutId={`cat-img-${i}-${uid}`}
                       src={course.photoCard}
                       alt={course.name}
@@ -305,7 +306,7 @@ export function Courses() {
               ref={modalRef}
               className="flex max-h-[90dvh] w-full max-w-[500px] flex-col overflow-hidden rounded-3xl bg-white"
             >
-              <motion.img
+              <AnimImg
                 layoutId={`cat-img-${active}-${uid}`}
                 src={activeCourse.photoCard}
                 alt={activeCourse.name}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getCourse, useContent } from "../store";
+import { SafeImg } from "../components/SafeImg";
 import { getUser } from "../auth";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
@@ -148,8 +149,8 @@ export function CourseDetail({ slug }: { slug: string }) {
                 {t.catalog.catBac}
               </span>
             )}
-            <img
-              src={course.photoDetail}
+            <SafeImg
+              src={course.photoDetail || course.photoCard}
               alt={course.name}
               className="w-full rounded-[20px] object-contain"
               style={{ background: "var(--surface)" }}

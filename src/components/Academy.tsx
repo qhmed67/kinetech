@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import { listCourses, useContent } from "../store";
 import { useLang } from "./lang";
+import { AnimImg } from "./SafeImg";
 
 const WA = "https://wa.me/201042031062";
 
@@ -164,7 +165,7 @@ export function Academy() {
                 }}
               >
                 <div className="h-56 overflow-hidden">
-                  <motion.img
+                  <AnimImg
                     layoutId={`course-img-${i}-${uid}`}
                     src={c.photoCard}
                     alt={c.name}
@@ -276,7 +277,7 @@ export function Academy() {
               ref={modalRef}
               className="flex max-h-[90dvh] w-full max-w-[500px] flex-col overflow-hidden rounded-3xl bg-white"
             >
-              <motion.img
+              <AnimImg
                 layoutId={`course-img-${active}-${uid}`}
                 src={courses[active]?.photoCard ?? ""}
                 alt={courses[active]?.name ?? ""}
