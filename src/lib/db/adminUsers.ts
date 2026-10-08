@@ -34,13 +34,16 @@ export async function searchUser(kind: SearchKind, value: string): Promise<Found
   const needle = value.trim();
   if (!needle) return null;
   const column = kind === "national_id" ? "national_id" : kind;
+  // Indexed exact-match (.eq on UNIQUE columns) + single row + lean columns:
+  // B-tree seek, zero scans, minimal payload. maybeSingle avoids throwing
+  // on zero rows (no exception overhead for the common miss path).
   const { data: p, error } = await withTimeout(
     (async () =>
       sb.from("profiles")
         .select("id,email,name,phone,national_id,grade,role,banned")
         .eq(column, kind === "email" ? needle.toLowerCase() : needle)
         .limit(1)
-        .single())(),
+        .maybeSingle())(),
     NETWORK_TIMEOUT_MS,
     "user-search",
   );
