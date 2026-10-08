@@ -5,8 +5,27 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const url = process.env.VITE_SUPABASE_URL || "";
-const key = process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
+function fromDotEnv(name) {
+  try {
+    const text = fs.readFileSync(path.join(__dirname, "..", ".env"), "utf8");
+    for (const line of text.split("\n")) {
+      const t = line.trim();
+      if (!t || t.startsWith("#")) continue;
+      const i = t.indexOf("=");
+      if (t.slice(0, i) === name) return t.slice(i + 1);
+    }
+  } catch {
+    /* no local .env (e.g. Vercel build) */
+  }
+  return "";
+}
+
+const url = process.env.VITE_SUPABASE_URL || fromDotEnv("VITE_SUPABASE_URL");
+const key =
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  fromDotEnv("VITE_SUPABASE_ANON_KEY") ||
+  fromDotEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
 
 const out =
   `window.__SUPABASE_URL__ = ${JSON.stringify(url)};\n` +
