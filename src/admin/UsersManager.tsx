@@ -157,16 +157,16 @@ export function UsersManager() {
               {found.role}
             </span>
           </div>
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2" style={{ textAlign: "right" }}>
             {[
               { label: "Email", value: found.email },
               { label: u.byPhone, value: found.phone ?? "—" },
               { label: u.byNationalId, value: found.national_id ?? "—" },
               { label: "Tracks", value: found.tracks.join(", ") || "—" },
             ].map((f) => (
-              <div key={f.label} className="flex min-w-0 flex-col gap-0.5 text-start">
+              <div key={f.label} className="min-w-0">
                 <dt className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--muted)" }}>{f.label}</dt>
-                <dd dir="auto" className="truncate font-bold">{f.value}</dd>
+                <dd dir="auto" className="mt-0.5 font-bold" style={{ overflowWrap: "anywhere" }}>{f.value}</dd>
               </div>
             ))}
           </dl>
