@@ -15,6 +15,9 @@ dist-ssr
 .env.local
 .env.production
 public/supabase-config.js
+test-results/
+playwright-report/
+playwright/.cache/
 
 # Editor directories and files
 .vscode/*
