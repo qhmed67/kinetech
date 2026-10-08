@@ -92,6 +92,11 @@ document.getElementById('signinForm').addEventListener('submit', async function(
         await withTimeout(sb.from('user_tracks').insert({ user_id: uid, track: pending.track }), NET_TIMEOUT, 'Track setup');
         try { window.sessionStorage.removeItem('kt-pending-signup'); } catch (err) {}
         profile = { name: pending.name, phone: pending.phone || '' };
+      } else {
+        // Auth account exists but the profile was deleted (admin removal):
+        // drop the session so the orphan cannot stay signed in.
+        try { await sb.auth.signOut(); } catch (err) {}
+        throw new Error('This account no longer exists. Please contact support.');
       }
     }
     const nm = (profile && profile.name) || email.split('@')[0].replace(/[._-]+/g, ' ').trim() || 'Student';
