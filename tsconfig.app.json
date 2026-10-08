@@ -27,5 +27,9 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Test files import dev-only packages (vitest) that production installs
+  // prune. CI type-checks them via `vitest --typecheck` if needed; the
+  // deploy build must never touch them.
+  "exclude": ["src/test-setup.ts", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }
