@@ -87,6 +87,59 @@ export function Dashboard({
   const [active, setActive] = useState<Tab>(isTab(tab) ? tab : "overview");
   const [spacesOpen, setSpacesOpen] = useState(false);
   const [pending, setPending] = useState<string[]>([]);
+  const [sessions, setSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
+  const [notifs, setNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+
+  // Live activity (server truth). Null = loading; [] = empty state.
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user) return;
+    let alive = true;
+    void import("../lib/db/activityDb")
+      .then(async (m) => {
+        const [s, n] = await Promise.all([m.getUpcomingSessions(), m.getNotifications()]);
+        if (!alive) return;
+        setSessions(s);
+        setNotifs(n);
+        if (n.some((x) => !x.is_read)) {
+          void m.markNotificationsRead().then(() => {
+            if (alive) setNotifs((cur) => (cur ?? []).map((x) => ({ ...x, is_read: true })));
+          });
+        }
+      })
+      .catch(() => {
+        /* static fallback stays hidden; cards render empty states */
+        if (alive) {
+          setSessions((cur) => cur ?? []);
+          setNotifs((cur) => cur ?? []);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user?.email]);
+
+  const fmtDate = (iso: string): string => {
+    try {
+      return new Date(iso).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      });
+    } catch {
+      return iso;
+    }
+  };
+  const fmtTime = (iso: string): string => {
+    try {
+      return new Date(iso).toLocaleTimeString(lang === "ar" ? "ar-EG" : "en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  };
+  const unread = (notifs ?? []).filter((n) => !n.is_read).length;
 
   // Pending enrollment requests (server truth) — approvals land via bootstrap.
   useEffect(() => {
@@ -292,22 +345,63 @@ export function Dashboard({
                 </div>
                 <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
                   <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{d.sessionsT}</h3>
-                  <ul className="mt-3 grid gap-2">
-                    {d.sessions.map((s) => (
-                      <li key={s.title} className="flex items-center justify-between gap-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
-                        <span className="font-bold">{s.title}</span>
-                        <span className="flex-none text-sm" style={{ color: "var(--muted)" }}>{s.day} · <span dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>{s.time}</span></span>
-                      </li>
-                    ))}
-                  </ul>
+                  {sessions === null ? (
+                    <ul className="mt-3 grid gap-2" aria-label="loading">
+                      {[0, 1].map((i) => (
+                        <li key={i} className="animate-pulse rounded-xl p-5 text-sm" style={{ background: "var(--surface)" }} />
+                      ))}
+                    </ul>
+                  ) : sessions.length === 0 ? (
+                    <p className="mt-3 rounded-xl p-4 text-sm" style={{ background: "var(--surface)", color: "var(--muted)" }}>
+                      {d.upcomingEmpty}
+                    </p>
+                  ) : (
+                    <ul className="mt-3 grid gap-2">
+                      {sessions.map((s) => (
+                        <li key={s.id} className="flex items-center justify-between gap-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
+                          <span className="font-bold">{s.title}</span>
+                          <span className="flex-none text-sm" style={{ color: "var(--muted)" }}>{fmtDate(s.date)} · <span dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>{fmtTime(s.date)}</span></span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
-                  <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{d.notifT}</h3>
-                  <ul className="mt-3 grid gap-2">
-                    {d.notes.map((n) => (
-                      <li key={n} className="rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>{n}</li>
-                    ))}
-                  </ul>
+                  <h3 className="flex items-center gap-2 font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                    {d.notifT}
+                    {unread > 0 && (
+                      <span
+                        aria-label={`${unread} unread`}
+                        className="grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-xs font-bold text-white"
+                        dir="ltr"
+                        style={{ background: "var(--accent)", fontVariantNumeric: "tabular-nums" }}
+                      >
+                        {unread}
+                      </span>
+                    )}
+                  </h3>
+                  {notifs === null ? (
+                    <ul className="mt-3 grid gap-2" aria-label="loading">
+                      {[0, 1].map((i) => (
+                        <li key={i} className="animate-pulse rounded-xl p-5 text-sm" style={{ background: "var(--surface)" }} />
+                      ))}
+                    </ul>
+                  ) : notifs.length === 0 ? (
+                    <p className="mt-3 rounded-xl p-4 text-sm" style={{ background: "var(--surface)", color: "var(--muted)" }}>
+                      {d.notifEmpty}
+                    </p>
+                  ) : (
+                    <ul className="mt-3 grid gap-2">
+                      {notifs.map((n) => (
+                        <li key={n.id} className="rounded-xl p-3 text-sm" style={{ background: "var(--surface)", opacity: n.is_read ? 0.75 : 1 }}>
+                          <span className="block font-bold">{n.title}</span>
+                          {n.message && (
+                            <span className="mt-0.5 block" style={{ color: "var(--muted)" }}>{n.message}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             )}

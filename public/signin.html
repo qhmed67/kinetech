@@ -37,9 +37,13 @@
 <div class="msl-fade"></div>
 </div>
 <script src="auth-lang.js"></script>
+<script src="supabase-config.js"></script>
 <script type="module">
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.0";
-const sb = createClient("https://zvtzhcrmqzwkifcwnbcl.supabase.co", "sb_publishable_yMmy1J7tbMpf8bJmCP69nQ_uvhoWSsy");
+// Runtime-injected, never committed. Deploy must provide supabase-config.js.
+// Fail closed when the build ran without env vars: no client, clear error.
+const cfgOk = Boolean(window.__SUPABASE_URL__ && window.__SUPABASE_ANON_KEY__);
+const sb = cfgOk ? createClient(window.__SUPABASE_URL__, window.__SUPABASE_ANON_KEY__) : null;
 const COOLDOWN_MS = 3000;
 let lastTry = 0;
 let busy = false;
@@ -67,6 +71,7 @@ document.getElementById('signinForm').addEventListener('submit', async function(
   busy = true;
   btn.disabled = true;
   try {
+    if (!sb) throw new Error('Auth service is not configured. Please try again later.');
     const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email, password: pw }), NET_TIMEOUT, 'Sign-in');
     if (error || !data.user) throw error || new Error('login failed');
     const uid = data.user.id;

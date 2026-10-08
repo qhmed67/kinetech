@@ -438,8 +438,10 @@ const en = {
     turnOn: "Turn on Courses",
     lockedTabsD: "Subscribe to a course to unlock exams and assignments.",
     emptyWork: "Nothing here yet — your instructor hasn't attached any work.",
+    notifEmpty: "No new notifications.",
     pendingT: "Requests under review",
     pendingD: "We confirm payments on WhatsApp first — access opens right after approval.",
+    upcomingEmpty: "No upcoming sessions right now.",
     browseCatalog: "Browse catalog →",
   },
   admin: {
@@ -1164,6 +1166,8 @@ const ar: Strings = {
     emptyWork: "مفيش حاجة هنا لسه — المدرس مضافش أي شغل.",
     pendingT: "طلبات قيد المراجعة",
     pendingD: "بنأكد الدفع على واتساب الأول — والدخول بيتفتح بعد الموافقة مباشرة.",
+    upcomingEmpty: "لا توجد حصص قادمة حالياً",
+    notifEmpty: "لا توجد إشعارات جديدة",
     browseCatalog: "تصفح الكتالوج ←",
   },
   admin: {
