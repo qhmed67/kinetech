@@ -270,8 +270,7 @@ export async function hydrateWatchForUser(): Promise<void> {
   const sb = supabase();
   const user = getUser();
   if (!sb || !user) return;
-  // No enrollment model: any signed-in user may watch, so hydrate every
-  // catalog course (server still enforces sign-in + 3-view cap per video).
+  // Hydrate granted courses (server still enforces sign-in + 3-view cap).
   let slugs: string[];
   try {
     const { loadStore } = await import("../../store");
@@ -279,7 +278,8 @@ export async function hydrateWatchForUser(): Promise<void> {
   } catch {
     return;
   }
-  for (const slug of slugs) {
+  const granted = new Set(user.enrolled ?? []);
+  for (const slug of slugs.filter((s) => granted.has(s))) {
     try {
       const rows = await withTimeout(getWatchStateDb(slug, "en"), NETWORK_TIMEOUT_MS, "watch-state");
       for (const r of rows) {
@@ -366,9 +366,11 @@ export async function restoreDbSession(): Promise<boolean> {
       name: s.name || local?.name || "Student",
       email: s.email,
       phone: s.phone || local?.phone || "",
-      // No enrollment model (WhatsApp-only): access = signed-in user.
-      enrolled: [],
+      // Admin-granted slugs win; banned wins over everything.
+      enrolled: [...s.enrolled],
       tracks: s.tracks.length > 0 ? [...s.tracks] : (local?.tracks ?? ["courses"]),
+      role: s.role,
+      banned: s.banned,
     });
     notifyUserChanged();
     return true;

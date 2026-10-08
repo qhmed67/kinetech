@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCourse, getVideos, listCourses, useContent } from "../store";
+import { courseExists, getCourse, getVideos, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { isDone } from "../watch";
 import { SafeImg } from "../components/SafeImg";
@@ -154,8 +154,22 @@ export function Dashboard({
 
   if (!user) return null;
 
-  // No enrollment model (WhatsApp-only): every signed-in user sees all courses.
-  const enrolledSlugs = user ? listCourses(lang).map((c) => c.slug) : [];
+  if (user.banned) {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap" style={{ maxWidth: 560 }}>
+          <div className="rounded-[20px] border bg-white p-8 text-center" style={{ borderColor: "#B3261E" }}>
+            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)", color: "#B3261E" }}>{d.bannedT}</p>
+            <p className="mx-auto mt-1 max-w-md text-sm" style={{ color: "var(--muted)" }}>{d.bannedD}</p>
+            <a href={WA} className="btn btn-primary mt-5">WhatsApp</a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Admin-granted enrollments only (WhatsApp payment verified by staff).
+  const enrolledSlugs = (user?.enrolled ?? []).filter(courseExists);
   const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
   const progBySlug = new Map(enrolledSlugs.map((s) => [s, courseProgress(user, s)]));
   const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);

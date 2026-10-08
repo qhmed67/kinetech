@@ -3,9 +3,12 @@ export type KtUser = {
   email: string;
   /** Verified contact for watermark + support. Never a secret. */
   phone: string;
-  /** Approved course slugs only — populated by server, never self-granted. */
+  /** Admin-granted course slugs — populated by server, never self-granted. */
   enrolled: string[];
   tracks: string[];
+  /** Server role hint for UI only — every privileged action re-verifies server-side. */
+  role: "student" | "admin";
+  banned: boolean;
 };
 
 export type TrackId = "courses" | "marketing" | "programming" | "design";
@@ -35,8 +38,13 @@ export function getUser(): KtUser | null {
       : [...DEFAULT_TRACKS];
     const enrolled = Array.isArray(u.enrolled) ? u.enrolled : [];
     const phone = typeof u.phone === "string" ? u.phone : "";
-    const user = { name: u.name, email: u.email ?? "", phone, enrolled, tracks };
-    if (!Array.isArray(u.enrolled) || !Array.isArray(u.tracks) || typeof u.phone !== "string") setUser(user);
+    const role: KtUser["role"] = u.role === "admin" ? "admin" : "student";
+    const banned = u.banned === true;
+    const user = { name: u.name, email: u.email ?? "", phone, enrolled, tracks, role, banned };
+    if (
+      !Array.isArray(u.enrolled) || !Array.isArray(u.tracks) ||
+      typeof u.phone !== "string" || typeof u.banned !== "boolean" || (u.role !== "admin" && u.role !== "student")
+    ) setUser(user);
     return user;
   } catch {
     return null;
@@ -86,14 +94,14 @@ export async function signUpWithDb(input: {
 }): Promise<void> {
   const { signUpDb } = await import("./lib/db/authDb");
   const s = await signUpDb(input);
-  setUser({ name: s.name, email: s.email, phone: s.phone, enrolled: s.enrolled, tracks: s.tracks });
+  setUser({ name: s.name, email: s.email, phone: s.phone, enrolled: s.enrolled, tracks: s.tracks, role: s.role, banned: false });
   notifyUserChanged();
 }
 
 export async function signInWithDb(email: string, password: string): Promise<void> {
   const { signInDb } = await import("./lib/db/authDb");
   const s = await signInDb(email, password);
-  setUser({ name: s.name, email: s.email, phone: s.phone, enrolled: s.enrolled, tracks: s.tracks });
+  setUser({ name: s.name, email: s.email, phone: s.phone, enrolled: s.enrolled, tracks: s.tracks, role: s.role, banned: s.banned });
   notifyUserChanged();
 }
 

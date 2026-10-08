@@ -28,8 +28,9 @@ export type SessionUser = {
   phone: string;
   role: DbRole;
   tracks: TrackId[];
-  /** Unused (no enrollment model) — kept for shape compat, always []. */
+  /** Admin-granted course slugs. */
   enrolled: string[];
+  banned: boolean;
 };
 
 export async function signUpDb(input: {
@@ -64,7 +65,7 @@ export async function signUpDb(input: {
     .from("user_tracks")
     .insert({ user_id: uid, track: input.track });
   if (tErr) throw tErr;
-  return { id: uid, email: input.email, name: input.name, phone: input.phone, role: "student", tracks: [input.track], enrolled: [] };
+  return { id: uid, email: input.email, name: input.name, phone: input.phone, role: "student", tracks: [input.track], enrolled: [], banned: false };
 }
 
 export async function signInDb(email: string, password: string): Promise<SessionUser> {
@@ -84,23 +85,27 @@ export async function signInDb(email: string, password: string): Promise<Session
 export async function loadSessionUser(uid: string): Promise<SessionUser> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const [{ data: p, error }, { data: tr }] = await withTimeout(
+  const [{ data: p, error }, { data: tr }, { data: en }] = await withTimeout(
     Promise.all([
-      sb.from("profiles").select("id,email,name,phone,role").eq("id", uid).single(),
+      sb.from("profiles").select("id,email,name,phone,role,banned").eq("id", uid).single(),
       sb.from("user_tracks").select("track").eq("user_id", uid),
+      sb.from("enrollments").select("courses!inner(slug)").eq("user_id", uid),
     ]),
     NETWORK_TIMEOUT_MS,
     "session",
   );
   if (error || !p) throw error ?? new Error("profile missing");
+  const prof = p as DbProfile & { banned: boolean };
+  const enRows = (en ?? []) as unknown as Array<{ courses: { slug: string } | Array<{ slug: string }> }>;
   return {
-    id: (p as DbProfile).id,
-    email: (p as DbProfile).email,
-    name: (p as DbProfile).name,
-    phone: (p as DbProfile).phone ?? "",
-    role: (p as DbProfile).role,
+    id: prof.id,
+    email: prof.email,
+    name: prof.name,
+    phone: prof.phone ?? "",
+    role: prof.role,
     tracks: ((tr ?? []) as { track: TrackId }[]).map((t) => t.track),
-    enrolled: [],
+    enrolled: enRows.map((e) => (Array.isArray(e.courses) ? e.courses[0]?.slug : e.courses.slug)).filter(Boolean) as string[],
+    banned: prof.banned ?? false,
   };
 }
 

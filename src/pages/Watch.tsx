@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
+import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
+import { isYoutubeSource } from "../lib/videoGuard";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import {
@@ -262,14 +264,16 @@ export function Watch({
   // nothing (server re-validates against DB-side minutes).
   const watchAcc = useRef({ last: 0, total: 0 });
 
-  // No enrollment model (WhatsApp-only): any signed-in user may watch.
-  // Server still enforces sign-in + 3-view cap + sequential unlock per video.
-  const enrolled = !!user;
+  // Granted enrollment (or admin testing) unlocks content. Server RPCs
+  // re-enforce sign-in + caps independently — this gate is UX only.
+  const enrolled = !!user && !user.banned && (user.enrolled.includes(slug) || user.role === "admin");
 
   useEffect(() => {
     if (ready && !user) {
       window.location.href = "signin.html";
+      return;
     }
+    if (user?.banned) window.location.hash = "#/dashboard";
   }, [user, ready]);
 
   useEffect(() => {
@@ -386,6 +390,8 @@ export function Watch({
                     WhatsApp
                   </a>
                 </div>
+              ) : isYoutubeSource(src) ? (
+                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
               ) : (
                 <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
               )}
