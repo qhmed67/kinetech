@@ -264,14 +264,16 @@ export function Watch({
   // nothing (server re-validates against DB-side minutes).
   const watchAcc = useRef({ last: 0, total: 0 });
 
-  // No enrollment model (WhatsApp-only): any signed-in user may watch.
-  // Server still enforces sign-in + 3-view cap + sequential unlock per video.
-  const enrolled = !!user;
+  // Granted enrollment (or admin testing) unlocks content. Server RPCs
+  // re-enforce sign-in + caps independently — this gate is UX only.
+  const enrolled = !!user && !user.banned && (user.enrolled.includes(slug) || user.role === "admin");
 
   useEffect(() => {
     if (ready && !user) {
       window.location.href = "signin.html";
+      return;
     }
+    if (user?.banned) window.location.hash = "#/dashboard";
   }, [user, ready]);
 
   useEffect(() => {

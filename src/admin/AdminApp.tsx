@@ -1,5 +1,6 @@
 import { loadStore, useContent } from "../store";
 import { useLang } from "../components/lang";
+import { UsersManager } from "./UsersManager";
 import { AdminShell } from "./AdminShell";
 import { CoursesList } from "./CoursesList";
 import { CourseForm } from "./CourseForm";
@@ -76,6 +77,13 @@ export function AdminApp({ page }: { page: string }) {
     return (
       <AdminShell active="services">
         <ServicesEditor />
+      </AdminShell>
+    );
+  }
+  if (page === "users") {
+    return (
+      <AdminShell active="users">
+        <UsersManager />
       </AdminShell>
     );
   }
