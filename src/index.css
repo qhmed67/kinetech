@@ -212,3 +212,20 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
 /* Watermarked player: hide the native video-only fullscreen button (Chromium)
    so fullscreen goes through the watermarked container (double-click). */
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
+
+/* Guarded player fullscreen: true viewport fill (no aspect lock, no radius),
+   so the frame geometry never shifts — watermark + controls stay put. */
+.pvp:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.pvp:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+}

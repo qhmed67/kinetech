@@ -127,11 +127,18 @@ export function UsersManager() {
               {found.role}
             </span>
           </div>
-          <dl className="grid gap-1.5 text-sm sm:grid-cols-2">
-            <div><dt className="font-bold">Email</dt><dd dir="ltr">{found.email}</dd></div>
-            <div><dt className="font-bold">{u.byPhone}</dt><dd dir="ltr">{found.phone ?? "—"}</dd></div>
-            <div><dt className="font-bold">{u.byNationalId}</dt><dd dir="ltr">{found.national_id ?? "—"}</dd></div>
-            <div><dt className="font-bold">Tracks</dt><dd dir="ltr">{found.tracks.join(", ") || "—"}</dd></div>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            {[
+              { label: "Email", value: found.email },
+              { label: u.byPhone, value: found.phone ?? "—" },
+              { label: u.byNationalId, value: found.national_id ?? "—" },
+              { label: "Tracks", value: found.tracks.join(", ") || "—" },
+            ].map((f) => (
+              <div key={f.label} className="flex min-w-0 flex-col gap-0.5 text-start">
+                <dt className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--muted)" }}>{f.label}</dt>
+                <dd dir="auto" className="truncate font-bold">{f.value}</dd>
+              </div>
+            ))}
           </dl>
 
           <div>

@@ -67,6 +67,9 @@ export function ProtectedVideoPlayer({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
+  // Poster covers the unstarted frame (where YouTube shows title/avatar).
+  const [started, setStarted] = useState(false);
+  const gotQualities = useRef(false);
   const [time, setTime] = useState(0);
   const [dur, setDur] = useState(0);
   const [showRemaining, setShowRemaining] = useState(false);
@@ -97,6 +100,10 @@ export function ProtectedVideoPlayer({
     setReady(false);
     setFailed(false);
     setPlaying(false);
+    setStarted(false);
+    gotQualities.current = false;
+    setQualities([]);
+    setQuality("auto");
     setTime(0);
     setDur(0);
     endedRef.current = false;
@@ -145,6 +152,7 @@ export function ProtectedVideoPlayer({
             onStateChange: (e) => {
               if (!alive) return;
               setPlaying(e.data === YT_STATE.PLAYING || e.data === YT_STATE.BUFFERING);
+              if (e.data !== YT_STATE.UNSTARTED && e.data !== YT_STATE.CUED) setStarted(true);
               if (e.data === YT_STATE.ENDED && !endedRef.current) {
                 endedRef.current = true;
                 cbRef.current.onEnded();
@@ -161,6 +169,18 @@ export function ProtectedVideoPlayer({
           const p = playerRef.current;
           if (!p) return;
           try {
+            // Quality list is empty until metadata loads — refresh until filled.
+            if (!gotQualities.current) {
+              try {
+                const levels = p.getAvailableQualityLevels?.() ?? [];
+                if (levels.length > 0) {
+                  gotQualities.current = true;
+                  setQualities(["auto", ...levels]);
+                }
+              } catch {
+                /* retry next tick */
+              }
+            }
             const t = p.getCurrentTime() ?? 0;
             const d = p.getDuration() ?? 0;
             // Continuity check: jumps >2s are seeks, reported once.
@@ -321,7 +341,7 @@ export function ProtectedVideoPlayer({
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
       onDoubleClick={toggleFullscreen}
-      className="relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none"
+      className="pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none"
       style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       aria-label="Protected video player"
     >
@@ -337,6 +357,32 @@ export function ProtectedVideoPlayer({
         onDragStart={(e) => e.preventDefault()}
         onDoubleClick={(e) => e.stopPropagation()}
       />
+
+      {/* Permanent top scrim: masks YouTube's title/avatar/share row in every
+          state (params alone can't remove it anymore). Pure brand chrome. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 bg-gradient-to-b from-black/80 to-transparent"
+      />
+
+      {/* Poster: covers the unstarted frame until first playback. */}
+      {ready && !started && !failed && (
+        <button
+          type="button"
+          onClick={togglePlay}
+          aria-label="Play video"
+          className="absolute inset-0 z-20 grid place-items-center"
+          style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
+        >
+          <span
+            aria-hidden="true"
+            className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
+            style={{ background: "#3BBCD9" }}
+          >
+            <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+          </span>
+        </button>
+      )}
 
       {/* Floating identity watermark. */}
       {wmText !== "" && (
@@ -417,7 +463,7 @@ export function ProtectedVideoPlayer({
             </select>
           </label>
           {qualities.length > 1 && (
-            <label className="hidden items-center gap-1 text-[12px] font-bold sm:flex">
+            <label className="flex items-center gap-1 text-[12px] font-bold">
               <span className="sr-only">Quality</span>
               <select
                 value={quality}
