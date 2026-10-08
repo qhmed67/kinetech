@@ -345,8 +345,10 @@ export function ProtectedVideoPlayer({
       style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       aria-label="Protected video player"
     >
-      {/* Video canvas (pointer-dead iframe inside). */}
-      <div ref={mountRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full" />
+      {/* Video canvas, oversized 114% and centered: YouTube's edge chrome
+          (top title row, bottom logo row) falls outside our viewport in
+          every player state. Container clips the bleed. */}
+      <div ref={mountRef} className="pvp-frame absolute [&>iframe]:h-full [&>iframe]:w-full" />
 
       {/* Click-capturing shield: no click/right-click/drag ever reaches YouTube. */}
       <div
@@ -358,20 +360,29 @@ export function ProtectedVideoPlayer({
         onDoubleClick={(e) => e.stopPropagation()}
       />
 
-      {/* Permanent top bar: fully masks YouTube's title/avatar/share row in
-          every state (params alone can't remove it anymore). Solid brand
-          chrome reads as our own header, not a cover-up. */}
+      {/* Permanent brand header: reads as our own chrome, not a cover-up. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-12 items-center px-4"
-        style={{ background: "#000" }}
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 px-4"
+        style={{
+          background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 70%, #3D3250 100%)",
+          borderBottom: "2px solid var(--kt-teal)",
+        }}
       >
         <span
           aria-hidden="true"
-          className="text-sm font-bold tracking-wide text-white/90"
+          className="grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold text-white"
+          style={{ background: "#3BBCD9", fontFamily: "var(--font-display)" }}
+        >
+          ▶
+        </span>
+        <span
+          aria-hidden="true"
+          className="text-sm font-bold tracking-wide text-white"
           style={{ fontFamily: "var(--font-display)" }}
         >
           KINE<span style={{ color: "var(--kt-teal)" }}>TECH</span>
+          <span className="ms-2 font-medium text-white/60">• {formatClock(dur)}</span>
         </span>
       </div>
 
@@ -411,21 +422,13 @@ export function ProtectedVideoPlayer({
         </div>
       )}
 
-      {/* Bottom-left brand bug: sits over YouTube's logo zone. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute bottom-20 left-3 z-20 rounded-md px-2 py-1 text-[11px] font-bold tracking-wide text-white"
-        style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
-      >
-        KINE<span style={{ color: "var(--kt-teal)" }}>TECH</span>
-      </div>
-
       {!ready && (
         <div className="absolute inset-0 z-20 grid animate-pulse place-items-center" style={{ background: "rgba(0,0,0,0.6)" }} aria-label="loading" />
       )}
 
-      {/* Custom control bar — the only visible chrome. */}
-      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2.5 pt-8 sm:px-4">
+      {/* Custom control bar — the only visible chrome. Deep gradient swallows
+          any native bottom-row leftovers. */}
+      <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 sm:px-4">
         <input
           type="range"
           min={0}
