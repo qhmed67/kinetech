@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
+import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
+import { isYoutubeSource } from "../lib/videoGuard";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import {
@@ -386,6 +388,8 @@ export function Watch({
                     WhatsApp
                   </a>
                 </div>
+              ) : isYoutubeSource(src) ? (
+                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
               ) : (
                 <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
               )}
