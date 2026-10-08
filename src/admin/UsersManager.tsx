@@ -12,6 +12,7 @@ import {
   type Orphan,
   type SearchKind,
 } from "../lib/db/adminUsers";
+import { groupCoursesAlpha } from "../lib/alpha";
 
 /**
  * Admin user search + enrollment management.
@@ -204,8 +205,16 @@ export function UsersManager() {
                 style={{ borderColor: "var(--kt-line)" }}
               >
                 <option value="">{u.grantL}</option>
-                {courses.filter((c) => !found.enrolled.includes(c.slug)).map((c) => (
-                  <option key={c.slug} value={c.slug}>{c.name[lang] ?? c.name.en}</option>
+                {groupCoursesAlpha(
+                  courses.filter((c) => !found.enrolled.includes(c.slug)),
+                  (c) => c.name[lang] ?? c.name.en,
+                  lang,
+                ).map((g) => (
+                  <optgroup key={g.letter} label={g.letter}>
+                    {g.items.map((c) => (
+                      <option key={c.slug} value={c.slug}>{c.name[lang] ?? c.name.en}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <button
