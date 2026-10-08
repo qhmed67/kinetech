@@ -26,3 +26,4 @@ public/supabase-config.js
 *.njsproj
 *.sln
 *.sw?
+.vercel

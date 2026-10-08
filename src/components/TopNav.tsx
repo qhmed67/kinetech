@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { Seek } from "@/components/ui/seek-search";
 import { initialsOf, type KtUser } from "../auth";
+import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "./lang";
 
 function sectionFor(query: string): string | null {
@@ -28,7 +29,41 @@ export function TopNav({
   const { lang, t, toggle } = useLang();
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
-  const [unread, setUnread] = useState(3);
+  const [liveNotifs, setLiveNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+
+  // Live notifications (server truth). Null = loading/offline.
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user) {
+      setLiveNotifs(null);
+      return;
+    }
+    let alive = true;
+    void import("../lib/db/activityDb")
+      .then((m) => m.getNotifications(5))
+      .then((list) => {
+        if (alive) setLiveNotifs(list);
+      })
+      .catch(() => {
+        if (alive) setLiveNotifs([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user?.email]);
+
+  const unread = liveNotifs === null ? 0 : liveNotifs.filter((n) => !n.is_read).length;
+  const openBell = () => {
+    setBell((v) => !v);
+    setMenu(false);
+    if (liveNotifs !== null && liveNotifs.some((n) => !n.is_read)) {
+      void import("../lib/db/activityDb")
+        .then((m) => m.markNotificationsRead())
+        .then(() => setLiveNotifs((cur) => (cur ?? []).map((n) => ({ ...n, is_read: true }))))
+        .catch(() => {
+          /* badge stays */
+        });
+    }
+  };
   const [drawer, setDrawer] = useState(false);
   const [shown, setShown] = useState(false);
 
@@ -143,11 +178,7 @@ export function TopNav({
             <div className="relative">
               <button
                 type="button"
-                onClick={() => {
-                  setBell((v) => !v);
-                  setMenu(false);
-                  setUnread(0);
-                }}
+                onClick={openBell}
                 aria-label={t.dashboard.notifT}
                 className="relative hidden h-11 w-11 place-items-center rounded-full sm:grid"
                 style={{
@@ -180,20 +211,32 @@ export function TopNav({
                   className="absolute end-0 top-13 z-30 w-72 overflow-hidden rounded-2xl border bg-white shadow-xl ltr:origin-top-right rtl:origin-top-left"
                   style={{ borderColor: "var(--kt-line)" }}
                 >
-                  {t.dashboard.notes.map((n: string) => (
+                  {liveNotifs === null || liveNotifs.length === 0 ? (
                     <p
-                      key={n}
-                      className="flex items-start gap-2.5 border-b px-4 py-3 text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
-                      style={{ borderColor: "var(--kt-line)" }}
+                      className="px-4 py-3 text-[13px] leading-snug"
+                      style={{ color: "var(--muted)" }}
                     >
-                      <span
-                        aria-hidden="true"
-                        className="mt-1.5 h-2 w-2 flex-none rounded-full"
-                        style={{ background: "var(--kt-teal)" }}
-                      />
-                      {n}
+                      {t.dashboard.notifEmpty}
                     </p>
-                  ))}
+                  ) : (
+                    liveNotifs.map((n) => (
+                      <p
+                        key={n.id}
+                        className="flex items-start gap-2.5 border-b px-4 py-3 text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
+                        style={{ borderColor: "var(--kt-line)", opacity: n.is_read ? 0.7 : 1 }}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="mt-1.5 h-2 w-2 flex-none rounded-full"
+                          style={{ background: n.is_read ? "var(--kt-line)" : "var(--kt-teal)" }}
+                        />
+                        <span>
+                          <span className="block font-bold">{n.title}</span>
+                          {n.message && <span className="block">{n.message}</span>}
+                        </span>
+                      </p>
+                    ))
+                  )}
                 </motion.div>
               )}
               </AnimatePresence>
