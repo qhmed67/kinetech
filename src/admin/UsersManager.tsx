@@ -157,22 +157,24 @@ export function UsersManager() {
               {found.role}
             </span>
           </div>
-          <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2" style={{ textAlign: "right" }}>
-            {[
-              { label: "Email", value: found.email },
-              { label: u.byPhone, value: found.phone ?? "—" },
-              { label: u.byNationalId, value: found.national_id ?? "—" },
-              { label: "Tracks", value: found.tracks.join(", ") || "—" },
-            ].map((f) => (
-              <div key={f.label} className="min-w-0">
-                <dt className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--muted)" }}>{f.label}</dt>
-                <dd dir="auto" className="mt-0.5 font-bold" style={{ overflowWrap: "anywhere" }}>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* EN: details left, enrolled courses right. AR: stacked, right-aligned. */}
+          <div className={lang === "ar" ? "grid gap-4" : "grid gap-6 lg:grid-cols-2"}>
+            <dl className="grid content-start gap-x-6 gap-y-4 text-sm sm:grid-cols-2" style={{ textAlign: lang === "ar" ? "right" : "left" }}>
+              {[
+                { label: "Email", value: found.email },
+                { label: u.byPhone, value: found.phone ?? "—" },
+                { label: u.byNationalId, value: found.national_id ?? "—" },
+                { label: "Tracks", value: found.tracks.join(", ") || "—" },
+              ].map((f) => (
+                <div key={f.label} className="min-w-0">
+                  <dt className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--muted)" }}>{f.label}</dt>
+                  <dd dir="auto" className="mt-0.5 font-bold" style={{ overflowWrap: "anywhere" }}>{f.value}</dd>
+                </div>
+              ))}
+            </dl>
 
-          <div>
-            <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{u.enrolledL}</h3>
+            <div>
+              <h3 className="font-bold" style={{ fontFamily: "var(--font-display)", textAlign: lang === "ar" ? "right" : "left" }}>{u.enrolledL}</h3>
             {found.enrolled.length === 0 ? (
               <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{u.noneYet}</p>
             ) : (
@@ -214,6 +216,7 @@ export function UsersManager() {
               >
                 {u.grantBtn}
               </button>
+            </div>
             </div>
           </div>
 
