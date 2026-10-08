@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { deleteCourse, loadStore, resetCourses, useContent } from "../store";
 import { getUser } from "../auth";
+import { SafeImg } from "../components/SafeImg";
 import { resetProgress } from "../watch";
 import { useLang } from "../components/lang";
 import { isSupabaseConfigured } from "../lib/db/env";
@@ -89,14 +90,11 @@ export function CoursesList() {
           className="flex flex-col gap-4 rounded-[20px] border bg-white p-5 sm:flex-row sm:items-center"
           style={{ borderColor: "var(--kt-line)" }}
         >
-          {c.photoCard && (
-            <img
-              src={c.photoCard}
-              alt=""
-              loading="lazy"
-              className="h-20 w-full rounded-2xl object-cover object-top sm:w-32"
-            />
-          )}
+          <SafeImg
+            src={c.photoCard}
+            alt=""
+            className="h-20 w-full rounded-2xl object-cover object-top sm:w-32"
+          />
           <div className="min-w-0 flex-1">
             <h2 className="truncate font-bold" style={{ fontFamily: "var(--font-display)" }}>
               {c.name[lang]}

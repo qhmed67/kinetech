@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { isDone } from "../watch";
+import { SafeImg } from "../components/SafeImg";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
 
@@ -440,7 +441,7 @@ export function Dashboard({
                       const prog = progBySlug.get(slug) ?? { progress: 0, hours: 0 };
                       return (
                         <article key={slug} className="flex flex-col gap-4 rounded-[20px] border bg-white p-5 sm:flex-row" style={{ borderColor: "var(--kt-line)" }}>
-                          <img src={course.photoCard} alt={course.name} loading="lazy" className="h-28 w-full rounded-2xl object-cover object-top sm:w-36" />
+                          <SafeImg src={course.photoCard} alt={course.name} className="h-28 w-full rounded-2xl object-cover object-top sm:w-36" />
                           <div className="flex-1">
                             <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{course.name}</h3>
                             <div className="mt-3 h-2.5 overflow-hidden rounded-full" style={{ background: "var(--surface)" }} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100}>

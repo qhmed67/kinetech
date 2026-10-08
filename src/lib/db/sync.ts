@@ -3,6 +3,7 @@ import { replaceStore, type ContentStore, type StoreCourse, type StoreService } 
 import { getUser, setUser, notifyUserChanged } from "../../auth";
 import { setViewsCount, setDoneFlag } from "../../watch";
 import { NETWORK_TIMEOUT_MS, withTimeout } from "./throttle";
+import { toDirectImageUrl } from "../drive";
 import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
 
 /* Cloud sync: Supabase is source of truth when configured.
@@ -171,7 +172,8 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
         ? null
         : { en: priceText(c.price_cents, "en") ?? "", ar: priceText(c.price_cents, "ar") ?? "" },
       photoCard: c.photo_card_url ?? "",
-      photoDetail: c.photo_detail_url ?? "",
+      // Detail falls back to card: older rows predate the detail-image field.
+      photoDetail: c.photo_detail_url ?? c.photo_card_url ?? "",
       instructor: {
         name: { en: ins?.name_en ?? "", ar: ins?.name_ar ?? "" },
         spec: { en: ins?.spec_en ?? "", ar: ins?.spec_ar ?? "" },
@@ -487,8 +489,9 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
     is_bac: course.bac,
     seats_n: course.seatsN,
     price_cents: parsePriceCents(course.price),
-    photo_card_url: course.photoCard || null,
-    photo_detail_url: course.photoDetail || null,
+    // Normalize Drive share links; drop legacy embedded payloads.
+    photo_card_url: toDirectImageUrl(course.photoCard) || null,
+    photo_detail_url: toDirectImageUrl(course.photoDetail) || toDirectImageUrl(course.photoCard) || null,
     instructor_id: instructorId,
   }, { onConflict: "slug" }).select("id").single();
   const courseId = (c as unknown as { id: string } | null)?.id;
