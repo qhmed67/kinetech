@@ -198,8 +198,9 @@ export function Dashboard({
   // Admin-granted enrollments only (WhatsApp payment verified by staff).
   const enrolledSlugs = (user?.enrolled ?? []).filter(courseExists);
   const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
-  // Server truth wins for progress: local flags are UI hints only and must
-  // never decide (or inflate) what the bar shows. Falls back to local offline.
+  // Server truth wins for progress — but ONLY when the server actually has
+  // rows for the course. Empty answers (local-only course, offline, failed
+  // fetch) keep the local fallback instead of zeroing real progress.
   const [serverProg, setServerProg] = useState<Record<string, { progress: number; hours: number; done: number; total: number }>>({});
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) return;
@@ -210,14 +211,14 @@ export function Dashboard({
         for (const slug of enrolledSlugs) {
           try {
             const rows = await m.getWatchStateDb(slug, lang);
-            const total = rows.length;
+            if (rows.length === 0) continue;
             const doneRows = rows.filter((r) => r.done);
             const mins = doneRows.reduce((a, r) => a + (r.mins || 0), 0);
             out[slug] = {
-              progress: total > 0 ? Math.round((doneRows.length / total) * 100) : 0,
+              progress: Math.round((doneRows.length / rows.length) * 100),
               hours: Math.round((mins / 60) * 10) / 10,
               done: doneRows.length,
-              total,
+              total: rows.length,
             };
           } catch {
             /* keep local fallback for this course */
@@ -232,24 +233,9 @@ export function Dashboard({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email, enrolledSlugs.join(",")]);
-  // Merge, never overwrite: an empty server answer (fresh grant, RPC hiccup)
-  // must not wipe real local progress — take the best of both per field.
+  }, [user?.email, enrolledSlugs.join(","), lang]);
   const progBySlug = new Map(
-    enrolledSlugs.map((s) => {
-      const local = courseProgress(user, s);
-      const srv = serverProg[s];
-      if (!srv) return [s, local] as const;
-      const done = Math.max(local.done, srv.done);
-      const total = Math.max(local.total, srv.total);
-      const hours = Math.max(local.hours, srv.hours);
-      return [s, {
-        done,
-        total,
-        hours,
-        progress: total > 0 ? Math.round((done / total) * 100) : 0,
-      }] as const;
-    }),
+    enrolledSlugs.map((s) => [s, serverProg[s] ?? courseProgress(user, s)]),
   );
   const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);
   const lessonsDone = [...progBySlug.values()].reduce((a, p) => a + p.done, 0);

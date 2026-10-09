@@ -67,9 +67,11 @@ export function AdminApp({ page }: { page: string }) {
   }
   const cm = page.match(/^courses\/(.+)$/);
   if (cm) {
+    const editSlug = decodeURIComponent(cm[1]);
     return (
       <AdminShell active="courses">
-        <CourseForm slug={decodeURIComponent(cm[1])} />
+        {/* Keyed by slug: navigating new→edit must not reuse stale form state. */}
+        <CourseForm key={editSlug} slug={editSlug} />
       </AdminShell>
     );
   }

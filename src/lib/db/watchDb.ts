@@ -35,15 +35,31 @@ export async function recordPlayDb(videoId: string): Promise<{ views_count: numb
   return row ?? { views_count: 0, views_left: 0 };
 }
 
+/**
+ * Version-tolerant completion: the DB may run the 2-param
+ * (p_video, p_watched_secs) or 3-param (+p_duration_secs) variant.
+ * A 42883 (unknown function/argument) falls back to the older shape
+ * instead of silently dropping the completion.
+ */
 export async function completeVideoDb(videoId: string, watchedSecs = 0, durationSecs = 0): Promise<void> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const { error } = await sb.rpc("complete_video", {
+  const full = await sb.rpc("complete_video", {
     p_video: videoId,
     p_watched_secs: watchedSecs,
     p_duration_secs: durationSecs,
   });
-  if (error) throw error;
+  if (!full.error) return;
+  if (full.error.code === "42883") {
+    const legacy = await sb.rpc("complete_video", {
+      p_video: videoId,
+      p_watched_secs: watchedSecs,
+    });
+    if (!legacy.error) return;
+    // Legacy variant also validates purely server-side; surface real errors.
+    if (legacy.error.code !== "42883") throw legacy.error;
+  }
+  throw full.error;
 }
 
 /** Watermark identity: lean profile read for overlay (email/phone). */

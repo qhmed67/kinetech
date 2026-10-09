@@ -319,8 +319,9 @@ export function ProtectedVideoPlayer({
   }, [src]);
 
   // Session rotation: re-assert isolation without touching playback.
+  // sessionToken is a state string, so each rotation re-runs this effect.
   useEffect(() => {
-    void sessionToken.current;
+    void sessionToken;
     const p = playerRef.current;
     if (!p || !ready) return;
     try {

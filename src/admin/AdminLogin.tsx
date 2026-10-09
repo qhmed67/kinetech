@@ -11,6 +11,7 @@ export function AdminLogin() {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -39,7 +40,14 @@ export function AdminLogin() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy || !throttle("admin-login", 3000)) return;
+    if (busy) return;
+    // Throttled submits must say so — silent return looks like a dead button.
+    if (!throttle("admin-login", 3000)) {
+      setErrMsg(t.admin.tooFast);
+      setErr(true);
+      return;
+    }
+    setErrMsg(null);
     setErr(false);
     if (!isSupabaseConfigured()) {
       // No backdoor: without Supabase there is no admin auth at all.
@@ -93,7 +101,7 @@ export function AdminLogin() {
             </Field>
             {err && (
               <p role="alert" className="text-sm font-bold" style={{ color: "#B3261E" }}>
-                {a.loginErr}
+                {errMsg ?? a.loginErr}
               </p>
             )}
             <button type="submit" className="btn btn-primary w-full" disabled={busy}>

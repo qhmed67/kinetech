@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { loadStore, saveService, useContent, type Post } from "../store";
 import { useLang } from "../components/lang";
-import { Field, LangTabs, RowActions, Section, Text, Area } from "./ui";
+import { Field, LangTabs, RowActions, Section, StringList, Text, Area } from "./ui";
 
 type Svc = "marketing" | "software" | "design";
 
@@ -13,15 +13,16 @@ export function ServicesEditor() {
   useContent();
   const [svc, setSvc] = useState<Svc>("marketing");
   const [lt, setLt] = useState<"en" | "ar">(lang === "ar" ? "ar" : "en");
-  const [savedTick, setSavedTick] = useState(0);
 
   const store = loadStore();
   const posts = store.services[svc].posts[lt] ?? [];
 
+  // saveService commits + notifies via useContent — no remount key needed.
+  // (A previous key={tick} remounted the whole form on every keystroke,
+  // stealing input focus while typing.)
   const write = (next: Post[]) => {
     const cur = loadStore().services[svc];
     saveService(svc, { ...cur, posts: { ...cur.posts, [lt]: next } });
-    setSavedTick((n) => n + 1);
   };
 
   const move = (i: number, dir: -1 | 1) => {
@@ -33,7 +34,7 @@ export function ServicesEditor() {
   };
 
   return (
-    <div className="grid gap-4" key={savedTick}>
+    <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold" style={{ fontFamily: "var(--font-display)" }}>
           {a.servicesT}
@@ -59,6 +60,49 @@ export function ServicesEditor() {
           </button>
         ))}
       </div>
+
+      <Section title={`${svc} · ${a.svcTitle ?? "Title"}`}>
+        <Field label={a.svcTitle ?? "Title"}>
+          <Text
+            value={store.services[svc].title[lt] ?? ""}
+            dir={lt === "ar" ? "rtl" : "ltr"}
+            onChange={(e) => {
+              const cur = loadStore().services[svc];
+              saveService(svc, { ...cur, title: { ...cur.title, [lt]: e.target.value } });
+            }}
+          />
+        </Field>
+        <Field label={a.svcDesc ?? "Description"}>
+          <Area
+            value={store.services[svc].desc[lt] ?? ""}
+            dir={lt === "ar" ? "rtl" : "ltr"}
+            onChange={(e) => {
+              const cur = loadStore().services[svc];
+              saveService(svc, { ...cur, desc: { ...cur.desc, [lt]: e.target.value } });
+            }}
+          />
+        </Field>
+        <Field label={a.svcItems ?? "Feature list"}>
+          <StringList
+            items={store.services[svc].items[lt] ?? []}
+            addLabel={a.addItem}
+            onChange={(items) => {
+              const cur = loadStore().services[svc];
+              saveService(svc, { ...cur, items: { ...cur.items, [lt]: items } });
+            }}
+          />
+        </Field>
+        <Field label={a.svcGets ?? "Deliverables"}>
+          <StringList
+            items={store.services[svc].gets[lt] ?? []}
+            addLabel={a.addItem}
+            onChange={(items) => {
+              const cur = loadStore().services[svc];
+              saveService(svc, { ...cur, gets: { ...cur.gets, [lt]: items } });
+            }}
+          />
+        </Field>
+      </Section>
 
       <Section title={svc}>
         {posts.map((p, i) => (

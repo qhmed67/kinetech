@@ -79,6 +79,43 @@ export function purgeProgress(u: KtUser, slug: string): void {
   }
 }
 
+/**
+ * Full server reconciliation for one course: local views AND done flags are
+ * replaced wholesale by the server rows. Additive merge kept stale `done`
+ * flags alive after admin restarts — this is the single truth sync.
+ */
+export function replaceProgress(
+  u: KtUser,
+  slug: string,
+  rows: Array<{ idx: number; views: number; done: boolean }>,
+): void {
+  const uk = userKeyOf(u);
+  try {
+    const db = readDB();
+    const kept: Record<string, number> = {};
+    for (const [k, v] of Object.entries(db[uk] ?? {})) {
+      if (k !== slug && !k.startsWith(`${slug}:`)) kept[k] = v;
+    }
+    for (const r of rows) {
+      kept[videoKey(slug, r.idx)] = Math.min(MAX_VIEWS, Math.max(0, r.views));
+    }
+    db[uk] = kept;
+    writeDB(db);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const done = readDone();
+    const list = rows.filter((r) => r.done).map((r) => r.idx);
+    window.localStorage.setItem(
+      DONE_KEY,
+      JSON.stringify({ ...done, [uk]: { ...(done[uk] ?? {}), [slug]: list } }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Cloud merge helper: mark done from server state. */
 export function setDoneFlag(u: KtUser, slug: string, idx: number): void {
   const db = readDone();

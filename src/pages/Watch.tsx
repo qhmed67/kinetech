@@ -12,8 +12,7 @@ import {
   isUnlocked,
   recordDone,
   recordPlay,
-  setDoneFlag,
-  setViewsCount,
+  replaceProgress,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
@@ -202,9 +201,10 @@ function ContentList({
   return (
     <>
       {modules.map((m, i) => {
+        // Started (views>0) is NOT done — done requires completion or burned views.
         const st = !isUnlocked(user, slug, i)
           ? "locked"
-          : isDone(user, slug, i) || getViews(user, slug, i) > 0
+          : isDone(user, slug, i)
             ? i === idx ? "current" : "done"
             : i === idx ? "current" : "todo";
         const isOpen = open === i;
@@ -323,11 +323,13 @@ export function Watch({
       .then((m) => m.getWatchStateDb(slug, lang))
       .then((rows) => {
         if (!alive) return;
-        for (const r of rows) {
-          setViewsCount(user, slug, r.sort_order, Math.min(3, Math.max(0, r.views_count)));
-          if (r.done) setDoneFlag(user, slug, r.sort_order);
-          if (r.sort_order === idx) setPlays(r.views_count);
-        }
+        replaceProgress(
+          user,
+          slug,
+          rows.map((r) => ({ idx: r.sort_order, views: r.views_count, done: r.done })),
+        );
+        const cur = rows.find((r) => r.sort_order === idx);
+        setPlays(cur ? cur.views_count : 0);
         setDoneTick((n) => n + 1);
       })
       .catch(() => {

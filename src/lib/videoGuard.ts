@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 /* Obfuscation helpers: the raw YouTube ID never sits in props, state, or the
    DOM in plain text. XOR + base64 is deterrence, not encryption — a determined
@@ -150,13 +150,13 @@ export function loadYoutubeApi(): Promise<YtApi> {
  * observed state go stale; the token also stamps our play-count RPCs so
  * replayed calls from another context can be told apart server-side later.
  */
-export function useRotatingSession(intervalMs = 5 * 60 * 1000): React.MutableRefObject<string> {
-  const token = useRef(`s-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`);
-  const [, bump] = useState(0);
+export function useRotatingSession(intervalMs = 5 * 60 * 1000): string {
+  const [token, setToken] = useState(
+    () => `s-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+  );
   useEffect(() => {
     const id = window.setInterval(() => {
-      token.current = `s-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
-      bump((n) => n + 1);
+      setToken(`s-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`);
     }, intervalMs);
     return () => window.clearInterval(id);
   }, [intervalMs]);
