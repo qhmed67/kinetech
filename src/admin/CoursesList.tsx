@@ -1,8 +1,5 @@
-import { useState } from "react";
-import { deleteCourse, loadStore, resetCourses, useContent } from "../store";
-import { getUser } from "../auth";
+import { deleteCourse, loadStore, useContent } from "../store";
 import { SafeImg } from "../components/SafeImg";
-import { resetProgress } from "../watch";
 import { useLang } from "../components/lang";
 
 export function CoursesList() {
@@ -10,7 +7,6 @@ export function CoursesList() {
   const a = t.admin;
   useContent();
   const courses = loadStore().courses;
-  const [viewsReset, setViewsReset] = useState(false);
 
   return (
     <div className="grid gap-4">
@@ -21,39 +17,6 @@ export function CoursesList() {
         <a href="#/admin/courses/new" className="btn btn-primary">
           + {a.addCourse}
         </a>
-      </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm(a.resetConfirm)) {
-              resetCourses();
-              window.location.reload();
-            }
-          }}
-          className="text-sm font-bold"
-          style={{ color: "#B3261E" }}
-        >
-          {a.resetT}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const u = getUser();
-            if (!u) {
-              window.alert(a.needStudent);
-              return;
-            }
-            resetProgress(u);
-            setViewsReset(true);
-          }}
-          className="text-sm font-bold"
-          style={{ color: "var(--accent)" }}
-        >
-          {viewsReset
-            ? (lang === "ar" ? "تصفير مشاهدات التجربة" : "Test views reset.")
-            : (lang === "ar" ? "تصفير مشاهدات التجربة" : "Reset test views")}
-        </button>
       </div>
       {courses.map((c) => (
         <article
