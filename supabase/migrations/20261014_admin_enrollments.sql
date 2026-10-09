@@ -13,11 +13,13 @@
 -- ============ 1. uniqueness (idempotent) ============
 do $$ begin
   alter table profiles add constraint profiles_national_id_unique unique (national_id);
-exception when duplicate_object then null; end $$;
+exception when duplicate_object then null;
+            when duplicate_table then null; end $$;
 
 do $$ begin
   alter table profiles add constraint profiles_phone_unique unique (phone);
-exception when duplicate_object then null; end $$;
+exception when duplicate_object then null;
+            when duplicate_table then null; end $$;
 
 -- ============ 2. ban flag ============
 alter table profiles add column if not exists banned boolean not null default false;
