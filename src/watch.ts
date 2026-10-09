@@ -117,9 +117,19 @@ export function isDone(u: KtUser, slug: string, idx: number): boolean {
  * Seek jumps are never counted (see Watch accumulator) — dragging to the end
  * no longer unlocks anything. Server re-checks against DB-side minutes.
  */
-export function watchRequirementMet(u: KtUser, slug: string, idx: number, watchedSecs: number, nominalMins: number): boolean {
+export function watchRequirementMet(
+  u: KtUser,
+  slug: string,
+  idx: number,
+  watchedSecs: number,
+  durationSecs = 0,
+  nominalMins = 10,
+): boolean {
   if (getViews(u, slug, idx) >= MAX_VIEWS) return true;
-  if (nominalMins > 0 && watchedSecs >= nominalMins * 60 * 0.8) return true;
+  // Real media duration wins; nominal minutes label is only a fallback.
+  // Client-side counts are UI hints only — the server re-validates.
+  const need = durationSecs > 0 ? durationSecs * 0.8 : nominalMins * 60 * 0.8;
+  if (need > 0 && watchedSecs >= need) return true;
   return false;
 }
 
@@ -128,13 +138,14 @@ export function recordDone(
   slug: string,
   idx: number,
   watchedSecs = 0,
+  durationSecs = 0,
   nominalMins = 10,
 ): boolean {
-  if (!watchRequirementMet(u, slug, idx, watchedSecs, nominalMins)) return false;
+  if (!watchRequirementMet(u, slug, idx, watchedSecs, durationSecs, nominalMins)) return false;
   setDoneFlag(u, slug, idx);
   if (typeof window === "undefined") return true;
   void import("./lib/db/sync")
-    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs))
+    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs, durationSecs))
     .catch(() => {
       /* offline — local flag stays */
     });

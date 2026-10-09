@@ -355,6 +355,7 @@ const en = {
   },
   watch: {
     remaining: "{n} of 3 views remaining",
+    retryBtn: "Check again",
     limitT: "Viewing limit reached",
     limitD: "You've reached the viewing limit for this video. Message us on WhatsApp if you need extra access.",
     lockedT: "Locked for now",
@@ -1078,6 +1079,7 @@ const ar: Strings = {
   },
   watch: {
     remaining: "متبقي {n} من 3 مشاهدات",
+    retryBtn: "تحقق تاني",
     limitT: "خلصت المشاهدات",
     limitD: "وصلت للحد الأقصى لمشاهدة الفيديو ده. كلمنا واتساب لو محتاج دخول إضافي.",
     lockedT: "مقفول دلوقتي",

@@ -340,10 +340,11 @@ export async function pushDoneToCloud(
   slug: string,
   idx: number,
   watchedSecs = 0,
+  durationSecs = 0,
 ): Promise<void> {
   try {
     const id = await resolveVideoId(slug, idx);
-    if (id) await completeVideoDb(id, watchedSecs);
+    if (id) await completeVideoDb(id, watchedSecs, durationSecs);
   } catch {
     /* offline / requirement unmet — local decides UI, server decides truth */
   }

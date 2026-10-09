@@ -16,6 +16,7 @@ export type ProtectedVideoPlayerProps = {
   phone: string;
   onProgress: (seconds: number) => void;
   onSeeked: (seconds: number) => void;
+  onDuration: (seconds: number) => void;
   onEnded: () => void;
 };
 
@@ -64,8 +65,11 @@ export function ProtectedVideoPlayer({
   phone,
   onProgress,
   onSeeked,
+  onDuration,
   onEnded,
 }: ProtectedVideoPlayerProps) {
+  const cbAllRef = useRef({ onDuration });
+  cbAllRef.current.onDuration = onDuration;
   const boxRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
@@ -84,6 +88,9 @@ export function ProtectedVideoPlayer({
   const [rate, setRate] = useState(1);
   const [quality, setQuality] = useState("auto");
   const [qualities, setQualities] = useState<string[]>([]);
+  // Rebuild veil: quality swaps destroy/recreate the player — show an
+  // explicit loading state so it reads as switching, not freezing.
+  const [switching, setSwitching] = useState(false);
   // Idle chrome: bar + cursor vanish 3s after the last mouse move (playing only).
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | null>(null);
@@ -163,6 +170,7 @@ export function ProtectedVideoPlayer({
         onReady: (e) => {
           if (gen !== genRef.current) return;
           playerRef.current = e.target;
+          setSwitching(false);
           try {
             // Full input capture: the frame never receives pointer input.
             e.target.getIframe().style.pointerEvents = "none";
@@ -294,10 +302,15 @@ export function ProtectedVideoPlayer({
         if (Math.abs(t - lastPoll.current) > 2 && lastPoll.current > 0) {
           cbRef.current.onSeeked(t);
         }
-        lastPoll.current = t;
-        setTime(t);
-        if (d > 0) setDur(d);
-        cbRef.current.onProgress(t);
+            lastPoll.current = t;
+            setTime(t);
+            if (d > 0) {
+              setDur((prev) => {
+                if (prev <= 0) cbAllRef.current.onDuration(d);
+                return d;
+              });
+            }
+            cbRef.current.onProgress(t);
       } catch {
         /* player torn down */
       }
@@ -374,6 +387,7 @@ export function ProtectedVideoPlayer({
       if (!p) return;
       const st = p.getPlayerState();
       const wasPlaying = st === YT_STATE.PLAYING || st === YT_STATE.BUFFERING;
+      setSwitching(true);
       spawn(Math.max(0, at), q === "auto" ? null : q, wasPlaying);
     } catch {
       /* ignore */
@@ -515,8 +529,14 @@ export function ProtectedVideoPlayer({
         </div>
       )}
 
-      {!ready && (
-        <div className="absolute inset-0 z-20 grid animate-pulse place-items-center" style={{ background: "rgba(0,0,0,0.6)" }} aria-label="loading" />
+      {(!ready || switching) && (
+        <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+          <span
+            aria-hidden="true"
+            className="h-12 w-12 animate-spin rounded-full"
+            style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+          />
+        </div>
       )}
 
       {/* Custom control bar — the only visible chrome. Deep gradient swallows

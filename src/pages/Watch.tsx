@@ -68,6 +68,7 @@ function Player({
   phone,
   onProgress,
   onSeeked,
+  onDuration,
   onEnded,
 }: {
   src: string;
@@ -75,6 +76,7 @@ function Player({
   phone: string;
   onProgress: (seconds: number) => void;
   onSeeked: (seconds: number) => void;
+  onDuration: (seconds: number) => void;
   onEnded: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -141,6 +143,10 @@ function Player({
         playsInline
         draggable={false}
         className="aspect-video w-full"
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration;
+          if (Number.isFinite(d) && d > 0) onDuration(d);
+        }}
         onTimeUpdate={(e) => onProgress(e.currentTarget.currentTime)}
         onSeeked={(e) => onSeeked(e.currentTarget.currentTime)}
         onEnded={onEnded}
@@ -262,6 +268,8 @@ export function Watch({
   const [plays, setPlays] = useState(0);
   const [, setDoneTick] = useState(0);
   const counted = useRef(false);
+  // Real media duration (not the nominal minutes label) drives completion.
+  const [realDur, setRealDur] = useState(0);
   // Continuous-watch accumulator: only contiguous playback counts toward
   // completion. Seek jumps reset continuity, so scrubbing to the end grants
   // nothing (server re-validates against DB-side minutes).
@@ -279,21 +287,38 @@ export function Watch({
     if (user?.banned) window.location.hash = "#/dashboard";
   }, [user, ready]);
 
+  // Monotonic guard must reset per video: Math.max against the PREVIOUS
+  // lesson's count leaked "limit reached" onto unopened lessons.
+  const videoRef = useRef(video);
   useEffect(() => {
     counted.current = false;
     watchAcc.current = { last: 0, total: 0 };
-    // monotonic: remounts (fullscreen transitions, HMR) can never lower the count
-    if (user && course) setPlays((p) => Math.max(p, getViews(user, slug, video)));
+    setRealDur(0);
+    if (user && course) {
+      if (videoRef.current !== video) {
+        videoRef.current = video;
+        setPlays(getViews(user, slug, video));
+      } else {
+        // same video remount (fullscreen transitions, HMR): never lower
+        setPlays((p) => Math.max(p, getViews(user, slug, video)));
+      }
+    }
     setOpen(video);
     window.scrollTo(0, 0);
   }, [slug, video]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Server truth wins on page open: an admin restart (or another device)
   // only reaches this browser by re-reading — local cache alone would show
-  // stale burned-out counts forever.
+  // stale burned-out counts forever. refreshKey lets the limit screen retry.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   useEffect(() => {
-    if (!isSupabaseConfigured() || !user || !course) return;
+    if (!isSupabaseConfigured() || !user || !course) {
+      setRefreshing(false);
+      return;
+    }
     let alive = true;
+    setRefreshing(true);
     void import("../lib/db/watchDb")
       .then((m) => m.getWatchStateDb(slug, lang))
       .then((rows) => {
@@ -307,12 +332,15 @@ export function Watch({
       })
       .catch(() => {
         /* offline — local counts stay */
+      })
+      .finally(() => {
+        if (alive) setRefreshing(false);
       });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, video, lang, user?.email]);
+  }, [slug, video, lang, user?.email, refreshKey]);
 
   if (!user || !enrolled || !course) return null;
 
@@ -343,10 +371,15 @@ export function Watch({
     watchAcc.current.last = seconds;
   };
 
+  const onDuration = (seconds: number) => {
+    setRealDur((prev) => (prev > 0 ? prev : seconds));
+  };
+
   const onEnded = () => {
     // completion requires ~80% genuinely watched (or burned views); a seek
-    // straight to the end accumulates ~0s and grants nothing.
-    if (recordDone(user, slug, idx, watchAcc.current.total, vid.mins)) {
+    // straight to the end accumulates ~0s and grants nothing. Real media
+    // duration wins over the nominal minutes label.
+    if (recordDone(user, slug, idx, watchAcc.current.total, realDur, vid.mins)) {
       setDoneTick((n) => n + 1);
     }
   };
@@ -415,14 +448,24 @@ export function Watch({
                   <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
                     {w.limitD}
                   </p>
-                  <a href={WA} className="btn btn-primary mt-5">
-                    WhatsApp
-                  </a>
+                  <div className="mt-5 flex flex-wrap justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setRefreshKey((k) => k + 1)}
+                      disabled={refreshing}
+                      className="btn btn-secondary disabled:opacity-60"
+                    >
+                      {refreshing ? "…" : w.retryBtn}
+                    </button>
+                    <a href={WA} className="btn btn-primary">
+                      WhatsApp
+                    </a>
+                  </div>
                 </div>
               ) : isYoutubeSource(src) ? (
-                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
+                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
               ) : (
-                <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onEnded={onEnded} />
+                <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
               )}
             </div>
 
