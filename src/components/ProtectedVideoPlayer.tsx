@@ -121,11 +121,86 @@ export function ProtectedVideoPlayer({
     return () => window.clearInterval(id);
   }, []);
 
-  // Build the player once per src. Raw ID lives only in this closure.
+  // Player construction, reusable for initial build AND quality rebuilds.
+  // Raw ID + API live in refs (memory only); stale generations are ignored.
+  const apiRef = useRef<import("../lib/videoGuard").YtApi | null>(null);
+  const videoIdRef = useRef<string>("");
+  const genRef = useRef(0);
+  const slotRef = useRef<HTMLDivElement>(null);
+
+  const spawn = useCallback((startAt: number, vq: string | null, autoplay: boolean) => {
+    const api = apiRef.current;
+    const videoId = videoIdRef.current;
+    const slot = slotRef.current;
+    if (!api || !videoId || !slot) return;
+    const gen = ++genRef.current;
+    try {
+      playerRef.current?.destroy();
+    } catch {
+      /* ignore */
+    }
+    slot.innerHTML = "";
+    const holder = document.createElement("div");
+    holder.style.width = "100%";
+    holder.style.height = "100%";
+    slot.appendChild(holder);
+    const vars: Record<string, number | string> = {
+      controls: 0,
+      disablekb: 1,
+      modestbranding: 1,
+      rel: 0,
+      fs: 0,
+      iv_load_policy: 3,
+      playsinline: 1,
+      origin: window.location.origin,
+    };
+    // Forced default quality: applies from the first frame, no drift-in.
+    if (vq) vars.vq = vq;
+    const player = new api.Player(holder, {
+      videoId,
+      playerVars: vars,
+      events: {
+        onReady: (e) => {
+          if (gen !== genRef.current) return;
+          playerRef.current = e.target;
+          try {
+            // Full input capture: the frame never receives pointer input.
+            e.target.getIframe().style.pointerEvents = "none";
+            const levels = e.target.getAvailableQualityLevels?.() ?? [];
+            if (levels.length > 0) {
+              gotQualities.current = true;
+              levelsRef.current = levels;
+              setQualities(["auto", ...levels]);
+            }
+            setMuted(e.target.isMuted?.() ?? false);
+            if (startAt > 0.5) e.target.seekTo(startAt, true);
+            if (autoplay) e.target.playVideo();
+          } catch {
+            /* ignore */
+          }
+          setReady(true);
+        },
+        onStateChange: (e) => {
+          if (gen !== genRef.current) return;
+          setPlaying(e.data === YT_STATE.PLAYING || e.data === YT_STATE.BUFFERING);
+          if (e.data !== YT_STATE.UNSTARTED && e.data !== YT_STATE.CUED) setStarted(true);
+          if (e.data === YT_STATE.ENDED && !endedRef.current) {
+            endedRef.current = true;
+            cbRef.current.onEnded();
+          }
+          if (e.data === YT_STATE.PLAYING) endedRef.current = false;
+        },
+        onError: () => {
+          if (gen === genRef.current) setFailed(true);
+        },
+      },
+    });
+    playerRef.current = player;
+  }, []);
+
+  // Initial build per src. Raw ID lives only in this closure + ref.
   useEffect(() => {
     let alive = true;
-    let player: YtPlayer | null = null;
-    let poll: number | null = null;
     setReady(false);
     setFailed(false);
     setPlaying(false);
@@ -137,6 +212,7 @@ export function ProtectedVideoPlayer({
     levelsRef.current = [];
     setTime(0);
     setDur(0);
+    lastPoll.current = 0;
     endedRef.current = false;
 
     const rawId = extractYoutubeId(src);
@@ -145,126 +221,88 @@ export function ProtectedVideoPlayer({
       return;
     }
     const encoded = obfuscateId(rawId);
-
-    const boot = async () => {
+    void (async () => {
       try {
-        const api = await loadYoutubeApi();
-        if (!alive || !mountRef.current) return;
+        const [api, guard] = await Promise.all([loadYoutubeApi(), import("../lib/videoGuard")]);
+        if (!alive) return;
+        apiRef.current = api;
         // Decode at the last possible moment; the DOM/script never holds it.
-        const videoId = (await import("../lib/videoGuard")).deobfuscateId(encoded);
-        if (!alive || !mountRef.current) return;
-        player = new api.Player(mountRef.current, {
-          videoId,
-          playerVars: {
-            controls: 0,
-            disablekb: 1,
-            modestbranding: 1,
-            rel: 0,
-            fs: 0,
-            iv_load_policy: 3,
-            playsinline: 1,
-            origin: window.location.origin,
-          },
-          events: {
-            onReady: (e) => {
-              if (!alive) return;
-              playerRef.current = e.target;
-              try {
-                // Full input capture: the frame never receives pointer input.
-                e.target.getIframe().style.pointerEvents = "none";
-                const levels = e.target.getAvailableQualityLevels?.() ?? [];
-                if (levels.length > 0) setQualities(["auto", ...levels]);
-                setMuted(e.target.isMuted?.() ?? false);
-              } catch {
-                /* ignore */
-              }
-              setReady(true);
-            },
-            onStateChange: (e) => {
-              if (!alive) return;
-              setPlaying(e.data === YT_STATE.PLAYING || e.data === YT_STATE.BUFFERING);
-              if (e.data !== YT_STATE.UNSTARTED && e.data !== YT_STATE.CUED) setStarted(true);
-              if (e.data === YT_STATE.ENDED && !endedRef.current) {
-                endedRef.current = true;
-                cbRef.current.onEnded();
-              }
-              if (e.data === YT_STATE.PLAYING) endedRef.current = false;
-            },
-            onError: () => {
-              if (alive) setFailed(true);
-            },
-          },
-        });
-        playerRef.current = player;
-        poll = window.setInterval(() => {
-          const p = playerRef.current;
-          if (!p) return;
-          try {
-            // Quality list is empty until metadata loads — refresh until filled.
-            if (!gotQualities.current) {
-              try {
-                const levels = p.getAvailableQualityLevels?.() ?? [];
-                if (levels.length > 0) {
-                  gotQualities.current = true;
-                  levelsRef.current = levels;
-                  setQualities(["auto", ...levels]);
-                }
-              } catch {
-                /* retry next tick */
-              }
-            }
-            const t = p.getCurrentTime() ?? 0;
-            const d = p.getDuration() ?? 0;
-            // Segment memory: enforce the quality belonging to this timestamp.
-            // "auto" regions resolve upward — never downgrade a better segment.
-            try {
-              const marks = qualityMarks.current;
-              let active = marks[0];
-              for (const m of marks) {
-                if (m.t <= t + 0.5) active = m;
-                else break;
-              }
-              const cur = p.getPlaybackQuality?.() ?? "auto";
-              if (active.q === "auto") {
-                const top = [...levelsRef.current].sort((a, b) => qualityRank(b) - qualityRank(a))[0];
-                if (top && cur !== "auto" && cur !== top && qualityRank(cur) < qualityRank(top)) {
-                  p.setPlaybackQuality(top);
-                  setQuality(top);
-                }
-              } else if (cur !== active.q) {
-                p.setPlaybackQuality(active.q);
-                setQuality(active.q);
-              }
-            } catch {
-              /* player torn down */
-            }
-            // Continuity check: jumps >2s are seeks, reported once.
-            if (Math.abs(t - lastPoll.current) > 2 && lastPoll.current > 0) {
-              cbRef.current.onSeeked(t);
-            }
-            lastPoll.current = t;
-            setTime(t);
-            if (d > 0) setDur(d);
-            cbRef.current.onProgress(t);
-          } catch {
-            /* player torn down */
-          }
-        }, 250);
+        videoIdRef.current = guard.deobfuscateId(encoded);
+        if (!alive) return;
+        spawn(0, null, false);
       } catch {
         if (alive) setFailed(true);
       }
-    };
-    void boot();
+    })();
     return () => {
       alive = false;
-      if (poll !== null) window.clearInterval(poll);
+      genRef.current += 1;
       try {
-        player?.destroy();
+        playerRef.current?.destroy();
       } catch {
         /* ignore */
       }
       playerRef.current = null;
     };
+  }, [src, spawn]);
+
+  // Telemetry poll, independent of (re)builds.
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      const p = playerRef.current;
+      if (!p) return;
+      try {
+        // Quality list is empty until metadata loads — refresh until filled.
+        if (!gotQualities.current) {
+          try {
+            const levels = p.getAvailableQualityLevels?.() ?? [];
+            if (levels.length > 0) {
+              gotQualities.current = true;
+              levelsRef.current = levels;
+              setQualities(["auto", ...levels]);
+            }
+          } catch {
+            /* retry next tick */
+          }
+        }
+        const t = p.getCurrentTime() ?? 0;
+        const d = p.getDuration() ?? 0;
+        // Segment memory: enforce the quality belonging to this timestamp.
+        // "auto" regions resolve upward — never downgrade a better segment.
+        try {
+          const marks = qualityMarks.current;
+          let active = marks[0];
+          for (const m of marks) {
+            if (m.t <= t + 0.5) active = m;
+            else break;
+          }
+          const cur = p.getPlaybackQuality?.() ?? "auto";
+          if (active.q === "auto") {
+            const top = [...levelsRef.current].sort((a, b) => qualityRank(b) - qualityRank(a))[0];
+            if (top && cur !== "auto" && cur !== top && qualityRank(cur) < qualityRank(top)) {
+              p.setPlaybackQuality(top);
+              setQuality(top);
+            }
+          } else if (cur !== active.q) {
+            p.setPlaybackQuality(active.q);
+            setQuality(active.q);
+          }
+        } catch {
+          /* player torn down */
+        }
+        // Continuity check: jumps >2s are seeks, reported once.
+        if (Math.abs(t - lastPoll.current) > 2 && lastPoll.current > 0) {
+          cbRef.current.onSeeked(t);
+        }
+        lastPoll.current = t;
+        setTime(t);
+        if (d > 0) setDur(d);
+        cbRef.current.onProgress(t);
+      } catch {
+        /* player torn down */
+      }
+    }, 250);
+    return () => window.clearInterval(poll);
   }, [src]);
 
   // Session rotation: re-assert isolation without touching playback.
@@ -321,11 +359,11 @@ export function ProtectedVideoPlayer({
   const changeQuality = useCallback((q: string) => {
     // A manual change applies from NOW forward: record the segment boundary
     // so seeking back restores the earlier segment's (better) quality.
-    // Hard switch: pause at once, apply, resume — the new quality takes
-    // effect immediately instead of drifting in segments later.
+    // Hard switch: rebuild the player at the current timestamp with a forced
+    // vq — the new quality renders from the first new frame, no drift-in.
     try {
       const p = playerRef.current;
-      const at = p?.getCurrentTime?.() ?? 0;
+      const at = p?.getCurrentTime?.() ?? lastPoll.current;
       const marks = qualityMarks.current;
       const last = marks[marks.length - 1];
       if (!last || Math.abs(last.t - at) > 1 || last.q !== q) {
@@ -334,23 +372,13 @@ export function ProtectedVideoPlayer({
       }
       setQuality(q);
       if (!p) return;
-      const wasPlaying =
-        p.getPlayerState() === YT_STATE.PLAYING || p.getPlayerState() === YT_STATE.BUFFERING;
-      p.pauseVideo();
-      if (q !== "auto") p.setPlaybackQuality(q);
-      if (wasPlaying) {
-        window.setTimeout(() => {
-          try {
-            playerRef.current?.playVideo();
-          } catch {
-            /* ignore */
-          }
-        }, 700);
-      }
+      const st = p.getPlayerState();
+      const wasPlaying = st === YT_STATE.PLAYING || st === YT_STATE.BUFFERING;
+      spawn(Math.max(0, at), q === "auto" ? null : q, wasPlaying);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [spawn]);
 
   const toggleMute = useCallback(() => {
     const p = playerRef.current;
@@ -426,10 +454,11 @@ export function ProtectedVideoPlayer({
       style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       aria-label="Protected video player"
     >
-      {/* Video canvas, oversized 114% and centered: YouTube's edge chrome
-          (top title row, bottom logo row) falls outside our viewport in
-          every player state. Container clips the bleed. */}
-      <div ref={mountRef} className="pvp-frame absolute [&>iframe]:h-full [&>iframe]:w-full" />
+      {/* Video canvas, exact fill. Inner slot is replaced on quality
+          rebuilds; React never owns children below mountRef. */}
+      <div ref={mountRef} className="pvp-frame absolute [&>iframe]:h-full [&>iframe]:w-full">
+        <div ref={slotRef} className="absolute inset-0" />
+      </div>
 
       {/* Click-capturing shield: no click/right-click/drag ever reaches YouTube. */}
       <div

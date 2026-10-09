@@ -79,7 +79,7 @@ export type YtPlayer = {
   destroy: () => void;
 };
 
-type YtApi = {
+export type YtApi = {
   Player: new (
     el: HTMLElement | string,
     opts: {
