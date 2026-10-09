@@ -144,7 +144,7 @@ export function UsersManager() {
   const [err, setErr] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
   const [progress, setProgress] = useState<Record<string, { done: number; total: number }>>({});
-  const [resetOk, setResetOk] = useState("");
+  const [resetMsg, setResetMsg] = useState<{ slug: string; text: string } | null>(null);
 
   const loadProgress = async (userId: string, slugs: string[]) => {
     const entries = await Promise.all(
@@ -200,7 +200,7 @@ export function UsersManager() {
       setFound(r);
       setSearched(true);
       setProgress({});
-      setResetOk("");
+      setResetMsg(null);
       if (r) {
         const first = courses.find((c) => !r.enrolled.includes(c.slug))?.slug ?? "";
         setGrantSlug(first);
@@ -223,11 +223,11 @@ export function UsersManager() {
     void userId;
   };
 
-  const act = async (fn: () => Promise<unknown>, after?: () => void) => {
+  const act = async (fn: () => Promise<unknown>, after?: (out: unknown) => void) => {
     setErr("");
     try {
-      await fn();
-      after?.();
+      const out = await fn();
+      after?.(out);
       await refresh(found?.id ?? "", kind, term);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "error");
@@ -330,17 +330,23 @@ export function UsersManager() {
                         type="button"
                         onClick={() => {
                           if (!window.confirm(u.confirmResetViews)) return;
-                          setResetOk("");
-                          void act(() => resetUserViews(found.id, slug), () => {
-                            setResetOk(slug);
-                            void loadProgress(found.id, found.enrolled);
-                            window.setTimeout(() => setResetOk(""), 2500);
-                          });
+                          setResetMsg(null);
+                          void act(
+                            async () => {
+                              const r = await resetUserViews(found.id, slug);
+                              return `${r.deleted}/${r.total}`;
+                            },
+                            (label) => {
+                              setResetMsg(typeof label === "string" ? { slug, text: `✓ ${label}` } : null);
+                              void loadProgress(found.id, found.enrolled);
+                              window.setTimeout(() => setResetMsg(null), 4000);
+                            },
+                          );
                         }}
                         className="text-sm font-bold"
                         style={{ color: "var(--accent)" }}
                       >
-                        {resetOk === slug ? "✓" : u.resetViews}
+                        {resetMsg?.slug === slug ? resetMsg.text : u.resetViews}
                       </button>
                       <button
                         type="button"

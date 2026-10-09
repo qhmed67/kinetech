@@ -68,20 +68,34 @@ describe("searchUser", () => {
 });
 
 describe("resetUserViews", () => {
-  it("returns 0 when the course has no videos", async () => {
+  const session = { auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "a1" } } } }) } };
+
+  it("throws when the admin session is gone", async () => {
     const sb = {
+      ...session,
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
+      from: vi.fn(),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(resetUserViews("u1", "python-data")).rejects.toThrow("session expired");
+  });
+
+  it("throws when the course has no videos", async () => {
+    const sb = {
+      ...session,
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
         return query({ data: [], error: null });
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(resetUserViews("u1", "python-data")).resolves.toBe(0);
+    await expect(resetUserViews("u1", "python-data")).rejects.toThrow("no video rows");
   });
 
   it("deletes the user's rows for the course videos", async () => {
     const del = vi.fn().mockReturnValue(query({ data: null, error: null, count: 3 }));
     const sb = {
+      ...session,
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
         if (table === "videos") return query({ data: [{ id: "v1" }, { id: "v2" }], error: null });
@@ -89,7 +103,7 @@ describe("resetUserViews", () => {
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(resetUserViews("u1", "python-data")).resolves.toBe(3);
+    await expect(resetUserViews("u1", "python-data")).resolves.toEqual({ deleted: 3, total: 2 });
   });
 });
 

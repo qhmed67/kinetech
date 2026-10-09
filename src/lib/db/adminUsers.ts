@@ -109,9 +109,15 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
  * progress rows, so every lesson returns to 3 of 3 views remaining.
  * Admin-only via RLS. Idempotent — no rows, no change.
  */
-export async function resetUserViews(userId: string, courseSlug: string): Promise<number> {
+export type ResetResult = { deleted: number; total: number };
+
+export async function resetUserViews(userId: string, courseSlug: string): Promise<ResetResult> {
   if (!throttle(`reset-views-${userId}`, 3000)) throw new Error("too many attempts");
   const sb = authed();
+  // Fail loudly (not silently) when the admin session is gone: without it,
+  // RLS hides every video row and the reset would no-op with "0 deleted".
+  const { data: session } = await withTimeout(sb.auth.getSession(), NETWORK_TIMEOUT_MS, "session");
+  if (!session.session) throw new Error("Admin session expired — log in again, then retry.");
   const { data: course } = await withTimeout(
     (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
     NETWORK_TIMEOUT_MS,
@@ -125,7 +131,7 @@ export async function resetUserViews(userId: string, courseSlug: string): Promis
     "video-lookup",
   );
   const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
-  if (ids.length === 0) return 0;
+  if (ids.length === 0) throw new Error("This course has no video rows yet — save it from the course editor first.");
   const { error, count } = await withTimeout(
     (async () =>
       sb.from("video_views").delete({ count: "exact" }).eq("user_id", userId).in("video_id", ids))(),
@@ -133,7 +139,7 @@ export async function resetUserViews(userId: string, courseSlug: string): Promis
     "reset-views",
   );
   if (error) throw error;
-  return count ?? 0;
+  return { deleted: count ?? 0, total: ids.length };
 }
 
 /**
