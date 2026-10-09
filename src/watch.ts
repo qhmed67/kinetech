@@ -53,6 +53,32 @@ export function setViewsCount(u: KtUser, slug: string, idx: number, n: number): 
   writeDB(db);
 }
 
+/** Drop every local trace of a course (revoked grant): views + completions. */
+export function purgeProgress(u: KtUser, slug: string): void {
+  const uk = userKeyOf(u);
+  try {
+    const db = readDB();
+    if (db[uk]) {
+      for (const k of Object.keys(db[uk])) {
+        if (k === slug || k.startsWith(`${slug}:`)) delete db[uk][k];
+      }
+      writeDB(db);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const done = readDone();
+    if (done[uk]?.[slug]) {
+      const next = { ...done, [uk]: { ...(done[uk] ?? {}) } };
+      delete next[uk][slug];
+      window.localStorage.setItem(DONE_KEY, JSON.stringify(next));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Cloud merge helper: mark done from server state. */
 export function setDoneFlag(u: KtUser, slug: string, idx: number): void {
   const db = readDone();

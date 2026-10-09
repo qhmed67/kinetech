@@ -1,7 +1,7 @@
 import { supabase } from "./client";
 import { replaceStore, type ContentStore, type StoreCourse, type StoreService } from "../../store";
 import { getUser, setUser, notifyUserChanged } from "../../auth";
-import { setViewsCount, setDoneFlag } from "../../watch";
+import { purgeProgress, setViewsCount, setDoneFlag } from "../../watch";
 import { NETWORK_TIMEOUT_MS, withTimeout } from "./throttle";
 import { toDirectImageUrl } from "../drive";
 import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
@@ -388,6 +388,30 @@ export async function restoreDbSession(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Re-adopt server grants mid-session (revoked courses vanish) and purge
+ * local progress traces of anything no longer granted — a removed course
+ * must not keep showing its old bar.
+ */
+export async function syncMyGrants(): Promise<boolean> {
+  const before = getUser();
+  const beforeSet = new Set(before?.enrolled ?? []);
+  let changed = false;
+  try {
+    changed = await restoreDbSession();
+  } catch {
+    return false;
+  }
+  const after = getUser();
+  if (after) {
+    const now = new Set(after.enrolled ?? []);
+    for (const slug of beforeSet) {
+      if (!now.has(slug)) purgeProgress(after, slug);
+    }
+  }
+  return changed;
 }
 
 /** Persist a newly activated dashboard space server-side (owner-only RLS). */

@@ -98,6 +98,25 @@ export function Dashboard({
   const [sessions, setSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
   const [notifs, setNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
 
+  // Re-adopt server grants on open: a course revoked while browsing must
+  // disappear (with its local progress purged) instead of showing stale bars.
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user) return;
+    let alive = true;
+    void import("../lib/db/sync")
+      .then((m) => m.syncMyGrants())
+      .then((changed) => {
+        if (alive && changed) onUserChange?.();
+      })
+      .catch(() => {
+        /* offline — local list stays */
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email]);
+
   // Live activity (server truth). Null = loading; [] = empty state.
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) return;

@@ -3,10 +3,10 @@ import { loadStore, useContent, type StoreCourse } from "../store";
 import { useLang } from "../components/lang";
 import {
   deleteProfile,
-  getUserCourseViews,
+  getUserVideoViews,
   grantEnrollment,
   listOrphans,
-  resetUserViews,
+  resetUserVideo,
   revokeEnrollment,
   searchUser,
   setBanned,
@@ -127,6 +127,132 @@ function AlphaCoursePicker({
 }
 
 /**
+ * One enrolled course: expandable per-part viewing sheet. Each part shows
+ * its own used/3 count with its own restart — no course-wide aggregates.
+ */
+function CoursePartsRow({
+  slug,
+  courseName,
+  userId,
+  lang,
+  revokeLabel,
+  resetLabel,
+  confirmReset,
+  onRevoke,
+}: {
+  slug: string;
+  courseName: string;
+  userId: string;
+  lang: "en" | "ar";
+  revokeLabel: string;
+  resetLabel: string;
+  confirmReset: string;
+  onRevoke: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [parts, setParts] = useState<{ sort_order: number; views: number; done: boolean }[] | null>(null);
+  const [busyPart, setBusyPart] = useState<number | null>(null);
+  const [okPart, setOkPart] = useState<number | null>(null);
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    try {
+      const { getRawCourse } = await import("../store");
+      const raw = getRawCourse(slug);
+      const rows = await getUserVideoViews(userId, slug);
+      // Titles come from the local catalog (same order as sort_order).
+      void raw;
+      setParts(rows);
+      setErr("");
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "error");
+    }
+  };
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && parts === null) void load();
+  };
+
+  return (
+    <li className="rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
+      <div className="flex items-center justify-between gap-3">
+        <button type="button" onClick={toggle} aria-expanded={open} className="min-w-0 flex-1 text-start font-bold">
+          <span aria-hidden="true" className="me-1">{open ? "▾" : "▸"}</span>
+          {courseName}
+        </button>
+        <button
+          type="button"
+          onClick={onRevoke}
+          className="flex-none text-sm font-bold"
+          style={{ color: "#B3261E" }}
+        >
+          {revokeLabel}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2 grid gap-1.5 border-t pt-2" style={{ borderColor: "var(--kt-line)" }}>
+          {parts === null && !err && (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>…</p>
+          )}
+          {err !== "" && (
+            <p role="alert" className="text-sm font-bold" style={{ color: "#B3261E" }}>{err}</p>
+          )}
+          {parts !== null && parts.length === 0 && (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>—</p>
+          )}
+          {parts?.map((p) => (
+            <div key={p.sort_order} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
+              <span className="min-w-0 flex-1 truncate font-bold">
+                <PartTitle slug={slug} idx={p.sort_order} lang={lang} />
+                <span dir="ltr" className="ms-2 font-medium tabular-nums" style={{ color: "var(--muted)" }}>
+                  {p.views}/3{p.done ? " ✓" : ""}
+                </span>
+              </span>
+              <button
+                type="button"
+                disabled={busyPart !== null}
+                onClick={() => {
+                  if (!window.confirm(confirmReset)) return;
+                  setBusyPart(p.sort_order);
+                  resetUserVideo(userId, slug, p.sort_order)
+                    .then(() => {
+                      setOkPart(p.sort_order);
+                      window.setTimeout(() => setOkPart(null), 2500);
+                      return load();
+                    })
+                    .catch((ex: unknown) => setErr(ex instanceof Error ? ex.message : "error"))
+                    .finally(() => setBusyPart(null));
+                }}
+                className="flex-none text-sm font-bold disabled:opacity-50"
+                style={{ color: "var(--accent)" }}
+              >
+                {okPart === p.sort_order ? "✓" : resetLabel}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function PartTitle({ slug, idx, lang }: { slug: string; idx: number; lang: "en" | "ar" }) {
+  const [title, setTitle] = useState(`#${idx + 1}`);
+  useEffect(() => {
+    void import("../store").then((m) => {
+      const raw = m.getRawCourse(slug);
+      const t = raw?.modules?.[lang]?.[idx]?.t ?? raw?.modules?.en?.[idx]?.t;
+      if (t) setTitle(t);
+    }).catch(() => {
+      /* keep fallback */
+    });
+  }, [slug, idx, lang]);
+  return <>{title}</>;
+}
+
+/**
  * Admin user search + enrollment management.
  * Search runs ONLY on explicit submit (exact match, no scans, no wildcards).
  * All mutations are admin-gated server-side via RLS.
@@ -143,23 +269,6 @@ export function UsersManager() {
   const [found, setFound] = useState<FoundUser | null>(null);
   const [err, setErr] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
-  const [progress, setProgress] = useState<Record<string, { done: number; total: number; viewsUsed: number; viewsTotal: number }>>({});
-  const [resetMsg, setResetMsg] = useState<{ slug: string; text: string } | null>(null);
-
-  const loadProgress = async (userId: string, slugs: string[]) => {
-    const entries = await Promise.all(
-      slugs.map(async (slug) => {
-        try {
-          return [slug, await getUserCourseViews(userId, slug)] as const;
-        } catch {
-          return null;
-        }
-      }),
-    );
-    const next: Record<string, { done: number; total: number; viewsUsed: number; viewsTotal: number }> = {};
-    for (const e of entries) if (e) next[e[0]] = e[1];
-    setProgress(next);
-  };
   const [orphans, setOrphans] = useState<Orphan[] | null>(null);
   const [orphanBusy, setOrphanBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -199,12 +308,9 @@ export function UsersManager() {
       const r = await searchUser(kind, term);
       setFound(r);
       setSearched(true);
-      setProgress({});
-      setResetMsg(null);
       if (r) {
         const first = courses.find((c) => !r.enrolled.includes(c.slug))?.slug ?? "";
         setGrantSlug(first);
-        void loadProgress(r.id, r.enrolled);
       }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "error");
@@ -313,53 +419,19 @@ export function UsersManager() {
               <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{u.noneYet}</p>
             ) : (
               <ul className="mt-2 grid gap-2">
-                {found.enrolled.map((slug) => {
-                  const pg = progress[slug];
-                  return (
-                  <li key={slug} className="flex items-center justify-between gap-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
-                    <span className="font-bold">
-                      {courseName(slug)}
-                      {pg && (
-                        <span dir="ltr" className="ms-2 font-medium tabular-nums" style={{ color: "var(--muted)" }}>
-                          {pg.viewsUsed}/{pg.viewsTotal} views · {pg.done}/{pg.total} done
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex flex-none items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!window.confirm(u.confirmResetViews)) return;
-                          setResetMsg(null);
-                          void act(
-                            async () => {
-                              const r = await resetUserViews(found.id, slug);
-                              return `${r.deleted}/${r.total}`;
-                            },
-                            (label) => {
-                              setResetMsg(typeof label === "string" ? { slug, text: `✓ ${label}` } : null);
-                              void loadProgress(found.id, found.enrolled);
-                              window.setTimeout(() => setResetMsg(null), 4000);
-                            },
-                          );
-                        }}
-                        className="text-sm font-bold"
-                        style={{ color: "var(--accent)" }}
-                      >
-                        {resetMsg?.slug === slug ? resetMsg.text : u.resetViews}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void act(() => revokeEnrollment(found.id, slug))}
-                        className="text-sm font-bold"
-                        style={{ color: "#B3261E" }}
-                      >
-                        {u.revoke}
-                      </button>
-                    </span>
-                  </li>
-                  );
-                })}
+                {found.enrolled.map((slug) => (
+                  <CoursePartsRow
+                    key={slug}
+                    slug={slug}
+                    courseName={courseName(slug)}
+                    userId={found.id}
+                    lang={lang}
+                    revokeLabel={u.revoke}
+                    resetLabel={u.resetViews}
+                    confirmReset={u.confirmResetViews}
+                    onRevoke={() => void act(() => revokeEnrollment(found.id, slug))}
+                  />
+                ))}
               </ul>
             )}
             <div className="mt-3 flex flex-wrap gap-2">

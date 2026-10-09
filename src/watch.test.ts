@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAX_VIEWS, watchRequirementMet } from "./watch";
+import { MAX_VIEWS, purgeProgress, setDoneFlag, setViewsCount, watchRequirementMet } from "./watch";
 import type { KtUser } from "./auth";
 
 vi.mock("./lib/db/sync", () => ({
@@ -25,6 +25,20 @@ describe("watchRequirementMet", () => {
     const u = user({});
     expect(watchRequirementMet(u, "s", 0, 480, 0, 10)).toBe(true);
     expect(watchRequirementMet(u, "s", 0, 100, 0, 10)).toBe(false);
+  });
+
+  it("purgeProgress removes every local trace of a revoked course", () => {
+    const u = user({});
+    setViewsCount(u, "gone-course", 0, 3);
+    setViewsCount(u, "gone-course", 1, 1);
+    setViewsCount(u, "kept-course", 0, 2);
+    setDoneFlag(u, "gone-course", 0);
+    purgeProgress(u, "gone-course");
+    expect(localStorage.getItem("kt-views")).not.toContain("gone-course");
+    expect(localStorage.getItem("kt-views")).toContain("kept-course");
+    expect(localStorage.getItem("kt-done") ?? "").not.toContain("gone-course");
+    window.localStorage.removeItem("kt-views");
+    window.localStorage.removeItem("kt-done");
   });
 
   it("burned views complete regardless of watch time", () => {

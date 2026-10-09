@@ -104,6 +104,77 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
   if (error) throw error;
 }
 
+export type PartViews = { sort_order: number; views: number; done: boolean };
+
+/**
+ * Per-part viewing sheet: one row per lesson with its own used/3 count.
+ * This is what the admin sees and restarts — never a course-wide aggregate.
+ */
+export async function getUserVideoViews(userId: string, courseSlug: string): Promise<PartViews[]> {
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) return [];
+  const [{ data: vids }, { data: views }] = await withTimeout(
+    Promise.all([
+      sb.from("videos").select("id,sort_order").eq("course_id", courseId).order("sort_order"),
+      sb.from("video_views").select("video_id,views_count,done").eq("user_id", userId),
+    ]),
+    NETWORK_TIMEOUT_MS,
+    "parts-summary",
+  );
+  const byId = new Map(
+    ((views ?? []) as unknown as Array<{ video_id: string; views_count: number; done: boolean }>)
+      .map((w) => [w.video_id, w] as const),
+  );
+  return ((vids ?? []) as unknown as Array<{ id: string; sort_order: number }>)
+    .map((v) => {
+      const w = byId.get(v.id);
+      return {
+        sort_order: v.sort_order,
+        views: Math.min(3, Math.max(0, w?.views_count ?? 0)),
+        done: w?.done ?? false,
+      };
+    })
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/**
+ * Restart ONE part: deletes that lesson's progress rows → back to 3 of 3.
+ * Admin-only via RLS. Idempotent — no rows, no change.
+ */
+export async function resetUserVideo(userId: string, courseSlug: string, sortOrder: number): Promise<boolean> {
+  if (!throttle(`reset-part-${userId}`, 3000)) throw new Error("too many attempts");
+  const sb = authed();
+  const { data: session } = await withTimeout(sb.auth.getSession(), NETWORK_TIMEOUT_MS, "session");
+  if (!session.session) throw new Error("Admin session expired — log in again, then retry.");
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) throw new Error("course not found");
+  const { data: vids } = await withTimeout(
+    (async () => sb.from("videos").select("id").eq("course_id", courseId).eq("sort_order", sortOrder))(),
+    NETWORK_TIMEOUT_MS,
+    "video-lookup",
+  );
+  const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
+  if (ids.length === 0) throw new Error("This part has no video row yet — save the course from the editor first.");
+  const { error } = await withTimeout(
+    (async () => sb.from("video_views").delete().eq("user_id", userId).in("video_id", ids))(),
+    NETWORK_TIMEOUT_MS,
+    "reset-part",
+  );
+  if (error) throw error;
+  return true;
+}
+
 /**
  * Restart a user's viewing sheet for one course: deletes their per-video
  * progress rows, so every lesson returns to 3 of 3 views remaining.
