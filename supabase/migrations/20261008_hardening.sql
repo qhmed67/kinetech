@@ -21,7 +21,18 @@ create trigger trg_lock_role_insert before insert on profiles
 for each row execute function lock_role_insert();
 
 -- ============ 2. atomic record_play ============
-create or replace function record_play(p_video uuid)
+-- Rerun-safe: this enrollment-gated body installs ONLY on the old schema.
+-- On a migrated DB the modern signed-in version (v20261013+) is left alone —
+-- a blind rerun must never downgrade it (or every student gets locked out).
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    raise notice 'hardening: skipping legacy enrollment-gated record_play (modern schema present)';
+    return;
+  end if;
+  execute $legacy$create or replace function record_play(p_video uuid)
 returns table (views_count smallint, views_left smallint)
 language plpgsql security definer set search_path = public as $$
 declare v_user uuid := auth.uid(); v_course uuid; v_pos int; v_vc smallint;
@@ -52,4 +63,6 @@ begin
     v_vc := v_vc + 1;
   end if;
   return query select v_vc, greatest(0, 3 - v_vc)::smallint;
+end $$;$legacy$;
+  end if;
 end $$;

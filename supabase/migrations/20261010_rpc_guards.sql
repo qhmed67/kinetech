@@ -3,7 +3,17 @@
 -- for anonymous callers. Add the same explicit not-signed-in guard the other
 -- watch RPCs carry, so the fail-closed behavior is intentional, not accidental.
 
-create or replace function get_watch_state(p_slug text, p_lang char(2))
+-- Rerun-safe: enrollment-gated body installs ONLY on the old schema.
+-- On a migrated DB the modern signed-in version (v20261013+) is left alone.
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    raise notice 'rpc_guards: skipping legacy enrollment-gated get_watch_state (modern schema present)';
+    return;
+  end if;
+  execute $legacy$create or replace function get_watch_state(p_slug text, p_lang char(2))
 returns table (
   video_id uuid, sort_order int, title text, description text,
   src_url text, mins int, assign_url text, exam_url text,
@@ -43,4 +53,6 @@ begin
          )) as unlocked,
          greatest(0, 3 - v.vc)::smallint as views_left
   from v order by v.sort_order;
+end $$;$legacy$;
+  end if;
 end $$;

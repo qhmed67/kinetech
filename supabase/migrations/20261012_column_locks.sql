@@ -9,9 +9,9 @@
 --     auth.users.email. Trigger below pins email to auth.users.email
 --     (admins bypass for support corrections).
 --
--- G3. Users could request enrollment (pending) but never cancel it — no
---     DELETE path existed. Owner-scoped cancel of pending rows only;
---     approved rows are admin-managed and untouched.
+-- G3. SUPERSEDED by 20261017_converge_enrollments.sql: the enrollments
+--     table no longer has a status column, so this policy is skipped when
+--     the column is absent (kept conditional so reruns never crash).
 
 -- ============ G1: notifications — is_read flips only ============
 create or replace function lock_notification_update() returns trigger
@@ -48,7 +48,16 @@ drop trigger if exists trg_lock_email_change on profiles;
 create trigger trg_lock_email_change before update of email on profiles
 for each row execute function lock_email_change();
 
--- ============ G3: users may cancel their own PENDING requests ============
-drop policy if exists "cancel own pending enrollment" on enrollments;
-create policy "cancel own pending enrollment" on enrollments for delete
-using (user_id = auth.uid() and status = 'pending');
+-- ============ G3: skipped unless the legacy status column exists ============
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    drop policy if exists "cancel own pending enrollment" on enrollments;
+    create policy "cancel own pending enrollment" on enrollments for delete
+    using (user_id = auth.uid() and status = 'pending');
+  else
+    drop policy if exists "cancel own pending enrollment" on enrollments;
+  end if;
+end $$;

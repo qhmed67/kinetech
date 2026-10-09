@@ -8,7 +8,17 @@
 -- zero-effort UI drag to deliberate RPC spoofing. True server-observed
 -- heartbeats remain future work.
 
-create or replace function complete_video(
+-- Rerun-safe: enrollment-gated body installs ONLY on the old schema.
+-- On a migrated DB the modern signed-in version (v20261013+) is left alone.
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    raise notice 'completion_gate: skipping legacy enrollment-gated complete_video (modern schema present)';
+    return;
+  end if;
+  execute $legacy$create or replace function complete_video(
   p_video uuid,
   p_watched_secs double precision default 0,
   p_duration_secs double precision default 0
@@ -47,4 +57,6 @@ begin
     return;
   end if;
   raise exception 'watch requirement not met';
+end $$;$legacy$;
+  end if;
 end $$;
