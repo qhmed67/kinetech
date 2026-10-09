@@ -35,12 +35,13 @@ export async function recordPlayDb(videoId: string): Promise<{ views_count: numb
   return row ?? { views_count: 0, views_left: 0 };
 }
 
-export async function completeVideoDb(videoId: string, watchedSecs = 0): Promise<void> {
+export async function completeVideoDb(videoId: string, watchedSecs = 0, durationSecs = 0): Promise<void> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
   const { error } = await sb.rpc("complete_video", {
     p_video: videoId,
     p_watched_secs: watchedSecs,
+    p_duration_secs: durationSecs,
   });
   if (error) throw error;
 }
