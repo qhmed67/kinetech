@@ -167,7 +167,15 @@ create index if not exists idx_modules_course_pos on modules (course_id, sort_or
 create index if not exists idx_videos_course_pos on videos (course_id, sort_order);
 create index if not exists idx_views_video on video_views (video_id);
 create index if not exists idx_enroll_course on enrollments (course_id);
-create index if not exists idx_enroll_status on enrollments (status);
+-- legacy status index only when the old column exists (rerun-safe).
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    create index if not exists idx_enroll_status on enrollments (status);
+  end if;
+end $$;
 create index if not exists idx_posts_svc_lang_pos on service_posts (service_slug, lang, sort_order);
 
 -- ============ seed static rows ============
@@ -196,7 +204,19 @@ create trigger trg_lock_role before update of role on profiles
 for each row execute function lock_role_change();
 
 -- ============ watch RPCs: 3-view cap + sequential unlock, server-side ============
-create or replace function get_watch_state(p_slug text, p_lang char(2))
+-- Rerun-safe: legacy enrollment-gated bodies install ONLY on the old schema
+-- (status column present, i.e. fresh v1 setup). On a migrated DB the modern
+-- signed-in versions from later files are left untouched — a blind rerun
+-- must never downgrade them.
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    raise notice 'init: skipping legacy enrollment-gated RPCs (modern schema present)';
+    return;
+  end if;
+  execute $legacy$create or replace function get_watch_state(p_slug text, p_lang char(2))
 returns table (
   video_id uuid, sort_order int, title text, description text,
   src_url text, mins int, assign_url text, exam_url text,
@@ -277,6 +297,8 @@ begin
   insert into video_views (user_id, video_id, views_count, done)
   values (v_user, p_video, 0, true)
   on conflict (user_id, video_id) do update set done = true, updated_at = now();
+end $$;$legacy$;
+  end if;
 end $$;
 
 -- ============ RLS ============
@@ -308,13 +330,26 @@ drop policy if exists "public read modules" on modules;
 create policy "public read modules" on modules for select using (true);
 drop policy if exists "public read module_translations" on module_translations;
 create policy "public read module_translations" on module_translations for select using (true);
--- videos: metadata public (sort_order/mins) but src_url hidden from anon:
--- simplest v1: allow select only to authenticated enrolled/admin; player uses RPC anyway.
-drop policy if exists "enrolled read videos" on videos;
-create policy "enrolled read videos" on videos for select
-using (is_admin() or exists (
-  select 1 from enrollments e where e.user_id = auth.uid()
-    and e.course_id = videos.course_id and e.status = 'approved'));
+-- videos: metadata public (sort_order/mins) but src_url hidden from anon.
+-- Rerun-safe: legacy enrollment-gated variant only when the old status
+-- column exists; otherwise the modern signed-in variant (see v20261013+).
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    drop policy if exists "enrolled read videos" on videos;
+    create policy "enrolled read videos" on videos for select
+    using (is_admin() or exists (
+      select 1 from enrollments e where e.user_id = auth.uid()
+        and e.course_id = videos.course_id and e.status = 'approved'));
+  else
+    drop policy if exists "enrolled read videos" on videos;
+    drop policy if exists "signed-in read videos" on videos;
+    create policy "signed-in read videos" on videos for select
+    using (auth.uid() is not null);
+  end if;
+end $$;
 
 drop policy if exists "public read services" on services;
 create policy "public read services" on services for select using (true);
@@ -358,16 +393,31 @@ create policy "insert own tracks" on user_tracks for insert with check (user_id 
 drop policy if exists "delete own tracks" on user_tracks;
 create policy "delete own tracks" on user_tracks for delete using (user_id = auth.uid() or is_admin());
 
--- enrollments: user reads own, inserts own as pending only; admin decides.
-drop policy if exists "read own enrollments" on enrollments;
-create policy "read own enrollments" on enrollments for select
-using (user_id = auth.uid() or is_admin());
-drop policy if exists "request enrollment pending" on enrollments;
-create policy "request enrollment pending" on enrollments for insert
-with check (user_id = auth.uid() and status = 'pending');
-drop policy if exists "admin manage enrollments" on enrollments;
-create policy "admin manage enrollments" on enrollments for all
-using (is_admin()) with check (is_admin());
+-- enrollments: rerun-safe variant switch (legacy status model vs modern
+-- admin-granted model — whichever schema is present wins; v20261013+
+-- converges everything afterward).
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'enrollments' and column_name = 'status'
+  ) then
+    drop policy if exists "read own enrollments" on enrollments;
+    create policy "read own enrollments" on enrollments for select
+    using (user_id = auth.uid() or is_admin());
+    drop policy if exists "request enrollment pending" on enrollments;
+    create policy "request enrollment pending" on enrollments for insert
+    with check (user_id = auth.uid() and status = 'pending');
+  else
+    drop policy if exists "request enrollment pending" on enrollments;
+    drop policy if exists "cancel own pending enrollment" on enrollments;
+    drop policy if exists "read own enrollments" on enrollments;
+    create policy "read own enrollments" on enrollments for select
+    using (user_id = auth.uid() or is_admin());
+  end if;
+  drop policy if exists "admin manage enrollments" on enrollments;
+  create policy "admin manage enrollments" on enrollments for all
+  using (is_admin()) with check (is_admin());
+end $$;
 
 -- video_views: owner read; writes ONLY via RPC (no direct insert/update/delete for students).
 drop policy if exists "read own views" on video_views;
