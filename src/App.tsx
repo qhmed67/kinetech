@@ -89,7 +89,23 @@ export default function App() {
         /* offline — local session stays */
       })
       .finally(() => setAuthReady(true));
-    return unsub;
+    // Session revalidation: a deleted/banned account is signed out HERE,
+    // within a minute — no manual sign-out needed. Protected pages bounce
+    // via their existing guards once the user state clears.
+    const reval = window.setInterval(() => {
+      void import("./lib/db/sync")
+        .then((m) => m.syncMyGrants())
+        .then((changed) => {
+          if (changed) setUser(getUser());
+        })
+        .catch(() => {
+          /* offline — keep current session */
+        });
+    }, 60000);
+    return () => {
+      unsub();
+      window.clearInterval(reval);
+    };
   }, []);
 
   const toggle = useCallback(() => {

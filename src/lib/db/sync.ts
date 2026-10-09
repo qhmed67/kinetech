@@ -391,9 +391,9 @@ export async function restoreDbSession(): Promise<boolean> {
 }
 
 /**
- * Re-adopt server grants mid-session (revoked courses vanish) and purge
- * local progress traces of anything no longer granted — a removed course
- * must not keep showing its old bar.
+ * Re-adopt server grants mid-session. Revoked courses vanish with their
+ * local progress purged (no ghost bars); RE-granted courses also start
+ * clean — stale local counts from a previous enrollment must not resurrect.
  */
 export async function syncMyGrants(): Promise<boolean> {
   const before = getUser();
@@ -409,6 +409,9 @@ export async function syncMyGrants(): Promise<boolean> {
     const now = new Set(after.enrolled ?? []);
     for (const slug of beforeSet) {
       if (!now.has(slug)) purgeProgress(after, slug);
+    }
+    for (const slug of now) {
+      if (!beforeSet.has(slug)) purgeProgress(after, slug);
     }
   }
   return changed;
