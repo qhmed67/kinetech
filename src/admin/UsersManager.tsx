@@ -143,7 +143,7 @@ export function UsersManager() {
   const [found, setFound] = useState<FoundUser | null>(null);
   const [err, setErr] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
-  const [progress, setProgress] = useState<Record<string, { done: number; total: number }>>({});
+  const [progress, setProgress] = useState<Record<string, { done: number; total: number; viewsUsed: number; viewsTotal: number }>>({});
   const [resetMsg, setResetMsg] = useState<{ slug: string; text: string } | null>(null);
 
   const loadProgress = async (userId: string, slugs: string[]) => {
@@ -156,7 +156,7 @@ export function UsersManager() {
         }
       }),
     );
-    const next: Record<string, { done: number; total: number }> = {};
+    const next: Record<string, { done: number; total: number; viewsUsed: number; viewsTotal: number }> = {};
     for (const e of entries) if (e) next[e[0]] = e[1];
     setProgress(next);
   };
@@ -321,7 +321,7 @@ export function UsersManager() {
                       {courseName(slug)}
                       {pg && (
                         <span dir="ltr" className="ms-2 font-medium tabular-nums" style={{ color: "var(--muted)" }}>
-                          {pg.done}/{pg.total}
+                          {pg.viewsUsed}/{pg.viewsTotal} views · {pg.done}/{pg.total} done
                         </span>
                       )}
                     </span>

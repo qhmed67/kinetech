@@ -214,8 +214,23 @@ export function Dashboard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, enrolledSlugs.join(",")]);
+  // Merge, never overwrite: an empty server answer (fresh grant, RPC hiccup)
+  // must not wipe real local progress — take the best of both per field.
   const progBySlug = new Map(
-    enrolledSlugs.map((s) => [s, serverProg[s] ?? courseProgress(user, s)]),
+    enrolledSlugs.map((s) => {
+      const local = courseProgress(user, s);
+      const srv = serverProg[s];
+      if (!srv) return [s, local] as const;
+      const done = Math.max(local.done, srv.done);
+      const total = Math.max(local.total, srv.total);
+      const hours = Math.max(local.hours, srv.hours);
+      return [s, {
+        done,
+        total,
+        hours,
+        progress: total > 0 ? Math.round((done / total) * 100) : 0,
+      }] as const;
+    }),
   );
   const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);
   const lessonsDone = [...progBySlug.values()].reduce((a, p) => a + p.done, 0);

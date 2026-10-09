@@ -115,16 +115,21 @@ describe("getUserCourseViews", () => {
         if (table === "videos") return query({ data: [{ id: "v1" }, { id: "v2" }, { id: "v3" }], error: null });
         return query({
           data: [
-            { video_id: "v1", done: true },
-            { video_id: "v2", done: false },
-            { video_id: "other", done: true },
+            { video_id: "v1", views_count: 3, done: true },
+            { video_id: "v2", views_count: 1, done: false },
+            { video_id: "other", views_count: 3, done: true },
           ],
           error: null,
         });
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(getUserCourseViews("u1", "python-data")).resolves.toEqual({ done: 1, total: 3 });
+    await expect(getUserCourseViews("u1", "python-data")).resolves.toEqual({
+      done: 1,
+      total: 3,
+      viewsUsed: 4,
+      viewsTotal: 9,
+    });
   });
 });
 

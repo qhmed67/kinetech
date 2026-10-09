@@ -143,13 +143,21 @@ export async function resetUserViews(userId: string, courseSlug: string): Promis
 }
 
 /**
- * Per-course watch summary for the admin card: how many lessons the user
- * finished out of the course total. Lets the admin SEE the reset work.
+ * Per-course watch summary for the admin card, in the user's own units:
+ * views consumed out of the course allowance (each lesson × 3 views),
+ * plus lessons finished. Lets the admin SEE the reset work.
  */
+export type CourseViewsSummary = {
+  done: number;
+  total: number;
+  viewsUsed: number;
+  viewsTotal: number;
+};
+
 export async function getUserCourseViews(
   userId: string,
   courseSlug: string,
-): Promise<{ done: number; total: number }> {
+): Promise<CourseViewsSummary> {
   const sb = authed();
   const { data: course } = await withTimeout(
     (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
@@ -157,20 +165,22 @@ export async function getUserCourseViews(
     "course-lookup",
   );
   const courseId = (course as unknown as { id: string } | null)?.id;
-  if (!courseId) return { done: 0, total: 0 };
+  if (!courseId) return { done: 0, total: 0, viewsUsed: 0, viewsTotal: 0 };
   const [{ data: vids }, { data: views }] = await withTimeout(
     Promise.all([
       sb.from("videos").select("id").eq("course_id", courseId),
-      sb.from("video_views").select("video_id,done").eq("user_id", userId),
+      sb.from("video_views").select("video_id,views_count,done").eq("user_id", userId),
     ]),
     NETWORK_TIMEOUT_MS,
     "views-summary",
   );
   const ids = new Set(((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id));
-  if (ids.size === 0) return { done: 0, total: 0 };
-  const done = ((views ?? []) as unknown as Array<{ video_id: string; done: boolean }>)
-    .filter((w) => w.done && ids.has(w.video_id)).length;
-  return { done, total: ids.size };
+  if (ids.size === 0) return { done: 0, total: 0, viewsUsed: 0, viewsTotal: 0 };
+  const mine = ((views ?? []) as unknown as Array<{ video_id: string; views_count: number; done: boolean }>)
+    .filter((w) => ids.has(w.video_id));
+  const done = mine.filter((w) => w.done).length;
+  const viewsUsed = mine.reduce((a, w) => a + Math.min(3, Math.max(0, w.views_count ?? 0)), 0);
+  return { done, total: ids.size, viewsUsed, viewsTotal: ids.size * 3 };
 }
 
 /** Suspend / unsuspend. Banned users are signed out and blocked everywhere. */

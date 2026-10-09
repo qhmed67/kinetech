@@ -356,6 +356,7 @@ const en = {
   watch: {
     remaining: "{n} of 3 views remaining",
     retryBtn: "Check again",
+    refreshFail: "Couldn't reach the server — counts shown may be stale. Check connection and retry.",
     limitT: "Viewing limit reached",
     limitD: "You've reached the viewing limit for this video. Message us on WhatsApp if you need extra access.",
     lockedT: "Locked for now",
@@ -1080,6 +1081,7 @@ const ar: Strings = {
   watch: {
     remaining: "متبقي {n} من 3 مشاهدات",
     retryBtn: "تحقق تاني",
+    refreshFail: "مش قادر أوصل للسيرفر — الأرقام المعروضة ممكن تكون قديمة. اتأكد من النت وحاول تاني.",
     limitT: "خلصت المشاهدات",
     limitD: "وصلت للحد الأقصى لمشاهدة الفيديو ده. كلمنا واتساب لو محتاج دخول إضافي.",
     lockedT: "مقفول دلوقتي",

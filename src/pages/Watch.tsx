@@ -312,6 +312,7 @@ export function Watch({
   // stale burned-out counts forever. refreshKey lets the limit screen retry.
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshErr, setRefreshErr] = useState(false);
   useEffect(() => {
     if (!isSupabaseConfigured() || !user || !course) {
       setRefreshing(false);
@@ -319,6 +320,7 @@ export function Watch({
     }
     let alive = true;
     setRefreshing(true);
+    setRefreshErr(false);
     void import("../lib/db/watchDb")
       .then((m) => m.getWatchStateDb(slug, lang))
       .then((rows) => {
@@ -331,7 +333,8 @@ export function Watch({
         setDoneTick((n) => n + 1);
       })
       .catch(() => {
-        /* offline — local counts stay */
+        // Loud failure: silent fallback here is exactly how stale limits hide.
+        if (alive) setRefreshErr(true);
       })
       .finally(() => {
         if (alive) setRefreshing(false);
@@ -448,6 +451,11 @@ export function Watch({
                   <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
                     {w.limitD}
                   </p>
+                  {refreshErr && (
+                    <p role="alert" className="mx-auto mt-3 max-w-md text-sm font-bold" style={{ color: "#B3261E" }}>
+                      {w.refreshFail}
+                    </p>
+                  )}
                   <div className="mt-5 flex flex-wrap justify-center gap-3">
                     <button
                       type="button"
