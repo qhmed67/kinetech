@@ -343,6 +343,9 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
   const [openKind, setOpenKind] = useState<ExamKind | null>(null);
   const [content, setContent] = useState<ExamContent | null>(null);
   const [deepReview, setDeepReview] = useState(false);
+  // Attempt already submitted → the button flips to Review (opens the modal
+  // straight in review mode). Refreshed when the modal closes (new submit).
+  const [submitted, setSubmitted] = useState<{ exam: boolean; assignment: boolean }>({ exam: false, assignment: false });
 
   // Deep link: dashboard Review buttons land here and open the exam modal
   // directly (in review mode for graded attempts) — no extra clicks.
@@ -368,18 +371,22 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     setOpenKind(null);
     setContent(null);
     setDeepReview(false);
+    setSubmitted({ exam: false, assignment: false });
     if (!isSupabaseConfigured()) return;
     void import("../lib/db/examsDb").then(async (m) => {
       try {
         const id = await m.videoIdBySlug(slug, idx);
         if (!alive || !id) return;
-        const [exam, assign] = await Promise.all([
+        const [exam, assign, resExam, resAssign] = await Promise.all([
           m.getExam(id, "exam").catch(() => null),
           m.getExam(id, "assignment").catch(() => null),
+          m.getMyResult(id, "exam").catch(() => null),
+          m.getMyResult(id, "assignment").catch(() => null),
         ]);
         if (!alive) return;
         setVideoId(id);
         setHas({ exam: exam !== null, assignment: assign !== null });
+        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
         const deep = consumeDeepLink();
         if (deep && (deep === "exam" ? exam : assign)) {
           setContent(deep === "exam" ? exam : assign);
@@ -396,7 +403,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, idx]);
 
-  const open = async (kind: ExamKind) => {
+  const open = async (kind: ExamKind, review: boolean) => {
     if (!videoId) return;
     try {
       const m = await import("../lib/db/examsDb");
@@ -404,10 +411,29 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
       if (!c) return;
       setContent(c);
       setOpenKind(kind);
-      setDeepReview(false);
+      setDeepReview(review);
     } catch {
       /* ignore */
     }
+  };
+
+  const closeModal = () => {
+    // Re-check server state: a fresh submit flips Take → Review instantly.
+    setOpenKind(null);
+    setContent(null);
+    setDeepReview(false);
+    if (!videoId || !isSupabaseConfigured()) return;
+    void import("../lib/db/examsDb")
+      .then(async (m) => {
+        const [resExam, resAssign] = await Promise.all([
+          m.getMyResult(videoId, "exam").catch(() => null),
+          m.getMyResult(videoId, "assignment").catch(() => null),
+        ]);
+        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
+      })
+      .catch(() => {
+        /* keep previous labels */
+      });
   };
 
   if (!has.exam && !has.assignment) return null;
@@ -415,18 +441,30 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     <div className="mt-6">
       <div className="mt-3 flex flex-wrap gap-3">
         {has.exam && (
-          <button type="button" onClick={() => void open("exam")} className="btn btn-primary" style={{ minHeight: 44 }}>
-            {x.takeExam}
-          </button>
+          submitted.exam ? (
+            <button type="button" onClick={() => void open("exam", true)} className="btn btn-secondary" style={{ minHeight: 44 }}>
+              {x.reviewBtn}
+            </button>
+          ) : (
+            <button type="button" onClick={() => void open("exam", false)} className="btn btn-primary" style={{ minHeight: 44 }}>
+              {x.takeExam}
+            </button>
+          )
         )}
         {has.assignment && (
-          <button type="button" onClick={() => void open("assignment")} className="btn btn-secondary" style={{ minHeight: 44 }}>
-            {x.takeAssign}
-          </button>
+          submitted.assignment ? (
+            <button type="button" onClick={() => void open("assignment", true)} className="btn btn-secondary" style={{ minHeight: 44 }}>
+              {x.reviewBtn}
+            </button>
+          ) : (
+            <button type="button" onClick={() => void open("assignment", false)} className="btn btn-secondary" style={{ minHeight: 44 }}>
+              {x.takeAssign}
+            </button>
+          )
         )}
       </div>
       {openKind && content && videoId && (
-        <ExamTake videoId={videoId} kind={openKind} content={content} startInReview={deepReview} onClose={() => { setOpenKind(null); setContent(null); setDeepReview(false); }} />
+        <ExamTake videoId={videoId} kind={openKind} content={content} startInReview={deepReview} onClose={closeModal} />
       )}
     </div>
   );

@@ -20,6 +20,8 @@ export function Grading() {
   const [notes, setNotes] = useState<Record<string, Record<string, string>>>({});
   const [busyKey, setBusyKey] = useState("");
   const [doneKey, setDoneKey] = useState("");
+  // Course groups start closed; the admin opens only what they grade.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const load = async () => {
     setErr("");
@@ -79,20 +81,28 @@ export function Grading() {
         // Grouped by course: each instructor opens their own course and
         // sees only its pending exams — no hunting through other courses.
         groupByCourse(rows).map((g) => (
-          <section key={g.slug} aria-label={g.slug}>
-            <h2
-              className="mb-2 mt-2 flex items-center gap-2 text-lg font-bold"
-              style={{ fontFamily: "var(--font-display)" }}
+          <section key={g.slug} aria-label={g.slug} className="overflow-hidden rounded-[20px] border bg-white" style={{ borderColor: "var(--kt-line)" }}>
+            <button
+              type="button"
+              onClick={() => setOpenGroups((o) => ({ ...o, [g.slug]: !(o[g.slug] ?? false) }))}
+              aria-expanded={!!openGroups[g.slug]}
+              className="flex w-full items-center justify-between gap-2 px-5 py-4 text-start"
             >
-              <span dir="ltr">{g.slug}</span>
-              <span
-                className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
-                style={{ background: "var(--accent)", fontVariantNumeric: "tabular-nums" }}
-              >
-                {g.items.length}
+              <span className="flex items-center gap-2 text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                <span dir="ltr">{g.slug}</span>
+                <span
+                  className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
+                  style={{ background: "var(--accent)", fontVariantNumeric: "tabular-nums" }}
+                >
+                  {g.items.length}
+                </span>
               </span>
-            </h2>
-            <div className="grid gap-4">
+              <span aria-hidden="true" style={{ color: "var(--muted)" }}>
+                {openGroups[g.slug] ? "▾" : "▸"}
+              </span>
+            </button>
+            {openGroups[g.slug] && (
+            <div className="grid gap-4 px-2 pb-2">
             {g.items.map((r) => {
           const k = keyOf(r);
           const wqs = writingQs(r);
@@ -103,6 +113,9 @@ export function Grading() {
                   <span dir="ltr">{r.email}</span>
                   <span className="ms-2 text-sm font-medium" style={{ color: "var(--muted)" }}>
                     {r.course_slug} · {r.kind === "exam" ? x.examT : x.assignT}
+                  </span>
+                  <span className="ms-2 block text-xs font-medium sm:inline" style={{ color: "var(--muted)" }} dir="ltr">
+                    {new Date(r.updated_at).toLocaleString()}
                   </span>
                 </p>
                 <p dir="ltr" className="text-sm font-bold tabular-nums" style={{ color: "var(--muted)" }}>
@@ -162,6 +175,7 @@ export function Grading() {
           );
             })}
             </div>
+            )}
           </section>
         ))
       )}

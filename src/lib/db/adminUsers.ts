@@ -332,7 +332,8 @@ export async function sendNotification(userId: string, title: string, message: s
 }
 
 /**
- * New-lesson broadcast: every user enrolled in the course gets one row.
+ * New-lesson broadcast: every user enrolled in the course gets one row in
+ * the LESSONS widget (upcoming sessions) — never the general notifications.
  * Called after an admin save that ADDED videos (never on edits).
  */
 export async function notifyNewLessons(
@@ -356,13 +357,14 @@ export async function notifyNewLessons(
   const userIds = ((enr ?? []) as unknown as Array<{ user_id: string }>).map((r) => r.user_id);
   if (userIds.length === 0) return 0;
   const titles = lessons.map((l) => l.titleEn || l.titleAr || "New lesson").join("، ");
+  const now = new Date().toISOString();
   const rows = userIds.map((user_id) => ({
     user_id,
-    title: "New lesson · درس جديد",
-    message: titles,
+    title: `New lesson · درس جديد: ${titles}`,
+    date: now,
   }));
   const { error } = await withTimeout(
-    (async () => sb.from("notifications").insert(rows))(),
+    (async () => sb.from("upcoming_sessions").insert(rows))(),
     NETWORK_TIMEOUT_MS,
     "notify-broadcast",
   );

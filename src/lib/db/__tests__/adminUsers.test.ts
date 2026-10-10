@@ -14,7 +14,7 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { getUserCourseViews, grantEnrollment, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { getUserCourseViews, grantEnrollment, notifyNewLessons, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -162,6 +162,35 @@ describe("resetUserVideo", () => {
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: "u1" }),
     );
+  });
+});
+
+describe("notifyNewLessons", () => {
+  it("writes lesson rows to the sessions widget, never general notifications", async () => {
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "enrollments") return query({ data: [{ user_id: "u1" }, { user_id: "u2" }], error: null });
+        if (table === "upcoming_sessions") return { insert };
+        return query({ data: null, error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(notifyNewLessons("c", [{ titleEn: "Part 1", titleAr: "" }])).resolves.toBe(2);
+    expect(insert).toHaveBeenCalledTimes(1);
+    const rows = insert.mock.calls[0][0] as Array<{ user_id: string; title: string; date: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows[0].title).toContain("Part 1");
+    expect(typeof rows[0].date).toBe("string");
+    expect(sb.from).not.toHaveBeenCalledWith("notifications");
+  });
+
+  it("does nothing without lessons or enrolled users", async () => {
+    const sb = { from: vi.fn() };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(notifyNewLessons("c", [])).resolves.toBe(0);
+    expect(sb.from).not.toHaveBeenCalled();
   });
 });
 
