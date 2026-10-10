@@ -412,6 +412,9 @@ const en = {
     bannedT: "Account suspended",
     bannedD: "Your access is paused. Message us on WhatsApp to resolve this.",
     browseCatalog: "Browse catalog →",
+    workSolve: "Solve",
+    workWaiting: "Waiting for review",
+    workReview: "Review",
   },
   admin: {
     loginT: "Admin login",
@@ -1182,6 +1185,9 @@ const ar: Strings = {
     bannedD: "تم إيقاف دخولك مؤقتاً. كلمنا واتساب لحل المشكلة.",
     notifEmpty: "لا توجد إشعارات جديدة",
     browseCatalog: "تصفح الكتالوج ←",
+    workSolve: "حل",
+    workWaiting: "بانتظار المراجعة",
+    workReview: "مراجعة",
   },
   admin: {
     loginT: "دخول الإدارة",

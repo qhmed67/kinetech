@@ -41,14 +41,15 @@ describe("watchRequirementMet", () => {
     window.localStorage.removeItem("kt-done");
   });
 
-  it("burned views complete regardless of watch time", () => {
+  it("burned views do NOT complete — only genuine watch time counts", () => {
     window.localStorage.setItem(
       "kt-views",
       JSON.stringify({ "t@e.c": { "s:0": MAX_VIEWS } }),
     );
     const u = user({});
     try {
-      expect(watchRequirementMet(u, "s", 0, 0, 60, 10)).toBe(true);
+      expect(watchRequirementMet(u, "s", 0, 0, 60, 10)).toBe(false);
+      expect(watchRequirementMet(u, "s", 0, 50, 60, 10)).toBe(true);
     } finally {
       window.localStorage.removeItem("kt-views");
     }

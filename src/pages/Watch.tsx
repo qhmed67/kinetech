@@ -203,7 +203,7 @@ function ContentList({
   return (
     <>
       {modules.map((m, i) => {
-        // Started (views>0) is NOT done — done requires completion or burned views.
+          // Started (views>0) is NOT done — done requires a full genuine watch.
         const st = !isUnlocked(user, slug, i)
           ? "locked"
           : isDone(user, slug, i)

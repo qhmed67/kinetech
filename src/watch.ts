@@ -175,8 +175,7 @@ export function recordPlay(u: KtUser, slug: string, idx: number): number {
   return next;
 }
 
-/* Completion = watched to the end (or burned all views).
-   Unlocks the NEXT lesson only — no skipping ahead. */
+/* Completion = watched to the end. Unlocks the NEXT lesson only. */
 const DONE_KEY = "kt-done";
 
 type DoneDB = Record<string, Record<string, number[]>>;
@@ -197,20 +196,18 @@ export function isDone(u: KtUser, slug: string, idx: number): boolean {
 }
 
 /**
- * Completion requires genuinely watched time: >=80% of the lesson's nominal
- * minutes, or burned views (>=3 plays, completion-equivalent per unlock rule).
- * Seek jumps are never counted (see Watch accumulator) — dragging to the end
- * no longer unlocks anything. Server re-checks against DB-side minutes.
+ * Completion requires genuinely watched time: >=80% of the real runtime.
+ * The 3 views are a rewatch allowance, never a requirement — burning them
+ * completes and unlocks nothing. Server re-checks the same rule.
  */
 export function watchRequirementMet(
-  u: KtUser,
-  slug: string,
-  idx: number,
+  _u: KtUser,
+  _slug: string,
+  _idx: number,
   watchedSecs: number,
   durationSecs = 0,
   nominalMins = 10,
 ): boolean {
-  if (getViews(u, slug, idx) >= MAX_VIEWS) return true;
   // Real media duration wins; nominal minutes label is only a fallback.
   // Client-side counts are UI hints only — the server re-validates.
   const need = durationSecs > 0 ? durationSecs * 0.8 : nominalMins * 60 * 0.8;
@@ -291,13 +288,13 @@ export function setUnlockedFlag(u: KtUser, slug: string, idx: number): void {
   }
 }
 
-/* Sequential unlocking: lesson N opens once lesson N-1 is FINISHED —
-   OR it was unlocked before (sticky: survives restarts of other parts). */
+/* Sequential unlocking: lesson N opens once lesson N-1 is DONE (a full
+   genuine watch) — OR it was unlocked before (sticky: survives restarts of
+   other parts). Burned views never unlock. */
 export function isUnlocked(u: KtUser, slug: string, idx: number): boolean {
   if (idx <= 0) return true;
   if (isUnlockedFlag(u, slug, idx)) return true;
-  const prev = idx - 1;
-  return isDone(u, slug, prev) || getViews(u, slug, prev) >= MAX_VIEWS;
+  return isDone(u, slug, idx - 1);
 }
 
 /* ---------------------------------------------------------------

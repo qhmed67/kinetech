@@ -186,6 +186,91 @@ export async function submitAttempt(
   return { answers, choice_score, choice_total, writing_score: null, writing_total, status, feedback: {} };
 }
 
+export type WorkItemState =
+  | { state: "todo" }
+  | { state: "pending" }
+  | { state: "graded"; score: number; total: number };
+
+export type LessonWork = {
+  sort_order: number;
+  title: string;
+  exam: WorkItemState | null;
+  assign: WorkItemState | null;
+};
+
+/**
+ * Per-lesson exam/assignment status for one course: which lessons actually
+ * have structured work, and for each, whether the student should solve it,
+ * wait for review, or open the graded review. Drives the dashboard tabs.
+ */
+export async function getCourseWorkStatus(
+  slug: string,
+  lang: "en" | "ar",
+): Promise<LessonWork[]> {
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", slug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) return [];
+  const { data: session } = await sb.auth.getSession();
+  const uid = session.session?.user.id ?? null;
+  const [modsRes, vidsRes, resRes] = await withTimeout(
+    Promise.all([
+      sb.from("modules").select("id,sort_order,module_translations(lang,title)").eq("course_id", courseId).order("sort_order"),
+      sb.from("videos").select("id,module_id,sort_order,exam_json,assign_json").eq("course_id", courseId).order("sort_order"),
+      uid
+        ? sb.from("exam_results").select("video_id,kind,choice_score,choice_total,writing_score,writing_total,status").eq("user_id", uid)
+        : Promise.resolve({ data: [] as unknown[] }),
+    ]),
+    NETWORK_TIMEOUT_MS,
+    "work-status",
+  );
+  const mods = ((modsRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
+    id: string; sort_order: number;
+    module_translations: Array<{ lang: string; title: string }>;
+  }>;
+  const vids = ((vidsRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
+    id: string; module_id: string; sort_order: number;
+    exam_json: ExamContent | null; assign_json: ExamContent | null;
+  }>;
+  const results = ((resRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
+    video_id: string; kind: string;
+    choice_score: number; choice_total: number;
+    writing_score: number | null; writing_total: number;
+    status: string;
+  }>;
+  const hasQuestions = (c: ExamContent | null): boolean =>
+    !!c && Array.isArray(c.questions) && c.questions.some((q) => q && typeof q.prompt === "string" && q.prompt.trim() !== "");
+
+  return vids.map((v) => {
+    const mod = mods.find((m) => m.id === v.module_id);
+    const tr = mod?.module_translations.find((t) => t.lang === lang)
+      ?? mod?.module_translations.find((t) => t.title?.trim());
+    const stateFor = (kind: ExamKind, content: ExamContent | null): WorkItemState | null => {
+      if (!hasQuestions(content)) return null;
+      const r = results.find((x) => x.video_id === v.id && x.kind === kind);
+      if (!r) return { state: "todo" };
+      if (r.status === "graded") {
+        return {
+          state: "graded",
+          score: (r.choice_score ?? 0) + (r.writing_score ?? 0),
+          total: (r.choice_total ?? 0) + (r.writing_total ?? 0),
+        };
+      }
+      return { state: "pending" };
+    };
+    return {
+      sort_order: v.sort_order,
+      title: tr?.title ?? `Part ${v.sort_order + 1}`,
+      exam: stateFor("exam", v.exam_json),
+      assign: stateFor("assignment", v.assign_json),
+    };
+  });
+}
+
 export type PendingGrading = {
   user_id: string;
   email: string;

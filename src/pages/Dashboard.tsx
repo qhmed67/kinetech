@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
+import type { LessonWork, WorkItemState } from "../lib/db/examsDb";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { getViews, isDone } from "../watch";
 import { SafeImg } from "../components/SafeImg";
@@ -53,6 +54,120 @@ function courseProgress(u: KtUser, slug: string): { progress: number; hours: num
     }
   }
   return { progress: Math.round((done / total) * 100), hours: Math.round((mins / 60) * 10) / 10, done, total };
+}
+
+/** Structured exam/assignment rows for one tab (todo → solve, pending →
+ * waiting, graded → review), followed by legacy attachment links. */
+function WorkTab({
+  slugs,
+  kind,
+  lessonWork,
+  emptyTitle,
+  emptyDesc,
+  legacy,
+}: {
+  slugs: string[];
+  kind: "exam" | "assignment";
+  lessonWork: Record<string, LessonWork[]>;
+  emptyTitle: string;
+  emptyDesc: string;
+  legacy: Array<{ key: string; title: string; sub: string; href: string; external: boolean }>;
+}) {
+  const { lang, t } = useLang();
+  const d = t.dashboard;
+  const rows: Array<{ key: string; course: string; slug: string; idx: number; title: string; item: WorkItemState }> = [];
+  for (const slug of slugs) {
+    const course = getCourse(lang, slug);
+    for (const l of lessonWork[slug] ?? []) {
+      const item = kind === "exam" ? l.exam : l.assign;
+      if (item) {
+        rows.push({ key: `${slug}:${l.sort_order}:${kind}`, course: course?.name ?? slug, slug, idx: l.sort_order, title: l.title, item });
+      }
+    }
+  }
+  if (rows.length === 0 && legacy.length === 0) {
+    return (
+      <div className="grid gap-4">
+        <div className="rounded-[20px] border bg-white p-8 text-center" style={{ borderColor: "var(--kt-line)" }}>
+          <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>{emptyTitle}</p>
+          <p className="mx-auto mt-1 max-w-md text-sm" style={{ color: "var(--muted)" }}>{emptyDesc}</p>
+          <button type="button" onClick={() => { window.location.hash = "#/courses"; }} className="btn btn-primary mt-5">
+            {d.browseCatalog}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      {rows.map((r) => (
+        <article
+          key={r.key}
+          className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border bg-white p-5"
+          style={{ borderColor: "var(--kt-line)" }}
+        >
+          <div>
+            <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+              {r.title}
+            </h3>
+            <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+              {r.course}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {r.item.state === "pending" ? (
+              <span
+                className="rounded-full px-4 py-1.5 text-sm font-bold"
+                style={{ background: "#FEF3E2", color: "#9A6B1B", fontFamily: "var(--font-display)" }}
+              >
+                {d.workWaiting}
+              </span>
+            ) : r.item.state === "graded" ? (
+              <>
+                <span
+                  dir="ltr"
+                  className="rounded-full px-4 py-1.5 text-sm font-bold"
+                  style={{ background: "var(--teal-soft)", color: "var(--kt-deep)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}
+                >
+                  {r.item.score}/{r.item.total}
+                </span>
+                <a
+                  href={`#/courses/${r.slug}/watch/${r.idx}`}
+                  className="btn btn-secondary"
+                  style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
+                >
+                  {d.workReview}
+                </a>
+              </>
+            ) : (
+              <a
+                href={`#/courses/${r.slug}/watch/${r.idx}`}
+                className="btn btn-primary"
+                style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
+              >
+                {d.workSolve}
+              </a>
+            )}
+          </div>
+        </article>
+      ))}
+      {legacy.map((l) => (
+        <a
+          key={l.key}
+          href={l.href}
+          {...(l.external ? { target: "_blank", rel: "noreferrer" } : {})}
+          className="flex items-center justify-between gap-3 rounded-[20px] border bg-white p-5"
+          style={{ borderColor: "var(--kt-line)" }}
+        >
+          <span>
+            <span className="block font-bold">{l.title}</span>
+            <span className="mt-0.5 block text-sm" style={{ color: "var(--muted)" }}>{l.sub}</span>
+          </span>
+          <span className="text-sm font-bold" style={{ color: "var(--accent)" }}>→</span>
+        </a>
+      ))}
+    </div>
+  );
 }
 
 export function Dashboard({
@@ -202,6 +317,32 @@ export function Dashboard({
   // Admin-granted enrollments only (WhatsApp payment verified by staff).
   const enrolledSlugs = (user?.enrolled ?? []).filter(courseExists);
   const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
+  // Structured lesson work (real exams/assignments): todo → solve in the
+  // lesson, pending → waiting for review, graded → open the review.
+  const [lessonWork, setLessonWork] = useState<Record<string, LessonWork[]>>({});
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user) return;
+    let alive = true;
+    void import("../lib/db/examsDb")
+      .then(async (m) => {
+        const out: Record<string, LessonWork[]> = {};
+        for (const slug of enrolledSlugs) {
+          try {
+            out[slug] = await m.getCourseWorkStatus(slug, lang);
+          } catch {
+            /* lesson keeps legacy links only */
+          }
+        }
+        if (alive) setLessonWork(out);
+      })
+      .catch(() => {
+        /* offline — legacy links only */
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, enrolledSlugs.join(","), lang]);
   // Server truth wins for progress — but ONLY when the server actually has
   // rows for the course. Empty answers (local-only course, offline, failed
   // fetch) keep the local fallback instead of zeroing real progress.
@@ -521,103 +662,35 @@ export function Dashboard({
             {active === "exams" && (
               enrolledSlugs.length === 0 ? (
                 lockedCard(d.examsT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
-              ) : work.exams.length === 0 ? (
-                lockedCard(d.examsT, d.emptyWork, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
-              <div className="grid gap-4">
-                {work.exams.map((ex) => (
-                  <article
-                    key={ex.key}
-                    className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border bg-white p-5"
-                    style={{ borderColor: "var(--kt-line)" }}
-                  >
-                    <div>
-                      <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                        {ex.title}
-                      </h3>
-                      <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-                        {ex.course}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="rounded-full px-4 py-1.5 text-sm font-bold"
-                        style={
-                          ex.done
-                            ? { background: "var(--teal-soft)", color: "var(--kt-deep)", fontFamily: "var(--font-display)" }
-                            : { background: "var(--surface)", color: "var(--muted)", fontFamily: "var(--font-display)" }
-                        }
-                      >
-                        {ex.done ? d.assignDone : d.assignTodo}
-                      </span>
-                      <a
-                        href={ex.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn btn-secondary"
-                        style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
-                      >
-                        {d.revise}
-                      </a>
-                    </div>
-                  </article>
-                ))}
-              </div>
+                <WorkTab
+                  slugs={enrolledSlugs}
+                  kind="exam"
+                  lessonWork={lessonWork}
+                  emptyTitle={d.examsT}
+                  emptyDesc={d.emptyWork}
+                  legacy={work.exams.map((ex) => ({ key: ex.key, title: ex.title, sub: ex.course, href: ex.href, external: true }))}
+                />
               )
             )}
 
             {active === "assignments" && (
               enrolledSlugs.length === 0 ? (
                 lockedCard(d.assignT, d.lockedTabsD, d.browseCatalog, () => { window.location.hash = "#/courses"; })
-              ) : work.assignments.length === 0 ? (
-                lockedCard(d.assignT, d.emptyWork, d.browseCatalog, () => { window.location.hash = "#/courses"; })
               ) : (
-              <div className="grid gap-3">
-                {work.assignments.map((a) => {
-                  const done = a.done;
-                  const external = /^(https?:|data:|blob:)/.test(a.href);
-                  return (
-                    <article
-                      key={a.key}
-                      aria-label={`${a.title} — ${done ? d.assignDone : d.assignTodo}`}
-                      className="flex items-center gap-3 rounded-[20px] border bg-white p-5"
-                      style={{ borderColor: "var(--kt-line)" }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="grid h-7 w-7 flex-none place-items-center rounded-lg font-bold text-white"
-                        style={{
-                          background: done ? "var(--kt-teal)" : "var(--surface)",
-                          color: done ? "var(--kt-deep)" : "var(--muted)",
-                        }}
-                      >
-                        {done ? "✓" : ""}
-                      </span>
-                      <span className="flex-1">
-                        <span className="block font-bold">{a.title}</span>
-                        <span className="mt-0.5 block text-sm" style={{ color: "var(--muted)" }}>
-                          {a.course}
-                        </span>
-                      </span>
-                      <a
-                        href={a.href}
-                        {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
-                        className="rounded-full px-3 py-1 text-xs font-bold"
-                        style={
-                          done
-                            ? { background: "var(--teal-soft)", color: "var(--kt-deep)" }
-                            : { background: "var(--surface)", color: "var(--muted)" }
-                        }
-                      >
-                        {done ? d.assignDone : d.assignTodo}
-                      </a>
-                    </article>
-                  );
-                })}
-              </div>
+                <WorkTab
+                  slugs={enrolledSlugs}
+                  kind="assignment"
+                  lessonWork={lessonWork}
+                  emptyTitle={d.assignT}
+                  emptyDesc={d.emptyWork}
+                  legacy={work.assignments.map((a) => {
+                    const external = /^(https?:|data:|blob:)/.test(a.href);
+                    return { key: a.key, title: a.title, sub: a.course, href: a.href, external };
+                  })}
+                />
               )
             )}
-
             {activeServices.includes(active) && (
               <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
                 <h2 className="text-xl font-bold" style={{ fontFamily: "var(--font-display)" }}>
