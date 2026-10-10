@@ -36,6 +36,17 @@ export async function recordPlayDb(videoId: string): Promise<{ views_count: numb
 }
 
 /**
+ * Persist "this part was opened while entitled" without burning a view.
+ * The server re-checks the sequential rule — skipping ahead stays locked.
+ */
+export async function touchUnlockedDb(videoId: string): Promise<void> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("touch_unlocked", { p_video: videoId });
+  if (error) throw error;
+}
+
+/**
  * Version-tolerant completion: the DB may run the 2-param
  * (p_video, p_watched_secs) or 3-param (+p_duration_secs) variant.
  * A 42883 (unknown function/argument) falls back to the older shape

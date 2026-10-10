@@ -144,8 +144,11 @@ export async function getUserVideoViews(userId: string, courseSlug: string): Pro
 }
 
 /**
- * Restart ONE part: deletes that lesson's progress rows → back to 3 of 3.
- * Admin-only via RLS. Idempotent — no rows, no change.
+ * Restart ONE part back to 3 of 3 WITHOUT touching anything else.
+ * UPDATE (not delete) preserves the sticky unlock flag — every other part
+ * keeps the exact open/closed state it had, and this part stays open too.
+ * The student is notified automatically; the admin types nothing.
+ * Admin-only via RLS. Idempotent.
  */
 export async function resetUserVideo(userId: string, courseSlug: string, sortOrder: number): Promise<boolean> {
   if (!throttle(`reset-part-${userId}`, 3000)) throw new Error("too many attempts");
@@ -160,18 +163,40 @@ export async function resetUserVideo(userId: string, courseSlug: string, sortOrd
   const courseId = (course as unknown as { id: string } | null)?.id;
   if (!courseId) throw new Error("course not found");
   const { data: vids } = await withTimeout(
-    (async () => sb.from("videos").select("id").eq("course_id", courseId).eq("sort_order", sortOrder))(),
+    (async () => sb.from("videos").select("id,module_id").eq("course_id", courseId).eq("sort_order", sortOrder))(),
     NETWORK_TIMEOUT_MS,
     "video-lookup",
   );
-  const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
-  if (ids.length === 0) throw new Error("This part has no video row yet — save the course from the editor first.");
+  const rows = ((vids ?? []) as unknown as Array<{ id: string; module_id: string }>).filter((v) => v.id);
+  if (rows.length === 0) throw new Error("This part has no video row yet — save the course from the editor first.");
+  const ids = rows.map((v) => v.id);
   const { error } = await withTimeout(
-    (async () => sb.from("video_views").delete().eq("user_id", userId).in("video_id", ids))(),
+    (async () =>
+      sb.from("video_views").update({ views_count: 0, done: false, updated_at: new Date().toISOString() })
+        .eq("user_id", userId).in("video_id", ids))(),
     NETWORK_TIMEOUT_MS,
     "reset-part",
   );
   if (error) throw error;
+  // Automatic student notice (best-effort; the reset itself already succeeded).
+  try {
+    let partTitle = `Part ${sortOrder + 1}`;
+    try {
+      const { data: mt } = await sb.from("module_translations")
+        .select("title").eq("module_id", rows[0].module_id).eq("lang", "ar").limit(1).single();
+      const t = (mt as unknown as { title: string } | null)?.title?.trim();
+      if (t) partTitle = t;
+    } catch {
+      /* keep fallback */
+    }
+    await sb.from("notifications").insert({
+      user_id: userId,
+      title: "Views restarted · تم تصفير المشاهدات",
+      message: `${partTitle} (${courseSlug}) — back to 3 of 3. / رجع 3 من 3.`,
+    });
+  } catch {
+    /* notice is best-effort */
+  }
   return true;
 }
 

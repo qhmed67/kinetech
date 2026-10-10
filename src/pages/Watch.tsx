@@ -385,6 +385,8 @@ export function Watch({
   // stale burned-out counts forever. refreshKey lets the limit screen retry.
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  // Parts touched (sticky-unlock persisted) this session — no repeat calls.
+  const touchedRef = useRef<string>("");
   useEffect(() => {
     if (!isSupabaseConfigured() || !user || !course) {
       setRefreshing(false);
@@ -404,6 +406,19 @@ export function Watch({
         const cur = rows.find((r) => r.sort_order === idx);
         setPlays(cur ? cur.views_count : 0);
         setDoneTick((n) => n + 1);
+        // Persist the open state: an opened-while-entitled part stays open
+        // even if an admin later restarts a DIFFERENT part. Burns no views.
+        if (cur && cur.unlocked) {
+          const key = `${slug}:${idx}`;
+          if (touchedRef.current !== key) {
+            touchedRef.current = key;
+            void import("../lib/db/watchDb")
+              .then((w) => (cur.video_id ? w.touchUnlockedDb(cur.video_id) : Promise.resolve()))
+              .catch(() => {
+                /* unlocked display already correct; server sync retries later */
+              });
+          }
+        }
       })
       .catch(() => {
         /* offline — local counts stay */

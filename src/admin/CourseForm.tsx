@@ -360,7 +360,17 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <LinkField label={a.vidExam} value={course.videos[i]?.exam ?? ""} onChange={(v) => setVid(i, { exam: v.trim() })} />
               </div>
               {!isNew && course.slug.trim() !== "" && (
-                <ExamBuilder slug={course.slug.trim()} idx={i} />
+                <div className="rounded-2xl border p-4" style={{ borderColor: "var(--kt-teal)", background: "#fff" }}>
+                  <h4 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                    {a.examBuilderT}
+                  </h4>
+                  <p className="mt-1 text-[13px]" style={{ color: "var(--muted)" }}>
+                    {a.examBuilderD}
+                  </p>
+                  <div className="mt-3">
+                    <ExamBuilder slug={course.slug.trim()} idx={i} />
+                  </div>
+                </div>
               )}
             </div>
           </div>

@@ -14,7 +14,7 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { getUserCourseViews, grantEnrollment, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { getUserCourseViews, grantEnrollment, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -130,6 +130,38 @@ describe("getUserCourseViews", () => {
       viewsUsed: 4,
       viewsTotal: 9,
     });
+  });
+});
+
+describe("resetUserVideo", () => {
+  const session = {
+    auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "a1" } } } }) },
+  };
+
+  it("updates (never deletes) to preserve the sticky unlock, then notifies", async () => {
+    const update = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = {
+      ...session,
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos")
+          return query({ data: [{ id: "v1", module_id: "m1" }], error: null });
+        if (table === "module_translations")
+          return query({ data: { title: "Intro" }, error: null });
+        if (table === "video_views") return { update };
+        if (table === "notifications") return { insert };
+        return query({ data: null, error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(resetUserVideo("u1", "c", 0)).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ views_count: 0, done: false }),
+    );
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "u1" }),
+    );
   });
 });
 

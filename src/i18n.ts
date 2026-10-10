@@ -498,6 +498,8 @@ const en = {
     resetViews: "Reset test views",
     resetViewsOk: "Test views reset.",
     gradingT: "Grading",
+    examBuilderT: "Exam & assignment builder",
+    examBuilderD: "Build the structured exam students solve inside the lesson. Grade writing answers from the Grading page.",
     usersT: "Users",
     users: {
       title: "User search & enrollment",
@@ -1260,6 +1262,8 @@ const ar: Strings = {
     resetViews: "تصفير مشاهدات التجربة",
     resetViewsOk: "اتصفّرت مشاهدات التجربة.",
     gradingT: "التصحيح",
+    examBuilderT: "منشئ الامتحان والواجب",
+    examBuilderD: "ابنِ الامتحان المنظم اللي الطالب بيحله جوه الدرس. صحح المقالي من صفحة التصحيح.",
     usersT: "المستخدمون",
     users: {
       title: "بحث المستخدمين والاشتراكات",
