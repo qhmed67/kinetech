@@ -220,9 +220,14 @@ export function TopNav({
                     </p>
                   ) : (
                     liveNotifs.map((n) => (
-                      <p
+                      <button
                         key={n.id}
-                        className="flex items-start gap-2.5 border-b px-4 py-3 text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
+                        type="button"
+                        onClick={() => {
+                          setBell(false);
+                          window.location.hash = "#/dashboard";
+                        }}
+                        className="flex w-full items-start gap-2.5 border-b px-4 py-3 text-start text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
                         style={{ borderColor: "var(--kt-line)", opacity: n.is_read ? 0.7 : 1 }}
                       >
                         <span
@@ -234,7 +239,7 @@ export function TopNav({
                           <span className="block font-bold">{n.title}</span>
                           {n.message && <span className="block">{n.message}</span>}
                         </span>
-                      </p>
+                      </button>
                     ))
                   )}
                 </motion.div>

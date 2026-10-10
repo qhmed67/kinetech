@@ -188,6 +188,7 @@ describe("grant/revoke/ban", () => {
     const sb = {
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos") return query({ data: [{ id: "v1" }], error: null });
         if (table === "profiles") return { update };
         return { delete: del };
       }),

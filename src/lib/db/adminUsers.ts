@@ -86,7 +86,12 @@ export async function grantEnrollment(userId: string, courseSlug: string): Promi
   if (error) throw error;
 }
 
-/** Revoke access. Admin-only via RLS. */
+/**
+ * Revoke access AND wipe the slate: deletes the grant plus every view row
+ * and exam attempt for that course. Re-enrolling later starts at absolute
+ * zero — no resurrected bars, no old scores.
+ * Admin-only via RLS.
+ */
 export async function revokeEnrollment(userId: string, courseSlug: string): Promise<void> {
   const sb = authed();
   const { data: course } = await withTimeout(
@@ -96,12 +101,29 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
   );
   const courseId = (course as unknown as { id: string } | null)?.id;
   if (!courseId) throw new Error("course not found");
-  const { error } = await withTimeout(
+  const { data: vids } = await withTimeout(
+    (async () => sb.from("videos").select("id").eq("course_id", courseId))(),
+    NETWORK_TIMEOUT_MS,
+    "video-lookup",
+  );
+  const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
+  const ops: Array<Promise<unknown>> = [
     (async () => sb.from("enrollments").delete().eq("user_id", userId).eq("course_id", courseId))(),
+  ];
+  if (ids.length > 0) {
+    ops.push(
+      (async () => sb.from("video_views").delete().eq("user_id", userId).in("video_id", ids))(),
+      (async () => sb.from("exam_results").delete().eq("user_id", userId).in("video_id", ids))(),
+    );
+  }
+  const results = await withTimeout(
+    Promise.all(ops),
     NETWORK_TIMEOUT_MS,
     "revoke",
   );
-  if (error) throw error;
+  for (const r of results as Array<{ error?: { message: string } | null }>) {
+    if (r?.error) throw r.error;
+  }
 }
 
 export type PartViews = { sort_order: number; views: number; done: boolean };

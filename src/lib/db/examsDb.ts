@@ -25,6 +25,7 @@ export type ExamResult = {
   writing_score: number | null;
   writing_total: number;
   status: "graded" | "pending";
+  feedback: Record<string, string>;
 };
 
 export const emptyExam = (): ExamContent => ({ title: "", questions: [] });
@@ -131,6 +132,7 @@ export async function getMyResult(videoId: string, kind: ExamKind): Promise<Exam
     writing_score: r.writing_score ?? null,
     writing_total: r.writing_total ?? 0,
     status: r.status === "graded" ? "graded" : "pending",
+    feedback: (r as unknown as { feedback?: Record<string, string> }).feedback ?? {},
   };
 }
 
@@ -181,7 +183,7 @@ export async function submitAttempt(
     "attempt-submit",
   );
   if (error) throw error;
-  return { answers, choice_score, choice_total, writing_score: null, writing_total, status };
+  return { answers, choice_score, choice_total, writing_score: null, writing_total, status, feedback: {} };
 }
 
 export type PendingGrading = {
@@ -244,20 +246,27 @@ export async function listPendingGrading(): Promise<PendingGrading[]> {
 }
 
 /**
- * Instructor grades the writing questions (correct/incorrect each).
- * Flips the attempt to graded and notifies the student.
+ * Instructor grades the writing questions (correct/incorrect each, optional
+ * per-question note — e.g. the right answer when the student is wrong).
+ * Flips the attempt to graded and notifies the student, who then reviews
+ * everything (right/wrong per question) on the exam review page.
  */
 export async function gradeAttempt(
   userId: string,
   videoId: string,
   kind: ExamKind,
   marks: Record<string, boolean>,
+  notes: Record<string, string> = {},
 ): Promise<void> {
   const sb = authed();
   const score = Object.values(marks).filter(Boolean).length;
+  const feedback: Record<string, string> = {};
+  for (const [qid, note] of Object.entries(notes)) {
+    if (note.trim() !== "") feedback[qid] = note.trim();
+  }
   const { error } = await withTimeout(
     (async () =>
-      sb.from("exam_results").update({ writing_score: score, status: "graded", updated_at: new Date().toISOString() })
+      sb.from("exam_results").update({ writing_score: score, status: "graded", feedback, updated_at: new Date().toISOString() })
         .eq("user_id", userId).eq("video_id", videoId).eq("kind", kind))(),
     NETWORK_TIMEOUT_MS,
     "grade-save",

@@ -17,6 +17,7 @@ export function Grading() {
   const [rows, setRows] = useState<PendingGrading[] | null>(null);
   const [err, setErr] = useState("");
   const [marks, setMarks] = useState<Record<string, Record<string, boolean>>>({});
+  const [notes, setNotes] = useState<Record<string, Record<string, string>>>({});
   const [busyKey, setBusyKey] = useState("");
   const [doneKey, setDoneKey] = useState("");
 
@@ -45,8 +46,13 @@ export function Grading() {
     setErr("");
     try {
       const m: Record<string, boolean> = {};
-      for (const q of writingQs(r)) m[q.id] = marks[k]?.[q.id] ?? false;
-      await gradeAttempt(r.user_id, r.video_id, r.kind, m);
+      const n: Record<string, string> = {};
+      for (const q of writingQs(r)) {
+        m[q.id] = marks[k]?.[q.id] ?? false;
+        const note = notes[k]?.[q.id] ?? "";
+        if (note.trim() !== "") n[q.id] = note.trim();
+      }
+      await gradeAttempt(r.user_id, r.video_id, r.kind, m, n);
       setDoneKey(k);
       window.setTimeout(() => setDoneKey(""), 2500);
       await load();
@@ -110,6 +116,16 @@ export function Grading() {
                         />
                         {x.markCorrect}
                       </label>
+                      <input
+                        value={notes[k]?.[q.id] ?? ""}
+                        onChange={(e) => setNotes((m) => ({
+                          ...m,
+                          [k]: { ...(m[k] ?? {}), [q.id]: e.target.value },
+                        }))}
+                        placeholder={x.notePh}
+                        className="mt-2 min-h-[40px] w-full rounded-xl border bg-white px-3 text-sm"
+                        style={{ borderColor: "var(--kt-line)" }}
+                      />
                     </div>
                   );
                 })

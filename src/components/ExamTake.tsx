@@ -31,6 +31,7 @@ export function ExamTake({
   const [err, setErr] = useState("");
   const [result, setResult] = useState<ExamResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -104,8 +105,97 @@ export function ExamTake({
             {result.status === "pending" && result.writing_total === 0 && (
               <p className="text-sm" style={{ color: "var(--muted)" }}>{x.writingPending}</p>
             )}
+            <button
+              type="button"
+              onClick={() => setReviewing(true)}
+              className="btn btn-secondary w-full"
+            >
+              {x.reviewBtn}
+            </button>
           </div>
-        ) : (
+        ) : null}
+        {result && reviewing && (
+          <div className="mt-4 grid gap-5">
+            <button
+              type="button"
+              onClick={() => setReviewing(false)}
+              className="self-start text-sm font-bold"
+              style={{ color: "var(--accent)" }}
+            >
+              ← {x.backToResult}
+            </button>
+            {content.questions.map((q, qi) => {
+              const ans = result?.answers[q.id];
+              const note = result?.feedback?.[q.id];
+              if (q.kind === "choice") {
+                const correct = q.correct;
+                const picked = typeof ans === "number" ? ans : -1;
+                const right = picked === correct;
+                return (
+                  <div key={q.id}>
+                    <p className="font-bold">
+                      <span dir="ltr" className="me-2" style={{ color: "var(--muted)" }}>{qi + 1}.</span>
+                      {q.prompt}
+                      <span
+                        className="ms-2 rounded-full px-2.5 py-0.5 text-xs font-bold"
+                        style={right
+                          ? { background: "var(--teal-soft)", color: "var(--kt-deep)" }
+                          : { background: "#FDECEA", color: "#B3261E" }}
+                      >
+                        {right ? x.rightMark : x.wrongMark}
+                      </span>
+                    </p>
+                    <div className="mt-2 grid gap-2">
+                      {q.choices.map((c, ci) => {
+                        const isCorrect = ci === correct;
+                        const isPicked = ci === picked;
+                        return (
+                          <div
+                            key={ci}
+                            className="flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm"
+                            style={{
+                              borderColor: isCorrect ? "var(--kt-teal)" : isPicked ? "#B3261E" : "var(--kt-line)",
+                              background: isCorrect ? "var(--teal-soft)" : isPicked ? "#FDECEA" : undefined,
+                            }}
+                          >
+                            <span className="font-bold" dir="ltr">
+                              {isCorrect ? "✓" : isPicked ? "✕" : "·"}
+                            </span>
+                            <span>{c || "—"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {note && (
+                      <p className="mt-2 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
+                        <strong>{x.instructorNote}: </strong>
+                        <span dir="auto">{note}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <div key={q.id}>
+                  <p className="font-bold">
+                    <span dir="ltr" className="me-2" style={{ color: "var(--muted)" }}>{qi + 1}.</span>
+                    {q.prompt}
+                  </p>
+                  <p className="mt-2 rounded-xl p-3 text-sm" dir="auto" style={{ background: "var(--surface)" }}>
+                    {typeof ans === "string" && ans !== "" ? ans : "—"}
+                  </p>
+                  {note && (
+                    <p className="mt-2 rounded-xl p-3 text-sm" style={{ background: "#FEF3E2" }}>
+                      <strong>{x.instructorNote}: </strong>
+                      <span dir="auto">{note}</span>
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!result && (
           <div className="mt-4 grid gap-5">
             {content.questions.map((q, qi) => (
               <div key={q.id}>
