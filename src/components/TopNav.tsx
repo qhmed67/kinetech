@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { Seek } from "@/components/ui/seek-search";
@@ -30,6 +30,24 @@ export function TopNav({
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
   const [liveNotifs, setLiveNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+  const bellBoxRef = useRef<HTMLDivElement>(null);
+
+  // Modern dropdown behavior: outside click or Escape dismisses.
+  useEffect(() => {
+    if (!bell) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!bellBoxRef.current?.contains(e.target as Node)) setBell(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBell(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [bell]);
 
   // Live notifications (server truth). Null = loading/offline.
   useEffect(() => {
@@ -175,7 +193,7 @@ export function TopNav({
             {t.toggle}
           </button>
           {user ? (
-            <div className="relative">
+            <div className="relative" ref={bellBoxRef}>
               <button
                 type="button"
                 onClick={openBell}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
-import type { LessonWork, WorkItemState } from "../lib/db/examsDb";
+import type { ExamContent, ExamKind, LessonWork, WorkItemState } from "../lib/db/examsDb";
+import { ExamTake } from "../components/ExamTake";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { getViews, isDone } from "../watch";
 import { SafeImg } from "../components/SafeImg";
@@ -12,6 +13,53 @@ const TRACKS = ["courses", "marketing", "programming", "design"] as const;
 type Track = (typeof TRACKS)[number];
 const TABS_ALL = ["overview", "courses", "exams", "assignments", "profile", "settings"] as const;
 type Tab = string;
+
+
+/**
+ * In-dashboard exam review: opens the exam widget right here — no
+ * navigation, no video autoplay accidents. Resolves the lesson's video
+ * row, loads its structured content, and lands in review mode.
+ */
+function ReviewOpener({ slug, idx, kind, label }: { slug: string; idx: number; kind: ExamKind; label: string }) {
+  const [open, setOpen] = useState<{ videoId: string; content: ExamContent } | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          if (busy) return;
+          setBusy(true);
+          void import("../lib/db/examsDb")
+            .then(async (m) => {
+              const videoId = await m.videoIdBySlug(slug, idx);
+              if (!videoId) return;
+              const content = await m.getExam(videoId, kind);
+              if (content) setOpen({ videoId, content });
+            })
+            .catch(() => {
+              /* offline — stays closed */
+            })
+            .finally(() => setBusy(false));
+        }}
+        className="btn btn-secondary disabled:opacity-60"
+        style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
+      >
+        {label}
+      </button>
+      {open && (
+        <ExamTake
+          videoId={open.videoId}
+          kind={kind}
+          content={open.content}
+          startInReview
+          onClose={() => setOpen(null)}
+        />
+      )}
+    </>
+  );
+}
 
 /** Real coursework links from enrolled courses (no fabricated scores). */
 function courseWork(u: KtUser, lang: "en" | "ar"): {
@@ -131,26 +179,7 @@ function WorkTab({
                 >
                   {r.item.score}/{r.item.total}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Deep link: the lesson opens the exam modal directly
-                    // in review mode — no video detour, no second click.
-                    try {
-                      window.sessionStorage.setItem(
-                        "kt-open-exam",
-                        JSON.stringify({ slug: r.slug, idx: r.idx, kind }),
-                      );
-                    } catch {
-                      /* storage full — plain navigation still works */
-                    }
-                    window.location.hash = `#/courses/${r.slug}/watch/${r.idx}`;
-                  }}
-                  className="btn btn-secondary"
-                  style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
-                >
-                  {d.workReview}
-                </button>
+                <ReviewOpener slug={r.slug} idx={r.idx} kind={kind} label={d.workReview} />
               </>
             ) : (
               <a

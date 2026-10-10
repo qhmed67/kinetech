@@ -85,7 +85,7 @@ export function ExamTake({
 
         {loading ? (
           <p className="mt-4 text-sm" style={{ color: "var(--muted)" }}>…</p>
-        ) : result ? (
+        ) : result && !reviewing ? (
           <div className="mt-4 grid gap-3">
             <div className="rounded-2xl p-5 text-center" style={{ background: "var(--surface)" }}>
               <p className="text-3xl font-bold" dir="ltr" style={{ fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>

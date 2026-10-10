@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
 import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
 import { ExamTake } from "../components/ExamTake";
@@ -179,8 +179,76 @@ function StatusIcon({ state }: { state: "current" | "done" | "locked" | "todo" }
   );
 }
 
+function LessonRow({
+  m,
+  i,
+  videos,
+  user,
+  slug,
+  idx,
+  open,
+  setOpen,
+  go,
+  minLabel,
+}: {
+  m: { t: string; d: string };
+  i: number;
+  videos: VideoView[];
+  user: KtUser;
+  slug: string;
+  idx: number;
+  open: number | null;
+  setOpen: (v: number | null) => void;
+  go: (i: number) => void;
+  minLabel: string;
+}) {
+  // Started (views>0) is NOT done — done requires a full genuine watch.
+  const st = !isUnlocked(user, slug, i)
+    ? "locked"
+    : isDone(user, slug, i)
+      ? i === idx ? "current" : "done"
+      : i === idx ? "current" : "todo";
+  const isOpen = open === i;
+  const canOpen = isUnlocked(user, slug, i);
+  return (
+    <div className="overflow-hidden rounded-xl">
+      <button
+        type="button"
+        disabled={!canOpen}
+        onClick={() => {
+          if (isOpen) {
+            setOpen(null);
+          } else {
+            setOpen(i);
+            if (i !== idx) go(i);
+          }
+        }}
+        aria-expanded={isOpen}
+        className="flex w-full items-center gap-2.5 px-3 py-3 text-start text-sm"
+        style={!canOpen ? { opacity: 0.65 } : undefined}
+      >
+        <StatusIcon state={st} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-bold" style={i === idx ? { color: "var(--accent)" } : undefined}>
+            {m.t}
+          </span>
+          <span className="mt-0.5 block text-xs" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
+            {videos[i]?.mins ?? 10} {minLabel}
+          </span>
+        </span>
+      </button>
+      {isOpen && canOpen && (
+        <p className="px-3 pb-3 ps-9 text-[13px] leading-relaxed" style={{ color: "var(--muted)" }}>
+          {m.d}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ContentList({
   modules,
+  sections,
   videos,
   user,
   slug,
@@ -191,6 +259,7 @@ function ContentList({
   minLabel,
 }: {
   modules: { t: string; d: string }[];
+  sections: string[];
   videos: VideoView[];
   user: KtUser;
   slug: string;
@@ -200,52 +269,67 @@ function ContentList({
   go: (i: number) => void;
   minLabel: string;
 }) {
+  // Consecutive lessons sharing a section header ("Month 1"…) collapse
+  // under it; empty section renders flat. Only the current lesson's
+  // section starts open — no sidebar traffic.
+  type Block = { key: string; title: string | null; items: number[] };
+  const blocks: Block[] = [];
+  modules.forEach((_, i) => {
+    const sec = (sections[i] ?? "").trim();
+    const last = blocks[blocks.length - 1];
+    if (sec !== "" && last && last.title === sec) {
+      last.items.push(i);
+    } else if (sec !== "") {
+      blocks.push({ key: `sec-${sec}-${i}`, title: sec, items: [i] });
+    } else if (last && last.title === null) {
+      last.items.push(i);
+    } else {
+      blocks.push({ key: `flat-${i}`, title: null, items: [i] });
+    }
+  });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const init: Record<string, boolean> = {};
+    for (const b of blocks) {
+      if (b.title !== null) init[b.key] = !b.items.includes(idx);
+    }
+    setCollapsed(init);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+  const rowProps = { videos, user, slug, idx, open, setOpen, go, minLabel };
   return (
     <>
-      {modules.map((m, i) => {
-          // Started (views>0) is NOT done — done requires a full genuine watch.
-        const st = !isUnlocked(user, slug, i)
-          ? "locked"
-          : isDone(user, slug, i)
-            ? i === idx ? "current" : "done"
-            : i === idx ? "current" : "todo";
-        const isOpen = open === i;
-        const canOpen = isUnlocked(user, slug, i);
-        return (
-          <div key={m.t} className="overflow-hidden rounded-xl">
+      {blocks.map((b) =>
+        b.title === null ? (
+          <Fragment key={b.key}>
+            {b.items.map((i) => (
+              <LessonRow key={`${modules[i]?.t}-${i}`} m={modules[i]} i={i} {...rowProps} />
+            ))}
+          </Fragment>
+        ) : (
+          <div key={b.key} className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--kt-line)" }}>
             <button
               type="button"
-              disabled={!canOpen}
-              onClick={() => {
-                if (isOpen) {
-                  setOpen(null);
-                } else {
-                  setOpen(i);
-                  if (i !== idx) go(i);
-                }
-              }}
-              aria-expanded={isOpen}
-              className="flex w-full items-center gap-2.5 px-3 py-3 text-start text-sm"
-              style={!canOpen ? { opacity: 0.65 } : undefined}
+              onClick={() => setCollapsed((c) => ({ ...c, [b.key]: !(c[b.key] ?? true) }))}
+              aria-expanded={!(collapsed[b.key] ?? true)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-3 text-start text-sm font-bold"
+              style={{ fontFamily: "var(--font-display)", background: "var(--surface)" }}
             >
-              <StatusIcon state={st} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-bold" style={i === idx ? { color: "var(--accent)" } : undefined}>
-                  {m.t}
-                </span>
-                <span className="mt-0.5 block text-xs" dir="ltr" style={{ color: "var(--muted)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums" }}>
-                  {videos[i]?.mins ?? 10} {minLabel}
-                </span>
+              <span className="truncate">{b.title}</span>
+              <span aria-hidden="true" style={{ color: "var(--muted)" }}>
+                {collapsed[b.key] ?? true ? "▸" : "▾"}
               </span>
             </button>
-            {isOpen && canOpen && (
-              <p className="px-3 pb-3 ps-9 text-[13px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                {m.d}
-              </p>
+            {!(collapsed[b.key] ?? true) && (
+              <div className="grid gap-1 p-1.5">
+                {b.items.map((i) => (
+                  <LessonRow key={`${modules[i]?.t}-${i}`} m={modules[i]} i={i} {...rowProps} />
+                ))}
+              </div>
             )}
           </div>
-        );
-      })}
+        ),
+      )}
     </>
   );
 }
@@ -630,6 +714,7 @@ export function Watch({
             <div className="pt-1">
               <ContentList
                 modules={course.modules}
+                sections={course.sections}
                 videos={videos}
                 user={user}
                 slug={slug}
@@ -653,6 +738,7 @@ export function Watch({
             </p>
             <ContentList
               modules={course.modules}
+              sections={course.sections}
               videos={videos}
               user={user}
               slug={slug}

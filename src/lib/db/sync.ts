@@ -89,15 +89,33 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
   const run = (async (): Promise<boolean> => {
     const sb = supabase();
     if (!sb) return false;
-    const [{ data: courses }, { data: mods }, { data: vids }] = await Promise.all([
+    const fetchAll = (withSections: boolean) => Promise.all([
       sig(sb.from("courses").select(
         "id,slug,cat,is_bac,seats_n,price_cents,photo_card_url,photo_detail_url," +
           "instructors(name_en,name_ar,spec_en,spec_ar,bio_en,bio_ar)," +
           "course_translations(lang,name,designation,quote,duration,lessons,schedule,level,seats_label,cta_label,outcomes)",
       ), signal),
-      sig(sb.from("modules").select("id,course_id,sort_order,module_translations(lang,title,description)").order("sort_order"), signal),
+      sig(sb.from("modules").select(
+        withSections
+          ? "id,course_id,sort_order,section_en,section_ar,module_translations(lang,title,description)"
+          : "id,course_id,sort_order,module_translations(lang,title,description)",
+      ).order("sort_order"), signal),
       sig(sb.from("videos").select("id,course_id,module_id,sort_order,src_url,mins,assign_url,exam_url").order("sort_order"), signal),
     ]);
+    // Sections columns are newer than some databases: a failed first pass
+    // retries without them, degrading to flat lessons instead of wiping the
+    // cloud catalog back to seeds.
+    let fetched;
+    try {
+      fetched = await fetchAll(true);
+    } catch {
+      try {
+        fetched = await fetchAll(false);
+      } catch {
+        return false;
+      }
+    }
+    const [{ data: courses }, { data: mods }, { data: vids }] = fetched;
     if (mySeq !== hydrateSeq) return false; // superseded — discard stale response
     lastHydrate = Date.now();
   const rows = (courses ?? []) as unknown as DbCourseRow[];
@@ -105,6 +123,7 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
 
   const modRows = (mods ?? []) as unknown as Array<{
     id: string; course_id: string; sort_order: number;
+    section_en: string | null; section_ar: string | null;
     module_translations: Array<{ lang: string; title: string; description: string | null }>;
   }>;
   const vidRows = (vids ?? []) as unknown as Array<{
@@ -184,6 +203,10 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
         ar: tr(c.course_translations, "ar")?.outcomes ?? tr(c.course_translations, "en")?.outcomes ?? [],
       },
       modules: { en: byLang("en"), ar: byLang("ar") },
+      sections: {
+        en: cMods.map((m) => m.section_en ?? ""),
+        ar: cMods.map((m) => m.section_ar ?? m.section_en ?? ""),
+      },
       videos,
     };
   });
@@ -553,6 +576,15 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
     }
     if (!modId) continue;
     keepModIds.add(modId);
+    // Section labels persist per module (best-effort on pre-migration DBs).
+    try {
+      await sb.from("modules").update({
+        section_en: course.sections.en[i] ?? "",
+        section_ar: course.sections.ar[i] ?? course.sections.en[i] ?? "",
+      }).eq("id", modId);
+    } catch {
+      /* pre-sections schema — hydrate degrades gracefully */
+    }
     await sb.from("module_translations").upsert([
       { module_id: modId, lang: "en", title: course.modules.en[i]?.t ?? "", description: course.modules.en[i]?.d ?? "" },
       { module_id: modId, lang: "ar", title: course.modules.ar[i]?.t ?? course.modules.en[i]?.t ?? "", description: course.modules.ar[i]?.d ?? course.modules.en[i]?.d ?? "" },

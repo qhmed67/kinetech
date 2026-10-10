@@ -33,6 +33,7 @@ function blank(): StoreCourse {
     instructor: { name: { ...lt }, spec: { ...lt }, bio: { ...lt } },
     outcomes: { en: [], ar: [] },
     modules: { en: [{ t: "", d: "" }], ar: [{ t: "", d: "" }] },
+    sections: { en: [""], ar: [""] },
     videos: [{ src: "", mins: 10, assign: "", exam: "" }],
   };
 }
@@ -153,17 +154,24 @@ export function CourseForm({ slug }: { slug?: string }) {
       [n[i], n[j]] = [n[j], n[i]];
       return n;
     };
+    const sec = (which: "en" | "ar") => course.sections?.[which] ?? [];
     set({
       modules: { en: swap(course.modules.en), ar: swap(course.modules.ar) },
+      sections: { en: swap(sec("en")), ar: swap(sec("ar")) },
       videos: swap(course.videos),
     });
   };
   const delMod = (i: number) => {
     if (course.modules.en.length <= 1) return;
+    const drop = (arr: string[]) => arr.filter((_, k) => k !== i);
     set({
       modules: {
         en: course.modules.en.filter((_, k) => k !== i),
         ar: course.modules.ar.filter((_, k) => k !== i),
+      },
+      sections: {
+        en: drop(course.sections?.en ?? []),
+        ar: drop(course.sections?.ar ?? []),
       },
       videos: course.videos.filter((_, k) => k !== i),
     });
@@ -174,12 +182,22 @@ export function CourseForm({ slug }: { slug?: string }) {
         en: [...course.modules.en, { t: "", d: "" }],
         ar: [...course.modules.ar, { t: "", d: "" }],
       },
+      sections: {
+        en: [...(course.sections?.en ?? []), ""],
+        ar: [...(course.sections?.ar ?? []), ""],
+      },
       videos: [...course.videos, { src: "", mins: 10, assign: "", exam: "" }],
     });
   const setMod = (i: number, k: "t" | "d", v: string) => {
     const next = [...course.modules[lt]];
     next[i] = { ...next[i], [k]: v };
     set({ modules: { ...course.modules, [lt]: next } });
+  };
+  const setSec = (i: number, v: string) => {
+    const cur = [...(course.sections?.[lt] ?? [])];
+    while (cur.length <= i) cur.push("");
+    cur[i] = v;
+    set({ sections: { en: course.sections?.en ?? [], ar: course.sections?.ar ?? [], [lt]: cur } });
   };
   const setVid = (i: number, patch: Partial<StoreCourse["videos"][number]>) => {
     const vids = [...course.videos];
@@ -343,6 +361,14 @@ export function CourseForm({ slug }: { slug?: string }) {
               />
             </div>
             <div className="mt-3 grid gap-3">
+              <Field label={a.secLabel}>
+                <Text
+                  value={course.sections?.[lt]?.[i] ?? ""}
+                  dir={lt === "ar" ? "rtl" : "ltr"}
+                  placeholder={a.secPh}
+                  onChange={(e) => setSec(i, e.target.value)}
+                />
+              </Field>
               <Field label={a.modT}>
                 <Text value={m.t} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setMod(i, "t", e.target.value)} />
               </Field>

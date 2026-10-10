@@ -48,6 +48,8 @@ export type StoreCourse = {
   instructor: { name: LText; spec: LText; bio: LText };
   outcomes: { en: string[]; ar: string[] };
   modules: { en: Module[]; ar: Module[] };
+  /** Section headers per module index ("Month 1", units…). Empty = ungrouped. */
+  sections: { en: string[]; ar: string[] };
   videos: StoreVideo[];
 };
 
@@ -161,6 +163,7 @@ function seed(): ContentStore {
         en: e.modules.map((m) => ({ t: m.t, d: m.d })),
         ar: a.modules.map((m) => ({ t: m.t, d: m.d })),
       },
+      sections: { en: Array(n).fill(""), ar: Array(n).fill("") },
       videos,
     };
   });
@@ -249,10 +252,10 @@ export function loadStore(): ContentStore {
           // heal runs on EVERY load: any stale sample URL becomes the bundled video
           parsed.v = 3;
           healVideoSrc(parsed.courses);
-          cache = parsed;
+          cache = normalizeStore(parsed);
           persist();
         } else if (parsed && (parsed as unknown as { v: number }).v === 1 && Array.isArray(parsed.courses)) {
-          cache = migrateV1(parsed as unknown as V1Store);
+          cache = normalizeStore(migrateV1(parsed as unknown as V1Store));
           persist();
         }
       }
@@ -260,7 +263,7 @@ export function loadStore(): ContentStore {
       /* fall through to seed */
     }
     if (!cache) {
-      cache = seed();
+      cache = normalizeStore(seed());
       persist();
     }
   }
@@ -383,7 +386,26 @@ export type CourseView = {
   instructor: { name: string; spec: string; bio: string };
   outcomes: string[];
   modules: Module[];
+  /** Section header per module index (same order as modules). "" = ungrouped. */
+  sections: string[];
 };
+
+/** Legacy caches predate sections — normalize once per load, never crash. */
+function sectionsOf(c: StoreCourse, side: Lang): string[] {
+  const raw = (c as unknown as { sections?: { en?: unknown; ar?: unknown } }).sections;
+  const list = raw?.[side];
+  return Array.isArray(list) ? (list as unknown[]).map((s) => (typeof s === "string" ? s : "")) : [];
+}
+
+function normalizeStore(s: ContentStore): ContentStore {
+  for (const c of s.courses) {
+    const cAny = c as unknown as { sections?: unknown };
+    if (!cAny.sections || typeof cAny.sections !== "object") {
+      cAny.sections = { en: [], ar: [] };
+    }
+  }
+  return s;
+}
 
 export function listCourses(lang: Lang): CourseView[] {
   return loadStore().courses.map((c) => viewCourse(c, lang));
@@ -397,11 +419,25 @@ export function viewCourse(c: StoreCourse, lang: Lang): CourseView {
     const v = t[lang].filter((s) => s.trim());
     return v.length ? v : t[other].filter((s) => s.trim());
   };
-  const pickMods = (): Module[] => {
-    const v = c.modules[lang].filter((m) => m.t.trim() || m.d.trim());
-    const list = v.length ? v : c.modules[other].filter((m) => m.t.trim() || m.d.trim());
-    return list.map((m) => ({ t: m.t, d: m.d }));
+  const pickMods = (): { mods: Module[]; sections: string[] } => {
+    const pickSide = (side: Lang) =>
+      c.modules[side]
+        .map((m, i) => ({ m, i }))
+        .filter(({ m }) => m.t.trim() || m.d.trim());
+    let picked = pickSide(lang);
+    let side: Lang = lang;
+    if (picked.length === 0) {
+      picked = pickSide(other);
+      side = other;
+    }
+    const secs = sectionsOf(c, side);
+    const fallback = side === lang ? sectionsOf(c, other) : [];
+    return {
+      mods: picked.map(({ m }) => ({ t: m.t, d: m.d })),
+      sections: picked.map(({ i }) => (secs[i] ?? fallback[i] ?? "").trim()),
+    };
   };
+  const picked = pickMods();
   return {
     slug: c.slug,
     cat: normCat(c.cat),
@@ -425,7 +461,8 @@ export function viewCourse(c: StoreCourse, lang: Lang): CourseView {
       bio: pick(c.instructor.bio),
     },
     outcomes: pickList(c.outcomes),
-    modules: pickMods(),
+    modules: picked.mods,
+    sections: picked.sections,
   };
 }
 
