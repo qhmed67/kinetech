@@ -1,7 +1,7 @@
 import { supabase } from "./client";
 import { replaceStore, type ContentStore, type StoreCourse, type StoreService } from "../../store";
 import { getUser, setUser, notifyUserChanged } from "../../auth";
-import { purgeProgress, setViewsCount, setDoneFlag } from "../../watch";
+import { purgeProgress, replaceProgress } from "../../watch";
 import { NETWORK_TIMEOUT_MS, withTimeout } from "./throttle";
 import { toDirectImageUrl } from "../drive";
 import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
@@ -282,11 +282,14 @@ export async function hydrateWatchForUser(): Promise<void> {
   for (const slug of slugs.filter((s) => granted.has(s))) {
     try {
       const rows = await withTimeout(getWatchStateDb(slug, "en"), NETWORK_TIMEOUT_MS, "watch-state");
-      for (const r of rows) {
-        videoIds.set(vk(slug, r.sort_order), r.video_id);
-        setViewsCount(user, slug, r.sort_order, Math.min(3, Math.max(0, r.views_count)));
-        if (r.done) setDoneFlag(user, slug, r.sort_order);
-      }
+      for (const r of rows) videoIds.set(vk(slug, r.sort_order), r.video_id);
+      // Wholesale replace (views + done + sticky unlock) — additive merge
+      // kept stale flags alive across admin restarts.
+      replaceProgress(
+        user,
+        slug,
+        rows.map((r) => ({ idx: r.sort_order, views: r.views_count, done: r.done, unlocked: r.unlocked })),
+      );
     } catch {
       /* signed out / offline — local stays */
     }
@@ -540,6 +543,7 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
   const modByOrder = new Map(modRows.map((m) => [m.sort_order, m]));
   const n = Math.max(course.modules.en.length, course.videos.length, 1);
   const keepModIds = new Set<string>();
+  const freshLessons: Array<{ titleEn: string; titleAr: string }> = [];
   for (let i = 0; i < n; i++) {
     let modId = modByOrder.get(i)?.id ?? null;
     if (!modId) {
@@ -569,7 +573,14 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
       } else {
         const { data: vv } = await sb.from("videos").insert(row).select("id").single();
         const vid = (vv as unknown as { id: string } | null)?.id;
-        if (vid) videoIds.set(vk(course.slug, i), vid);
+        if (vid) {
+          videoIds.set(vk(course.slug, i), vid);
+          // Brand-new lesson video: enrolled students get notified below.
+          freshLessons.push({
+            titleEn: course.modules.en[i]?.t ?? "",
+            titleAr: course.modules.ar[i]?.t ?? "",
+          });
+        }
       }
     } else if (existingVid) {
       // Lesson dropped its video: remove the row (its views go with it).
@@ -579,6 +590,15 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
   }
   for (const m of modRows) {
     if (!keepModIds.has(m.id)) await sb.from("modules").delete().eq("id", m.id);
+  }
+  // New lessons only (edits never re-notify): tell every enrolled student.
+  if (freshLessons.length > 0) {
+    try {
+      const { notifyNewLessons } = await import("./adminUsers");
+      await notifyNewLessons(course.slug, freshLessons);
+    } catch {
+      /* notifications are best-effort; the save already succeeded */
+    }
   }
 }
 

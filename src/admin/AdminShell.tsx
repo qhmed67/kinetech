@@ -96,6 +96,7 @@ export function AdminShell({
           {nav("courses", a.coursesT)}
           {nav("services", a.servicesT)}
           {nav("users", a.usersT)}
+          {nav("grading", a.gradingT)}
         </nav>
         <div className="min-w-0">{children}</div>
       </div>

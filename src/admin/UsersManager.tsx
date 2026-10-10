@@ -9,6 +9,7 @@ import {
   resetUserVideo,
   revokeEnrollment,
   searchUser,
+  sendNotification,
   setBanned,
   type FoundUser,
   type Orphan,
@@ -235,6 +236,67 @@ function CoursePartsRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** General notification composer: title + message straight to one user. */
+function NotifyBox({
+  userId,
+  titleLabel,
+  msgLabel,
+  sendLabel,
+  sentLabel,
+  onError,
+}: {
+  userId: string;
+  titleLabel: string;
+  msgLabel: string;
+  sendLabel: string;
+  sentLabel: string;
+  onError: (msg: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  return (
+    <div className="grid gap-2 border-t pt-4" style={{ borderColor: "var(--kt-line)" }}>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={titleLabel}
+        className="min-h-[44px] rounded-full border bg-white px-5 text-sm"
+        style={{ borderColor: "var(--kt-line)" }}
+      />
+      <textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder={msgLabel}
+        rows={2}
+        className="rounded-2xl border bg-white px-5 py-3 text-sm"
+        style={{ borderColor: "var(--kt-line)" }}
+      />
+      <button
+        type="button"
+        disabled={busy || !title.trim()}
+        onClick={() => {
+          setBusy(true);
+          sendNotification(userId, title, message)
+            .then(() => {
+              setTitle("");
+              setMessage("");
+              setSent(true);
+              window.setTimeout(() => setSent(false), 2500);
+            })
+            .catch((ex: unknown) => onError(ex instanceof Error ? ex.message : "error"))
+            .finally(() => setBusy(false));
+        }}
+        className="btn btn-secondary self-start disabled:opacity-60"
+        style={{ minHeight: 44 }}
+      >
+        {sent ? sentLabel : sendLabel}
+      </button>
+    </div>
   );
 }
 
@@ -483,6 +545,14 @@ export function UsersManager() {
               {u.delUser}
             </button>
           </div>
+          <NotifyBox
+            userId={found.id}
+            titleLabel={u.notifyTitle}
+            msgLabel={u.notifyMsg}
+            sendLabel={u.notifySend}
+            sentLabel={u.notifySent}
+            onError={setErr}
+          />
         </div>
       )}
 

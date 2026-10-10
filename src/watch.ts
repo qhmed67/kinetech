@@ -53,7 +53,7 @@ export function setViewsCount(u: KtUser, slug: string, idx: number, n: number): 
   writeDB(db);
 }
 
-/** Drop every local trace of a course (revoked grant): views + completions. */
+/** Drop every local trace of a course: views + completions + sticky unlocks. */
 export function purgeProgress(u: KtUser, slug: string): void {
   const uk = userKeyOf(u);
   try {
@@ -77,6 +77,16 @@ export function purgeProgress(u: KtUser, slug: string): void {
   } catch {
     /* ignore */
   }
+  try {
+    const un = readUnlocked();
+    if (un[uk]?.[slug]) {
+      const next = { ...un, [uk]: { ...(un[uk] ?? {}) } };
+      delete next[uk][slug];
+      window.localStorage.setItem(UNLOCK_KEY, JSON.stringify(next));
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -87,7 +97,7 @@ export function purgeProgress(u: KtUser, slug: string): void {
 export function replaceProgress(
   u: KtUser,
   slug: string,
-  rows: Array<{ idx: number; views: number; done: boolean }>,
+  rows: Array<{ idx: number; views: number; done: boolean; unlocked?: boolean }>,
 ): void {
   const uk = userKeyOf(u);
   try {
@@ -110,6 +120,16 @@ export function replaceProgress(
     window.localStorage.setItem(
       DONE_KEY,
       JSON.stringify({ ...done, [uk]: { ...(done[uk] ?? {}), [slug]: list } }),
+    );
+  } catch {
+    /* ignore */
+  }
+  try {
+    const un = readUnlocked();
+    const list = rows.filter((r) => r.unlocked).map((r) => r.idx);
+    window.localStorage.setItem(
+      UNLOCK_KEY,
+      JSON.stringify({ ...un, [uk]: { ...(un[uk] ?? {}), [slug]: list } }),
     );
   } catch {
     /* ignore */
@@ -149,6 +169,8 @@ export function recordPlay(u: KtUser, slug: string, idx: number): number {
   const next = Math.min(MAX_VIEWS, (db[uk]?.[vk] ?? 0) + 1);
   db[uk] = { ...(db[uk] ?? {}), [vk]: next };
   writeDB(db);
+  // A permitted play opens the part for good (mirrors the server flag).
+  setUnlockedFlag(u, slug, idx);
   pushPlay(slug, idx);
   return next;
 }
@@ -233,9 +255,47 @@ export function resetProgress(u: KtUser): void {
     /* ignore */
   }
 }
-/* Sequential unlocking: lesson N opens once lesson N-1 is FINISHED. */
+/* Sticky unlock store: once a part opens it stays open — admin restarts
+   of OTHER parts must never re-lock it. Mirrored from the server flag. */
+const UNLOCK_KEY = "kt-unlocked";
+
+type UnlockDB = Record<string, Record<string, number[]>>;
+
+function readUnlocked(): UnlockDB {
+  try {
+    const raw = window.localStorage.getItem(UNLOCK_KEY);
+    if (!raw) return {};
+    const db = JSON.parse(raw) as UnlockDB;
+    return db && typeof db === "object" ? db : {};
+  } catch {
+    return {};
+  }
+}
+
+export function isUnlockedFlag(u: KtUser, slug: string, idx: number): boolean {
+  return readUnlocked()[userKeyOf(u)]?.[slug]?.includes(idx) ?? false;
+}
+
+export function setUnlockedFlag(u: KtUser, slug: string, idx: number): void {
+  const db = readUnlocked();
+  const uk = userKeyOf(u);
+  const list = db[uk]?.[slug] ?? [];
+  if (list.includes(idx)) return;
+  try {
+    window.localStorage.setItem(
+      UNLOCK_KEY,
+      JSON.stringify({ ...db, [uk]: { ...(db[uk] ?? {}), [slug]: [...list, idx] } }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/* Sequential unlocking: lesson N opens once lesson N-1 is FINISHED —
+   OR it was unlocked before (sticky: survives restarts of other parts). */
 export function isUnlocked(u: KtUser, slug: string, idx: number): boolean {
   if (idx <= 0) return true;
+  if (isUnlockedFlag(u, slug, idx)) return true;
   const prev = idx - 1;
   return isDone(u, slug, prev) || getViews(u, slug, prev) >= MAX_VIEWS;
 }

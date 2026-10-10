@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
 import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
+import { ExamTake } from "../components/ExamTake";
 import { isYoutubeSource } from "../lib/videoGuard";
+import type { ExamContent, ExamKind } from "../lib/db/examsDb";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import { isSupabaseConfigured } from "../lib/db/env";
@@ -248,6 +250,77 @@ function ContentList({
   );
 }
 
+/** Real exams/assignments attached to the lesson (structured content). */
+function LessonExams({ slug, idx }: { slug: string; idx: number }) {
+  const { t } = useLang();
+  const x = t.exam;
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [has, setHas] = useState<{ exam: boolean; assignment: boolean }>({ exam: false, assignment: false });
+  const [openKind, setOpenKind] = useState<ExamKind | null>(null);
+  const [content, setContent] = useState<ExamContent | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setVideoId(null);
+    setHas({ exam: false, assignment: false });
+    setOpenKind(null);
+    setContent(null);
+    if (!isSupabaseConfigured()) return;
+    void import("../lib/db/examsDb").then(async (m) => {
+      try {
+        const id = await m.videoIdBySlug(slug, idx);
+        if (!alive || !id) return;
+        const [exam, assign] = await Promise.all([
+          m.getExam(id, "exam").catch(() => null),
+          m.getExam(id, "assignment").catch(() => null),
+        ]);
+        if (!alive) return;
+        setVideoId(id);
+        setHas({ exam: exam !== null, assignment: assign !== null });
+      } catch {
+        /* no structured exams — links section covers the rest */
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [slug, idx]);
+
+  const open = async (kind: ExamKind) => {
+    if (!videoId) return;
+    try {
+      const m = await import("../lib/db/examsDb");
+      const c = await m.getExam(videoId, kind);
+      if (!c) return;
+      setContent(c);
+      setOpenKind(kind);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  if (!has.exam && !has.assignment) return null;
+  return (
+    <div className="mt-6">
+      <div className="mt-3 flex flex-wrap gap-3">
+        {has.exam && (
+          <button type="button" onClick={() => void open("exam")} className="btn btn-primary" style={{ minHeight: 44 }}>
+            {x.takeExam}
+          </button>
+        )}
+        {has.assignment && (
+          <button type="button" onClick={() => void open("assignment")} className="btn btn-secondary" style={{ minHeight: 44 }}>
+            {x.takeAssign}
+          </button>
+        )}
+      </div>
+      {openKind && content && videoId && (
+        <ExamTake videoId={videoId} kind={openKind} content={content} onClose={() => { setOpenKind(null); setContent(null); }} />
+      )}
+    </div>
+  );
+}
+
 export function Watch({
   slug,
   video,
@@ -326,7 +399,7 @@ export function Watch({
         replaceProgress(
           user,
           slug,
-          rows.map((r) => ({ idx: r.sort_order, views: r.views_count, done: r.done })),
+          rows.map((r) => ({ idx: r.sort_order, views: r.views_count, done: r.done, unlocked: r.unlocked })),
         );
         const cur = rows.find((r) => r.sort_order === idx);
         setPlays(cur ? cur.views_count : 0);
@@ -481,6 +554,7 @@ export function Watch({
               </p>
             )}
 
+            <LessonExams slug={slug} idx={idx} />
             {links.length > 0 && (
               <div className="mt-6">
                 <h2 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>

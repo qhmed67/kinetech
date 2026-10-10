@@ -8,6 +8,7 @@ import {
 } from "../store";
 import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
+import { ExamBuilder } from "./ExamBuilder";
 import { isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
 
 function blank(): StoreCourse {
@@ -358,6 +359,9 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <LinkField label={a.vidAssign} value={course.videos[i]?.assign ?? ""} onChange={(v) => setVid(i, { assign: v.trim() })} />
                 <LinkField label={a.vidExam} value={course.videos[i]?.exam ?? ""} onChange={(v) => setVid(i, { exam: v.trim() })} />
               </div>
+              {!isNew && course.slug.trim() !== "" && (
+                <ExamBuilder slug={course.slug.trim()} idx={i} />
+              )}
             </div>
           </div>
         ))}

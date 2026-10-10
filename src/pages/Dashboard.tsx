@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
 import { initialsOf, setUser, type KtUser } from "../auth";
-import { isDone } from "../watch";
+import { getViews, isDone } from "../watch";
 import { SafeImg } from "../components/SafeImg";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
@@ -34,7 +34,11 @@ function courseWork(u: KtUser, lang: "en" | "ar"): {
   return { exams, assignments };
 }
 
-/** Real progress from local watch state (server-hydrated when online). */
+/**
+ * Real progress from local watch state (server-hydrated when online).
+ * Counts DISTINCT PARTS ACTUALLY WATCHED (played at least once or done) —
+ * not view totals, not completion order. A part watched twice is still one.
+ */
 function courseProgress(u: KtUser, slug: string): { progress: number; hours: number; done: number; total: number } {
   const course = getCourse("en", slug);
   const total = course?.modules.length ?? 0;
@@ -43,7 +47,7 @@ function courseProgress(u: KtUser, slug: string): { progress: number; hours: num
   let mins = 0;
   const vids = getVideos(slug);
   for (let i = 0; i < total; i++) {
-    if (isDone(u, slug, i)) {
+    if (isDone(u, slug, i) || getViews(u, slug, i) > 0) {
       done += 1;
       mins += vids[i]?.mins ?? 0;
     }
@@ -212,12 +216,13 @@ export function Dashboard({
           try {
             const rows = await m.getWatchStateDb(slug, lang);
             if (rows.length === 0) continue;
-            const doneRows = rows.filter((r) => r.done);
-            const mins = doneRows.reduce((a, r) => a + (r.mins || 0), 0);
+            // Same definition as local: distinct watched parts, any order.
+            const watched = rows.filter((r) => r.done || r.views_count > 0);
+            const mins = watched.reduce((a, r) => a + (r.mins || 0), 0);
             out[slug] = {
-              progress: Math.round((doneRows.length / rows.length) * 100),
+              progress: Math.round((watched.length / rows.length) * 100),
               hours: Math.round((mins / 60) * 10) / 10,
-              done: doneRows.length,
+              done: watched.length,
               total: rows.length,
             };
           } catch {

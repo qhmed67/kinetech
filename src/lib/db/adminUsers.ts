@@ -267,6 +267,62 @@ export async function setBanned(userId: string, banned: boolean): Promise<void> 
 
 export type Orphan = { user_id: string; email: string; created_at: string };
 
+/**
+ * Manual general notification to one user (announcements, recommended
+ * courses — anything not tied to a lesson). Admin-only via RLS.
+ */
+export async function sendNotification(userId: string, title: string, message: string): Promise<void> {
+  if (!throttle(`notify-${userId}`, 3000)) throw new Error("too many attempts");
+  const t = title.trim();
+  if (!t) throw new Error("Title is required.");
+  const sb = authed();
+  const { error } = await withTimeout(
+    (async () => sb.from("notifications").insert({ user_id: userId, title: t, message: message.trim() }))(),
+    NETWORK_TIMEOUT_MS,
+    "notify",
+  );
+  if (error) throw error;
+}
+
+/**
+ * New-lesson broadcast: every user enrolled in the course gets one row.
+ * Called after an admin save that ADDED videos (never on edits).
+ */
+export async function notifyNewLessons(
+  courseSlug: string,
+  lessons: Array<{ titleEn: string; titleAr: string }>,
+): Promise<number> {
+  if (lessons.length === 0) return 0;
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) return 0;
+  const { data: enr } = await withTimeout(
+    (async () => sb.from("enrollments").select("user_id").eq("course_id", courseId))(),
+    NETWORK_TIMEOUT_MS,
+    "enrollment-list",
+  );
+  const userIds = ((enr ?? []) as unknown as Array<{ user_id: string }>).map((r) => r.user_id);
+  if (userIds.length === 0) return 0;
+  const titles = lessons.map((l) => l.titleEn || l.titleAr || "New lesson").join("، ");
+  const rows = userIds.map((user_id) => ({
+    user_id,
+    title: "New lesson · درس جديد",
+    message: titles,
+  }));
+  const { error } = await withTimeout(
+    (async () => sb.from("notifications").insert(rows))(),
+    NETWORK_TIMEOUT_MS,
+    "notify-broadcast",
+  );
+  if (error) throw error;
+  return userIds.length;
+}
+
 /** Admin-only: auth accounts with no profile row. Empty = healthy. */
 export async function listOrphans(): Promise<Orphan[]> {
   const sb = authed();
