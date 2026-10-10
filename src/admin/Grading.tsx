@@ -76,7 +76,24 @@ export function Grading() {
       ) : rows.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>{x.noPending}</p>
       ) : (
-        rows.map((r) => {
+        // Grouped by course: each instructor opens their own course and
+        // sees only its pending exams — no hunting through other courses.
+        groupByCourse(rows).map((g) => (
+          <section key={g.slug} aria-label={g.slug}>
+            <h2
+              className="mb-2 mt-2 flex items-center gap-2 text-lg font-bold"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              <span dir="ltr">{g.slug}</span>
+              <span
+                className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
+                style={{ background: "var(--accent)", fontVariantNumeric: "tabular-nums" }}
+              >
+                {g.items.length}
+              </span>
+            </h2>
+            <div className="grid gap-4">
+            {g.items.map((r) => {
           const k = keyOf(r);
           const wqs = writingQs(r);
           return (
@@ -143,8 +160,23 @@ export function Grading() {
               </div>
             </article>
           );
-        })
+            })}
+            </div>
+          </section>
+        ))
       )}
     </div>
   );
+}
+
+/** Preserve first-seen course order; empty slug falls into "—". */
+export function groupByCourse(rows: PendingGrading[]): Array<{ slug: string; items: PendingGrading[] }> {
+  const groups = new Map<string, PendingGrading[]>();
+  for (const r of rows) {
+    const key = r.course_slug || "—";
+    const list = groups.get(key) ?? [];
+    list.push(r);
+    groups.set(key, list);
+  }
+  return [...groups.entries()].map(([slug, items]) => ({ slug, items }));
 }

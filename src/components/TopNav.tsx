@@ -226,7 +226,7 @@ export function TopNav({
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.94, y: -4 }}
                   transition={{ type: "spring", stiffness: 480, damping: 28 }}
-                  className="absolute end-0 top-13 z-30 w-72 overflow-hidden rounded-2xl border bg-white shadow-xl ltr:origin-top-right rtl:origin-top-left"
+                  className="absolute end-0 top-full z-[120] mt-2 max-h-[60vh] w-72 overflow-y-auto rounded-2xl border bg-white shadow-xl ltr:origin-top-right rtl:origin-top-left"
                   style={{ borderColor: "var(--kt-line)" }}
                 >
                   {liveNotifs === null || liveNotifs.length === 0 ? (
