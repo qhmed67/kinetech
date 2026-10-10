@@ -18,11 +18,13 @@ export function ExamTake({
   kind,
   content,
   onClose,
+  startInReview,
 }: {
   videoId: string;
   kind: ExamKind;
   content: ExamContent;
   onClose: () => void;
+  startInReview?: boolean;
 }) {
   const { t } = useLang();
   const x = t.exam;
@@ -31,7 +33,7 @@ export function ExamTake({
   const [err, setErr] = useState("");
   const [result, setResult] = useState<ExamResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [reviewing, setReviewing] = useState(false);
+  const [reviewing, setReviewing] = useState(startInReview ?? false);
 
   useEffect(() => {
     let alive = true;

@@ -258,6 +258,24 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
   const [has, setHas] = useState<{ exam: boolean; assignment: boolean }>({ exam: false, assignment: false });
   const [openKind, setOpenKind] = useState<ExamKind | null>(null);
   const [content, setContent] = useState<ExamContent | null>(null);
+  const [deepReview, setDeepReview] = useState(false);
+
+  // Deep link: dashboard Review buttons land here and open the exam modal
+  // directly (in review mode for graded attempts) — no extra clicks.
+  const consumeDeepLink = () => {
+    try {
+      const raw = window.sessionStorage.getItem("kt-open-exam");
+      if (!raw) return null;
+      const want = JSON.parse(raw) as { slug?: string; idx?: number; kind?: ExamKind };
+      if (want && want.slug === slug && want.idx === idx && (want.kind === "exam" || want.kind === "assignment")) {
+        window.sessionStorage.removeItem("kt-open-exam");
+        return want.kind;
+      }
+    } catch {
+      /* ignore malformed flag */
+    }
+    return null;
+  };
 
   useEffect(() => {
     let alive = true;
@@ -265,6 +283,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     setHas({ exam: false, assignment: false });
     setOpenKind(null);
     setContent(null);
+    setDeepReview(false);
     if (!isSupabaseConfigured()) return;
     void import("../lib/db/examsDb").then(async (m) => {
       try {
@@ -277,6 +296,12 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
         if (!alive) return;
         setVideoId(id);
         setHas({ exam: exam !== null, assignment: assign !== null });
+        const deep = consumeDeepLink();
+        if (deep && (deep === "exam" ? exam : assign)) {
+          setContent(deep === "exam" ? exam : assign);
+          setOpenKind(deep);
+          setDeepReview(true);
+        }
       } catch {
         /* no structured exams — links section covers the rest */
       }
@@ -284,6 +309,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, idx]);
 
   const open = async (kind: ExamKind) => {
@@ -294,6 +320,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
       if (!c) return;
       setContent(c);
       setOpenKind(kind);
+      setDeepReview(false);
     } catch {
       /* ignore */
     }
@@ -315,7 +342,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
         )}
       </div>
       {openKind && content && videoId && (
-        <ExamTake videoId={videoId} kind={openKind} content={content} onClose={() => { setOpenKind(null); setContent(null); }} />
+        <ExamTake videoId={videoId} kind={openKind} content={content} startInReview={deepReview} onClose={() => { setOpenKind(null); setContent(null); setDeepReview(false); }} />
       )}
     </div>
   );

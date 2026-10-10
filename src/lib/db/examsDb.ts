@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { NETWORK_TIMEOUT_MS, throttle, withTimeout } from "./throttle";
+import { getWatchStateDb } from "./watchDb";
 
 export type ExamKind = "exam" | "assignment";
 
@@ -228,6 +229,15 @@ export async function getCourseWorkStatus(
     NETWORK_TIMEOUT_MS,
     "work-status",
   );
+  // Unlock gating: an exam surfaces only once its lesson is actually open
+  // for this student — never before first open.
+  let unlockedSet: Set<number> | null = null;
+  try {
+    const ws = await getWatchStateDb(slug, lang);
+    unlockedSet = new Set(ws.filter((r) => r.unlocked).map((r) => r.sort_order));
+  } catch {
+    /* offline/denied — fall back to showing all (existing behavior) */
+  }
   const mods = ((modsRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
     id: string; sort_order: number;
     module_translations: Array<{ lang: string; title: string }>;
@@ -245,7 +255,9 @@ export async function getCourseWorkStatus(
   const hasQuestions = (c: ExamContent | null): boolean =>
     !!c && Array.isArray(c.questions) && c.questions.some((q) => q && typeof q.prompt === "string" && q.prompt.trim() !== "");
 
-  return vids.map((v) => {
+  return vids
+    .filter((v) => unlockedSet === null || unlockedSet.has(v.sort_order))
+    .map((v) => {
     const mod = mods.find((m) => m.id === v.module_id);
     const tr = mod?.module_translations.find((t) => t.lang === lang)
       ?? mod?.module_translations.find((t) => t.title?.trim());
@@ -268,7 +280,7 @@ export async function getCourseWorkStatus(
       exam: stateFor("exam", v.exam_json),
       assign: stateFor("assignment", v.assign_json),
     };
-  });
+    });
 }
 
 export type PendingGrading = {

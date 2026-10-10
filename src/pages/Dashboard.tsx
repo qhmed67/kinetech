@@ -131,13 +131,26 @@ function WorkTab({
                 >
                   {r.item.score}/{r.item.total}
                 </span>
-                <a
-                  href={`#/courses/${r.slug}/watch/${r.idx}`}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Deep link: the lesson opens the exam modal directly
+                    // in review mode — no video detour, no second click.
+                    try {
+                      window.sessionStorage.setItem(
+                        "kt-open-exam",
+                        JSON.stringify({ slug: r.slug, idx: r.idx, kind }),
+                      );
+                    } catch {
+                      /* storage full — plain navigation still works */
+                    }
+                    window.location.hash = `#/courses/${r.slug}/watch/${r.idx}`;
+                  }}
                   className="btn btn-secondary"
                   style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}
                 >
                   {d.workReview}
-                </a>
+                </button>
               </>
             ) : (
               <a
