@@ -522,14 +522,25 @@ function pushToCloud(fn: (m: typeof import("./lib/db/sync")) => Promise<unknown>
     });
 }
 
-export function saveCourse(course: StoreCourse): boolean {
+export function saveCourse(course: StoreCourse, skipCloud = false): boolean {
   const s = loadStore();
   const i = s.courses.findIndex((c) => c.slug === course.slug);
   if (i >= 0) s.courses[i] = course;
   else s.courses.push(course);
   const ok = commit();
-  pushToCloud((m) => m.pushCourseToDb(course));
+  if (!skipCloud) pushToCloud((m) => m.pushCourseToDb(course));
   return ok;
+}
+
+/** Awaitable cloud push for admin saves: true = synced, false = local-only
+    (offline / RLS denial). Lets the UI say plainly which one happened. */
+export async function pushCourseNow(course: StoreCourse): Promise<boolean> {
+  try {
+    const m = await import("./lib/db/sync");
+    return await m.pushCourseToDb(course);
+  } catch {
+    return false;
+  }
 }
 
 export function deleteCourse(slug: string): void {

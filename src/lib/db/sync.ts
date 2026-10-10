@@ -268,9 +268,26 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
     if (mySeq !== hydrateSeq) return false; // superseded — discard stale response
     const { loadStore } = await import("../../store");
     const local = loadStore();
+    // Union merge: never drop unsynced admin work. A local course whose slug
+    // is absent remotely (push failed/offline) is kept whole; a local course
+    // with MORE lessons than its remote twin keeps the local twin (added
+    // parts not yet pushed). Otherwise the DB is source of truth.
+    const remoteBySlug = new Map(storeCourses.map((c) => [c.slug, c]));
+    const merged: StoreCourse[] = [...storeCourses];
+    for (const lc of local.courses) {
+      const rc = remoteBySlug.get(lc.slug);
+      if (!rc) {
+        merged.push(lc);
+      } else if (
+        lc.modules.en.length > rc.modules.en.length ||
+        lc.videos.length > rc.videos.length
+      ) {
+        merged[merged.indexOf(rc)] = lc;
+      }
+    }
     replaceStore({
       v: 3,
-      courses: storeCourses,
+      courses: merged,
       services: servicesPatch ?? local.services,
     });
     return true;
@@ -502,9 +519,10 @@ function parsePriceCents(price: { en: string; ar: string } | null): number | nul
   return Number.isFinite(v) ? Math.round(v * 100) : null;
 }
 
-export async function pushCourseToDb(course: StoreCourse): Promise<void> {
+export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
+  try {
   const sb = supabase();
-  if (!sb) return;
+  if (!sb) return false;
   const insEn = course.instructor.name.en.trim();
   let instructorId: string | null = null;
   if (insEn) {
@@ -536,7 +554,7 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
     instructor_id: instructorId,
   }, { onConflict: "slug" }).select("id").single();
   const courseId = (c as unknown as { id: string } | null)?.id;
-  if (!courseId) return;
+  if (!courseId) return false;
   await sb.from("course_translations").upsert([
     {
       course_id: courseId, lang: "en",
@@ -631,6 +649,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<void> {
     } catch {
       /* notifications are best-effort; the save already succeeded */
     }
+  }
+  return true;
+  } catch {
+    return false;
   }
 }
 

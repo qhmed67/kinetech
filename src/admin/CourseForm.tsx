@@ -3,6 +3,7 @@ import {
   courseExists,
   getLastStoreError,
   getRawCourse,
+  pushCourseNow,
   saveCourse,
   type StoreCourse,
 } from "../store";
@@ -127,15 +128,19 @@ export function CourseForm({ slug }: { slug?: string }) {
   const lt: "en" | "ar" = lang === "ar" ? "ar" : "en";
   const [err, setErr] = useState("");
   const [saved, setSaved] = useState(false);
+  const [cloud, setCloud] = useState<"idle" | "syncing" | "ok" | "fail">("idle");
+  const [saveTick, setSaveTick] = useState(0);
 
   // form follows the page language (global toggle in the admin header)
   useEffect(() => {
     setSaved(false);
+    setCloud("idle");
   }, [lang]);
 
   const set = (patch: Partial<StoreCourse>) => {
     setCourse((c) => ({ ...c, ...patch }));
     setSaved(false);
+    setCloud("idle");
   };
   const setL = (key: "name" | "quote" | "duration" | "lessons" | "schedule", v: string) =>
     set({ [key]: { ...course[key], [lt]: v } } as Partial<StoreCourse>);
@@ -205,7 +210,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     set({ videos: vids });
   };
 
-  const save = () => {
+  const save = async () => {
     const name = course.name.en.trim() || course.name.ar.trim();
     if (!name) {
       setErr(a.required);
@@ -223,7 +228,10 @@ export function CourseForm({ slug }: { slug?: string }) {
     const photo = toDirectImageUrl(course.photoCard);
     const detailRaw = toDirectImageUrl(course.photoDetail);
     const photoDetail = detailRaw || photo;
-    const ok = saveCourse({ ...course, slug: s, photoCard: photo, photoDetail });
+    const snapshot = { ...course, slug: s, photoCard: photo, photoDetail };
+    // Local first (skip the fire-and-forget push — the awaited push below
+    // replaces it, so two concurrent pushes can never duplicate modules).
+    const ok = saveCourse(snapshot, true);
     if (!ok) {
       const detail = getLastStoreError();
       setErr(detail ? `${a.storageFull} (${detail})` : a.storageFull);
@@ -232,7 +240,24 @@ export function CourseForm({ slug }: { slug?: string }) {
     setErr("");
     setSaved(true);
     if (isNew) window.location.hash = `#/admin/courses/${s}`;
+    // Awaited cloud push: the UI says plainly whether the save reached the
+    // DB. On success the exam builders remount (video ids now resolvable).
+    setCloud("syncing");
+    const synced = await pushCourseNow(snapshot);
+    setCloud(synced ? "ok" : "fail");
+    if (synced) setSaveTick((k) => k + 1);
   };
+
+  const statusText = !saved
+    ? ""
+    : cloud === "syncing"
+      ? `${a.saved} …`
+      : cloud === "ok"
+        ? a.savedCloud
+        : cloud === "fail"
+          ? a.savedLocalOnly
+          : a.saved;
+  const statusColor = cloud === "fail" ? "#B3261E" : "var(--accent)";
 
   return (
     <div className="grid gap-4">
@@ -252,8 +277,8 @@ export function CourseForm({ slug }: { slug?: string }) {
       {err && (
         <p role="alert" className="text-sm font-bold" style={{ color: "#B3261E" }}>{err}</p>
       )}
-      {saved && (
-        <p role="status" className="text-sm font-bold" style={{ color: "var(--accent)" }}>{a.saved}</p>
+      {saved && statusText && (
+        <p role="status" className="text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
       )}
 
       <Section title={a.secBasic}>
@@ -394,7 +419,7 @@ export function CourseForm({ slug }: { slug?: string }) {
                     {a.examBuilderD}
                   </p>
                   <div className="mt-3">
-                    <ExamBuilder slug={course.slug.trim()} idx={i} />
+                    <ExamBuilder key={`${course.slug.trim()}:${i}:${saveTick}`} slug={course.slug.trim()} idx={i} />
                   </div>
                 </div>
               )}
@@ -417,8 +442,8 @@ export function CourseForm({ slug }: { slug?: string }) {
         <button type="button" onClick={save} className="btn btn-primary">
           {a.save}
         </button>
-        {saved && (
-          <p role="status" className="self-center text-sm font-bold" style={{ color: "var(--accent)" }}>{a.saved}</p>
+        {saved && statusText && (
+          <p role="status" className="self-center text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
         )}
       </div>
     </div>
