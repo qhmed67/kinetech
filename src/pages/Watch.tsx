@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
 import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
 import { ExamTake } from "../components/ExamTake";
-import { isYoutubeSource } from "../lib/videoGuard";
+import { isDriveSource, isYoutubeSource } from "../lib/videoGuard";
 import type { ExamContent, ExamKind } from "../lib/db/examsDb";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
@@ -701,8 +701,8 @@ export function Watch({
                     </a>
                   </div>
                 </div>
-              ) : isYoutubeSource(src) ? (
-                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
+              ) : isYoutubeSource(src) || isDriveSource(src) ? (
+                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} nominalMins={vid.mins} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
               ) : (
                 <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
               )}

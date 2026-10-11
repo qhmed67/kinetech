@@ -3,17 +3,21 @@ import {
   YT_STATE,
   extractYoutubeId,
   formatClock,
+  isDriveSource,
   loadYoutubeApi,
   obfuscateId,
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
+import { toDrivePreviewUrl } from "../lib/drive";
 
 export type ProtectedVideoPlayerProps = {
-  /** Any YouTube URL form or raw ID. Encoded in-memory on mount — never rendered. */
+  /** YouTube URL/ID, or a Google Drive share link (rendered via Drive preview). */
   src: string;
   email: string;
   phone: string;
+  /** Nominal lesson minutes — Drive completion threshold (~80%) when no media duration is knowable. */
+  nominalMins?: number;
   onProgress: (seconds: number) => void;
   onSeeked: (seconds: number) => void;
   onDuration: (seconds: number) => void;
@@ -51,18 +55,26 @@ const WM_SPOTS = [
 ] as const;
 
 /**
- * Enterprise-style guarded player over an UNLISTED YouTube source.
- * Zero native chrome; all input flows through our overlay + custom bar.
+ * Enterprise-style guarded player over an UNLISTED YouTube source, plus a
+ * Google Drive preview mode (no YouTube watermark).
+ * Zero native chrome on YouTube; all input flows through our overlay + custom bar.
  *
  * Honest limits: this defeats casual ripping (context menu, extensions
  * reading static links, fullscreen clean-capture). A determined attacker
  * with DevTools + time can still extract the stream — that half is enforced
  * server-side (signed-in RPCs, 3-view cap, watermarked identity).
+ *
+ * Drive mode limits: Drive exposes no playback API, so progress is
+ * wall-clock while the tab is visible (paused when hidden) and completion
+ * fires at ~80% of the nominal minutes. Right-clicks INSIDE the Drive frame
+ * cannot be intercepted cross-origin — the sandbox (no downloads, no
+ * pop-out, no top navigation) plus Drive-side "disable download" carry that.
  */
 export function ProtectedVideoPlayer({
   src,
   email,
   phone,
+  nominalMins = 10,
   onProgress,
   onSeeked,
   onDuration,
@@ -114,6 +126,12 @@ export function ProtectedVideoPlayer({
   const levelsRef = useRef<string[]>([]);
   const [muted, setMuted] = useState(false);
   const [spot, setSpot] = useState(() => Math.floor(Math.random() * WM_SPOTS.length));
+  // Drive mode: poster-gated (proves intent before any view burns), then a
+  // wall-clock timer while the tab stays visible — Drive offers no play state.
+  const drivePreview = isDriveSource(src) ? (toDrivePreviewUrl(src) ?? null) : null;
+  const [driveStarted, setDriveStarted] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const elapsedRef = useRef(0);
 
   const sessionToken = useRotatingSession();
   const lastPoll = useRef(0);
@@ -224,11 +242,13 @@ export function ProtectedVideoPlayer({
     endedRef.current = false;
 
     const rawId = extractYoutubeId(src);
+    // Drive sources render the sandboxed preview branch — no YT API involved.
+    // (Shared resets above already ran: ready/failed/timers are lesson-fresh.)
+    if (drivePreview) return;
     if (!rawId) {
       setFailed(true);
       return;
-    }
-    const encoded = obfuscateId(rawId);
+    }    const encoded = obfuscateId(rawId);
     void (async () => {
       try {
         const [api, guard] = await Promise.all([loadYoutubeApi(), import("../lib/videoGuard")]);
@@ -317,6 +337,31 @@ export function ProtectedVideoPlayer({
     }, 250);
     return () => window.clearInterval(poll);
   }, [src]);
+
+  // Drive branch: per-lesson reset + wall-clock progress.
+  useEffect(() => {
+    elapsedRef.current = 0;
+    setElapsed(0);
+    setDriveStarted(false);
+  }, [src]);
+
+  useEffect(() => {
+    if (!drivePreview || !driveStarted) return;
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      elapsedRef.current += 1;
+      const n = elapsedRef.current;
+      setElapsed(n);
+      cbRef.current.onProgress(n);
+      // No media duration is knowable — nominal minutes carry completion.
+      const need = Math.max(60, Math.round((nominalMins || 10) * 60 * 0.8));
+      if (n >= need && !endedRef.current) {
+        endedRef.current = true;
+        cbRef.current.onEnded();
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [drivePreview, driveStarted, nominalMins]);
 
   // Session rotation: re-assert isolation without touching playback.
   // sessionToken is a state string, so each rotation re-runs this effect.
@@ -455,6 +500,108 @@ export function ProtectedVideoPlayer({
   const label = showRemaining ? `-${formatClock(dur - time)}` : formatClock(time);
   const pos = WM_SPOTS[spot % WM_SPOTS.length];
   const wmText = [email, phone].filter(Boolean).join(" • ");
+
+  /* Drive mode: sandboxed preview iframe behind a poster gate.
+     Sandbox = allow-scripts + allow-same-origin ONLY: no allow-downloads
+     (kills Drive's download button in Chrome), no allow-top-navigation
+     (kills "open in new window"), no allow-popups. Clicks must reach
+     Drive's own controls, so there is no click shield here — right-clicks
+     inside the frame stay Google's, unblockable cross-origin. */
+  if (drivePreview) {
+    return (
+      <div
+        ref={boxRef}
+        tabIndex={0}
+        onKeyDown={blockKeys}
+        onContextMenu={(e) => e.preventDefault()}
+        onDragStart={(e) => e.preventDefault()}
+        onDoubleClick={toggleFullscreen}
+        onMouseMove={wake}
+        className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${idle && driveStarted ? "cursor-none" : ""}`}
+        style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
+        aria-label="Protected video player"
+      >
+        {driveStarted ? (
+          <iframe
+            key={drivePreview}
+            src={drivePreview}
+            title="Course video"
+            sandbox="allow-scripts allow-same-origin"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            onLoad={() => setReady(true)}
+            className="absolute inset-0 h-full w-full"
+            style={{ border: 0 }}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setDriveStarted(true);
+              wake();
+            }}
+            aria-label="Start video"
+            className="absolute inset-0 z-20 grid place-items-center"
+            style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
+          >
+            <span
+              aria-hidden="true"
+              className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
+              style={{ background: "#3BBCD9" }}
+            >
+              <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+            </span>
+          </button>
+        )}
+
+        {wmText !== "" && (
+          <div
+            aria-hidden="true"
+            dir="ltr"
+            className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
+            style={{
+              ...pos,
+              background: "rgba(0,0,0,0.45)",
+              color: "rgba(255,255,255,0.85)",
+              fontFamily: "var(--font-display)",
+            }}
+          >
+            {wmText}
+          </div>
+        )}
+
+        {driveStarted && !ready && (
+          <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+            <span
+              aria-hidden="true"
+              className="h-12 w-12 animate-spin rounded-full"
+              style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+            />
+          </div>
+        )}
+
+        {/* Slim bar: watched clock + fullscreen only — no seek API exists. */}
+        <div
+          className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && driveStarted ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        >
+          <div className="mt-1 flex items-center gap-1.5 text-white sm:gap-2">
+            <span
+              dir="ltr"
+              className="rounded px-1.5 py-1 text-[13px] font-bold tabular-nums"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              {formatClock(elapsed)}
+            </span>
+            <span className="flex-1" />
+            <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen" className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-white/15">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "../drive";
+import { extractDriveId, isUsableImageUrl, toDirectImageUrl, toDrivePreviewUrl } from "../drive";
 
 describe("extractDriveId", () => {
   it("parses file/d links", () => {
@@ -41,5 +41,21 @@ describe("isUsableImageUrl", () => {
     expect(isUsableImageUrl("assets/x.jpg")).toBe(true);
     expect(isUsableImageUrl("data:image/png;base64,AAA")).toBe(false);
     expect(isUsableImageUrl("")).toBe(false);
+  });
+});
+
+describe("toDrivePreviewUrl", () => {
+  it("converts share links to preview embeds", () => {
+    expect(toDrivePreviewUrl("https://drive.google.com/file/d/ABC123_xyz/view?usp=sharing")).toBe(
+      "https://drive.google.com/file/d/ABC123_xyz/preview",
+    );
+    expect(toDrivePreviewUrl("https://drive.google.com/open?id=ABC123")).toBe(
+      "https://drive.google.com/file/d/ABC123/preview",
+    );
+  });
+
+  it("returns null for non-drive input", () => {
+    expect(toDrivePreviewUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBeNull();
+    expect(toDrivePreviewUrl("")).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { extractDriveId } from "./drive";
 
 /* Obfuscation helpers: the raw YouTube ID never sits in props, state, or the
    DOM in plain text. XOR + base64 is deterrence, not encryption — a determined
@@ -40,6 +41,12 @@ export function extractYoutubeId(input: string): string | null {
 
 export function isYoutubeSource(src: string): boolean {
   return extractYoutubeId(src) !== null;
+}
+
+/** Google Drive share link (and NOT YouTube — checked first). The player
+    renders these via the Drive preview embed, never the raw file URL. */
+export function isDriveSource(src: string): boolean {
+  return extractYoutubeId(src) === null && extractDriveId(src) !== null;
 }
 
 export function formatClock(totalSeconds: number): string {
