@@ -446,10 +446,15 @@ export function CourseForm({ slug }: { slug?: string }) {
               <Field label={a.modD}>
                 <Area value={m.d} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setMod(i, "d", e.target.value)} />
               </Field>
-              <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
+              <div className="grid gap-3 sm:grid-cols-[1fr_150px]">
                 <VideoLinkField label={a.vidSrc} value={course.videos[i]?.src ?? ""} onChange={(v) => setVid(i, { src: v.trim() })} />
                 <Field label={a.vidMins}>
-                  <Text type="number" dir="ltr" value={course.videos[i]?.mins ?? 10} onChange={(e) => setVid(i, { mins: parseInt(e.target.value, 10) || 0 })} />
+                  <div className="grid gap-1">
+                    <p dir="ltr" className="rounded-xl border bg-white px-4 py-2.5 text-[15px] font-bold" style={{ borderColor: "var(--border)" }}>
+                      {course.videos[i]?.mins ?? 10} {lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>{a.vidMinsAuto}</p>
+                  </div>
                 </Field>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">

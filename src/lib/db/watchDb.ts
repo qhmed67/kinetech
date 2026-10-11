@@ -73,8 +73,17 @@ export async function completeVideoDb(videoId: string, watchedSecs = 0, duration
   throw full.error;
 }
 
-/** Watermark identity: lean profile read for overlay (email/phone). */
-export async function watermarkIdentityDb(): Promise<{ email: string; phone: string }> {
+/** Self-heal: first real playback reports the media's true duration and the
+    server stores it on videos.mins. Best-effort — a DB without the
+    report_video_mins migration (42883) simply keeps the admin/default value. */
+export async function reportVideoMins(videoId: string, mins: number): Promise<void> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("report_video_mins", { p_video: videoId, p_mins: mins });
+  if (error && error.code !== "42883") throw error;
+}
+
+/** Watermark identity: lean profile read for overlay (email/phone). */export async function watermarkIdentityDb(): Promise<{ email: string; phone: string }> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
   const { data: u } = await sb.auth.getUser();

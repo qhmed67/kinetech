@@ -34,6 +34,16 @@ export function toDrivePreviewUrl(input: string): string | null {
   return `https://drive.google.com/file/d/${id}/preview`;
 }
 
+/* Drive share-link -> direct media URL for duration probing only (a hidden
+   <video preload="metadata"> reads headers without CORS). Never rendered
+   or persisted — the preview embed stays the playback path. Best-effort:
+   huge files may hit Drive's virus-scan interstitial and fail the probe. */
+export function toDriveMediaUrl(input: string): string | null {
+  const id = extractDriveId((input ?? "").trim());
+  if (!id) return null;
+  return `https://drive.google.com/uc?export=download&id=${id}`;
+}
+
 /** Non-empty and (absolute https, already-direct, or bundled relative path). */
 export function isUsableImageUrl(input: string): boolean {
   const v = (input ?? "").trim();
