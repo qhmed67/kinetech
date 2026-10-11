@@ -10,7 +10,8 @@ import {
 import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 import { ExamBuilder } from "./ExamBuilder";
-import { isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
+import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
+import { extractYoutubeId } from "../lib/videoGuard";
 
 function blank(): StoreCourse {
   const lt = { en: "", ar: "" };
@@ -70,6 +71,51 @@ function LinkField({
   );
 }
 
+/** Video URL field: accepts YouTube or Google Drive share links, with a
+    live source badge so the admin sees what the student player will do. */
+function VideoLinkField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { lang, t } = useLang();
+  const v = value.trim();
+  const isYt = v !== "" && extractYoutubeId(v) !== null;
+  const isDrive = !isYt && v !== "" && extractDriveId(v) !== null;
+  const unknown = v !== "" && !isYt && !isDrive;
+  return (
+    <Field label={label}>
+      <div className="grid gap-2">
+        <Text
+          value={value}
+          dir="ltr"
+          placeholder="https://…"
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {(isYt || isDrive) && (
+          <p className="text-xs font-bold" style={{ color: "var(--accent)" }}>
+            {isYt ? "YouTube ✓" : "Google Drive ✓"}
+          </p>
+        )}
+        {unknown && (
+          <p className="text-xs font-bold" role="alert" style={{ color: "#B3261E" }}>
+            {lang === "ar"
+              ? "رابط مش معروف — المشغّل ممكن ميشغلوش. الصق رابط YouTube أو Drive."
+              : "Unrecognized link — the player may not play it. Paste a YouTube or Drive link."}
+          </p>
+        )}
+        {hint && <p className="text-xs" style={{ color: "var(--muted)" }}>{hint}</p>}
+        <p className="text-xs" style={{ color: "var(--muted)" }}>{t.admin.vidDriveHint}</p>
+      </div>
+    </Field>
+  );
+}
 /** Image URL field with Google Drive auto-convert + live preview.
     Paste any Drive share link — it normalizes to a direct viewable URL. */
 function ImageUrlField({
@@ -401,7 +447,7 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <Area value={m.d} dir={lt === "ar" ? "rtl" : "ltr"} onChange={(e) => setMod(i, "d", e.target.value)} />
               </Field>
               <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
-                <LinkField label={a.vidSrc} value={course.videos[i]?.src ?? ""} onChange={(v) => setVid(i, { src: v.trim() })} />
+                <VideoLinkField label={a.vidSrc} value={course.videos[i]?.src ?? ""} onChange={(v) => setVid(i, { src: v.trim() })} />
                 <Field label={a.vidMins}>
                   <Text type="number" dir="ltr" value={course.videos[i]?.mins ?? 10} onChange={(e) => setVid(i, { mins: parseInt(e.target.value, 10) || 0 })} />
                 </Field>

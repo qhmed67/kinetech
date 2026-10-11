@@ -3,6 +3,7 @@ import {
   deobfuscateId,
   extractYoutubeId,
   formatClock,
+  isDriveSource,
   isYoutubeSource,
   obfuscateId,
 } from "../videoGuard";
@@ -30,6 +31,16 @@ describe("extractYoutubeId", () => {
     expect(extractYoutubeId("https://cdn.example.com/v.mp4")).toBeNull();
     expect(isYoutubeSource("assets/vid.mp4")).toBe(false);
     expect(isYoutubeSource("https://youtu.be/dQw4w9WgXcQ")).toBe(true);
+  });
+});
+
+describe("isDriveSource", () => {
+  it("accepts drive share links, never youtube", () => {
+    expect(isDriveSource("https://drive.google.com/file/d/ABC123_xyz/view?usp=sharing")).toBe(true);
+    expect(isDriveSource("https://drive.google.com/open?id=ABC123")).toBe(true);
+    expect(isDriveSource("https://youtu.be/dQw4w9WgXcQ")).toBe(false);
+    expect(isDriveSource("https://cdn.example.com/v.mp4")).toBe(false);
+    expect(isDriveSource("")).toBe(false);
   });
 });
 

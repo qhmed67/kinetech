@@ -25,6 +25,15 @@ export function toDirectImageUrl(input: string): string {
   return v;
 }
 
+/* Drive share-link -> embeddable video preview URL (player use only — the
+   DB keeps the raw admin-pasted link; conversion happens at render time).
+   https://drive.google.com/file/d/FILE_ID/preview */
+export function toDrivePreviewUrl(input: string): string | null {
+  const id = extractDriveId((input ?? "").trim());
+  if (!id) return null;
+  return `https://drive.google.com/file/d/${id}/preview`;
+}
+
 /** Non-empty and (absolute https, already-direct, or bundled relative path). */
 export function isUsableImageUrl(input: string): boolean {
   const v = (input ?? "").trim();
