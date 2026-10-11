@@ -543,6 +543,17 @@ export async function pushCourseNow(course: StoreCourse): Promise<boolean> {
   }
 }
 
+/** Self-heal: correct a lesson's minutes from the media's real duration
+    (first playback reports it). Local cache updates instantly; the server
+    row is corrected by the caller via reportVideoMins. */
+export function setVideoMins(slug: string, idx: number, mins: number): void {
+  const s = loadStore();
+  const c = s.courses.find((x) => x.slug === slug);
+  if (!c || !c.videos[idx] || c.videos[idx].mins === mins) return;
+  c.videos[idx] = { ...c.videos[idx], mins };
+  commit();
+}
+
 export function deleteCourse(slug: string): void {
   const s = loadStore();
   s.courses = s.courses.filter((c) => c.slug !== slug);

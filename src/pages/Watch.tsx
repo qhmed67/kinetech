@@ -492,6 +492,9 @@ export function Watch({
   const counted = useRef(false);
   // Real media duration (not the nominal minutes label) drives completion.
   const [realDur, setRealDur] = useState(0);
+  // Minutes self-heal: first real duration per lesson corrects videos.mins
+  // locally + server-side, so the stored value is measured, never typed.
+  const minsSavedRef = useRef(false);
   // Continuous-watch accumulator: only contiguous playback counts toward
   // completion. Seek jumps reset continuity, so scrubbing to the end grants
   // nothing (server re-validates against DB-side minutes).
@@ -514,6 +517,7 @@ export function Watch({
   const videoRef = useRef(video);
   useEffect(() => {
     counted.current = false;
+    minsSavedRef.current = false;
     watchAcc.current = { last: 0, total: 0 };
     setRealDur(0);
     if (user && course) {
@@ -612,6 +616,23 @@ export function Watch({
 
   const onDuration = (seconds: number) => {
     setRealDur((prev) => (prev > 0 ? prev : seconds));
+    // First real duration: heal the stored minutes (measured, not typed).
+    if (!minsSavedRef.current && Number.isFinite(seconds) && seconds > 0) {
+      minsSavedRef.current = true;
+      const real = Math.max(1, Math.ceil(seconds / 60));
+      if (real !== (vid.mins || 10)) {
+        void import("../store").then((s) => s.setVideoMins(slug, idx, real));
+        void import("../lib/db/examsDb")
+          .then((m) => m.videoIdBySlug(slug, idx))
+          .then((v) => {
+            if (!v) return;
+            return import("../lib/db/watchDb").then((w) => w.reportVideoMins(v, real));
+          })
+          .catch(() => {
+            /* pre-migration DB or offline — local value stays */
+          });
+      }
+    }
   };
 
   const onEnded = () => {

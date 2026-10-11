@@ -5,7 +5,7 @@ vi.mock("../client", () => ({
 }));
 
 import { supabase } from "../client";
-import { completeVideoDb } from "../watchDb";
+import { completeVideoDb, reportVideoMins } from "../watchDb";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -49,5 +49,34 @@ describe("completeVideoDb version tolerance", () => {
     mockedSupabase.mockReturnValue({ rpc } as never);
     await expect(completeVideoDb("v1", 1, 60)).rejects.toMatchObject({ code: "P0001" });
     expect(rpc).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reportVideoMins self-heal", () => {
+  beforeEach(() => {
+    mockedSupabase.mockReturnValue(null);
+  });
+
+  it("throws when supabase is not configured", async () => {
+    await expect(reportVideoMins("v1", 12)).rejects.toThrow("supabase-not-configured");
+  });
+
+  it("reports rounded minutes to the server", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    mockedSupabase.mockReturnValue({ rpc } as never);
+    await reportVideoMins("v1", 12);
+    expect(rpc).toHaveBeenCalledWith("report_video_mins", { p_video: "v1", p_mins: 12 });
+  });
+
+  it("stays silent on pre-migration DBs (42883)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "42883", message: "no function" } });
+    mockedSupabase.mockReturnValue({ rpc } as never);
+    await expect(reportVideoMins("v1", 12)).resolves.toBeUndefined();
+  });
+
+  it("surfaces real errors", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0001", message: "lesson not opened" } });
+    mockedSupabase.mockReturnValue({ rpc } as never);
+    await expect(reportVideoMins("v1", 12)).rejects.toMatchObject({ code: "P0001" });
   });
 });

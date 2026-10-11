@@ -9,7 +9,7 @@ import {
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
-import { toDrivePreviewUrl } from "../lib/drive";
+import { toDriveMediaUrl, toDrivePreviewUrl } from "../lib/drive";
 
 export type ProtectedVideoPlayerProps = {
   /** YouTube URL/ID, or a Google Drive share link (rendered via Drive preview). */
@@ -129,7 +129,13 @@ export function ProtectedVideoPlayer({
   // Drive mode: poster-gated (proves intent before any view burns), then a
   // wall-clock timer while the tab stays visible — Drive offers no play state.
   const drivePreview = isDriveSource(src) ? (toDrivePreviewUrl(src) ?? null) : null;
+  // Direct media URL: duration probe ONLY (hidden metadata preload, never
+  // rendered, never persisted). Best-effort — Drive's virus-scan page for
+  // huge files fails the probe and the nominal minutes simply stay.
+  const driveMedia = isDriveSource(src) ? toDriveMediaUrl(src) : null;
   const [driveStarted, setDriveStarted] = useState(false);
+  const [driveFailed, setDriveFailed] = useState(false);
+  const [driveRetry, setDriveRetry] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const elapsedRef = useRef(0);
 
@@ -343,7 +349,17 @@ export function ProtectedVideoPlayer({
     elapsedRef.current = 0;
     setElapsed(0);
     setDriveStarted(false);
+    setDriveFailed(false);
   }, [src]);
+
+  // Drive load watchdog: DNS blocks / ISP filters / adblock can make
+  // drive.google.com unresolvable — the iframe then never fires onLoad.
+  // After 20s show a retry panel instead of a dead spinner.
+  useEffect(() => {
+    if (!drivePreview || !driveStarted || ready || driveFailed) return;
+    const id = window.setTimeout(() => setDriveFailed(true), 20000);
+    return () => window.clearTimeout(id);
+  }, [drivePreview, driveStarted, ready, driveFailed]);
 
   useEffect(() => {
     if (!drivePreview || !driveStarted) return;
@@ -523,7 +539,7 @@ export function ProtectedVideoPlayer({
       >
         {driveStarted ? (
           <iframe
-            key={drivePreview}
+            key={`${drivePreview}:${driveRetry}`}
             src={drivePreview}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
@@ -571,7 +587,7 @@ export function ProtectedVideoPlayer({
           </div>
         )}
 
-        {driveStarted && !ready && (
+        {driveStarted && !ready && !driveFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
               aria-hidden="true"
@@ -579,6 +595,50 @@ export function ProtectedVideoPlayer({
               style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
             />
           </div>
+        )}
+
+        {/* Unreachable Drive (DNS/ISP/adblock): retry, plus the honest cause. */}
+        {driveStarted && driveFailed && (
+          <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center" style={{ background: "rgba(0,0,0,0.85)" }} role="alert">
+            <div className="grid max-w-md gap-3">
+              <p className="font-bold text-white">Video didn&apos;t load — your network can&apos;t reach Google Drive right now.</p>
+              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — الشبكة عندك مش قادرة توصل لـ Google Drive دلوقتي.</p>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>
+                If drive.google.com doesn&apos;t open in your browser either, switch DNS (8.8.8.8 / 1.1.1.1) or pause adblock/VPN — then retry.
+              </p>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDriveFailed(false);
+                    setReady(false);
+                    setDriveRetry((k) => k + 1);
+                  }}
+                  className="btn btn-primary"
+                >
+                  Try again · حاول تاني
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Hidden duration probe: reads the file's real minutes for the
+            server self-heal. Silent when Drive refuses (scan page/CSP). */}
+        {driveMedia && (
+          <video
+            aria-hidden="true"
+            tabIndex={-1}
+            preload="metadata"
+            src={driveMedia}
+            muted
+            playsInline
+            onLoadedMetadata={(e) => {
+              const d = e.currentTarget.duration;
+              if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
+            }}
+            style={{ display: "none" }}
+          />
         )}
 
         {/* Slim bar: watched clock + fullscreen only — no seek API exists. */}
