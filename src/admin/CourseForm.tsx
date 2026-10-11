@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   courseExists,
   getLastStoreError,
@@ -176,6 +176,10 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [saved, setSaved] = useState(false);
   const [cloud, setCloud] = useState<"idle" | "syncing" | "ok" | "fail">("idle");
   const [saveTick, setSaveTick] = useState(0);
+  // Duration auto-detect: per-lesson "measuring…" flags + session memory of
+  // already-probed links (paste → debounce → measure → fill minutes).
+  const [detecting, setDetecting] = useState<Record<number, boolean>>({});
+  const probedRef = useRef<Set<string>>(new Set());
 
   // form follows the page language (global toggle in the admin header)
   useEffect(() => {
@@ -254,6 +258,58 @@ export function CourseForm({ slug }: { slug?: string }) {
     const vids = [...course.videos];
     vids[i] = { ...vids[i], ...patch };
     set({ videos: vids });
+  };
+
+  // Measure one lesson's real length and fill its minutes. Applies only if
+  // the link is unchanged since the probe started (slow YT API vs fast typing).
+  const detectMins = async (i: number, src: string) => {
+    const s = (src || "").trim();
+    if (!s || typeof window === "undefined") return;
+    setDetecting((d) => ({ ...d, [i]: true }));
+    try {
+      const { probeVideoDurationSecs } = await import("../lib/videoGuard");
+      const secs = await probeVideoDurationSecs(s);
+      if (typeof secs === "number" && secs > 0) {
+        const mins = Math.max(1, Math.ceil(secs / 60));
+        setCourse((c) => {
+          if ((c.videos[i]?.src || "").trim() !== s) return c;
+          const vids = [...c.videos];
+          vids[i] = { ...vids[i], mins };
+          return { ...c, videos: vids };
+        });
+        setSaved(false);
+        setCloud("idle");
+      }
+    } catch {
+      /* keep the previous value */
+    } finally {
+      setDetecting((d) => ({ ...d, [i]: false }));
+    }
+  };
+
+  // Paste → wait for typing to settle → measure every unprobed link.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      course.videos.forEach((v, i) => {
+        const s = (v.src || "").trim();
+        if (s && !probedRef.current.has(s)) {
+          probedRef.current.add(s);
+          void detectMins(i, s);
+        }
+      });
+    }, 900);
+    return () => window.clearTimeout(t);
+  });
+
+  const detectAll = () => {
+    probedRef.current.clear();
+    course.videos.forEach((v, i) => {
+      const s = (v.src || "").trim();
+      if (s) {
+        probedRef.current.add(s);
+        void detectMins(i, s);
+      }
+    });
   };
 
   const save = async () => {
@@ -451,7 +507,9 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <Field label={a.vidMins}>
                   <div className="grid gap-1">
                     <p dir="ltr" className="rounded-xl border bg-white px-4 py-2.5 text-[15px] font-bold" style={{ borderColor: "var(--border)" }}>
-                      {course.videos[i]?.mins ?? 10} {lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}
+                      {detecting[i]
+                        ? (lt === "ar" ? "بيقيس…" : "measuring…")
+                        : `${course.videos[i]?.mins ?? 10} ${lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}`}
                     </p>
                     <p className="text-xs" style={{ color: "var(--muted)" }}>{a.vidMinsAuto}</p>
                   </div>
@@ -477,9 +535,14 @@ export function CourseForm({ slug }: { slug?: string }) {
             </div>
           </div>
         ))}
-        <button type="button" onClick={addMod} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
-          + {a.addMod}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={addMod} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
+            + {a.addMod}
+          </button>
+          <button type="button" onClick={detectAll} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
+            {a.vidDetectAll}
+          </button>
+        </div>
       </Section>
 
       <Section title={a.outcomesT}>

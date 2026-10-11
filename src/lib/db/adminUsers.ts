@@ -389,13 +389,29 @@ export async function listOrphans(): Promise<Orphan[]> {
 }
 
 /**
- * Delete the profile row (cascades tracks, views, enrollments).
+ * Full wipe: sessions + notifications (keyed to auth.users, so no cascade
+ * from profiles) are deleted explicitly, then the profile row goes —
+ * cascading tracks, enrollments, views, and exam results server-side.
+ * The student ends with zero rows anywhere: re-adding them starts fresh.
  * NOTE: the Supabase Auth account itself can only be deleted from the
  * dashboard or with the service-role key — without a profile the account
- * cannot sign in to anything (session restore fails closed).
+ * cannot sign in to anything (session restore fails closed). For a fully
+ * fresh identity (new password), delete the auth user in the dashboard too
+ * or re-register with a new email.
  */
 export async function deleteProfile(userId: string): Promise<void> {
   const sb = authed();
+  const wipes = await withTimeout(
+    Promise.all([
+      (async () => sb.from("upcoming_sessions").delete().eq("user_id", userId))(),
+      (async () => sb.from("notifications").delete().eq("user_id", userId))(),
+    ]),
+    NETWORK_TIMEOUT_MS,
+    "delete-activity",
+  );
+  for (const r of wipes as Array<{ error?: { message: string } | null }>) {
+    if (r?.error) throw r.error;
+  }
   const { error } = await withTimeout(
     (async () => sb.from("profiles").delete().eq("id", userId))(),
     NETWORK_TIMEOUT_MS,

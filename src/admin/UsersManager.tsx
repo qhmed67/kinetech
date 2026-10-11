@@ -534,6 +534,11 @@ export function UsersManager() {
               onClick={() => {
                 if (!window.confirm(u.confirmDelUser)) return;
                 void act(() => deleteProfile(found.id), () => {
+                  // Same-device freshness: drop every local view/done/unlock
+                  // trace so a re-register starts at absolute zero.
+                  void import("../watch").then((w) => w.purgeAllProgress(found.email)).catch(() => {
+                    /* server wipe already succeeded */
+                  });
                   setFound(null);
                   setSearched(false);
                   setTerm("");

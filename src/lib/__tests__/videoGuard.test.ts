@@ -6,6 +6,7 @@ import {
   isDriveSource,
   isYoutubeSource,
   obfuscateId,
+  probeVideoDurationSecs,
 } from "../videoGuard";
 
 describe("obfuscateId round-trip", () => {
@@ -41,6 +42,19 @@ describe("isDriveSource", () => {
     expect(isDriveSource("https://youtu.be/dQw4w9WgXcQ")).toBe(false);
     expect(isDriveSource("https://cdn.example.com/v.mp4")).toBe(false);
     expect(isDriveSource("")).toBe(false);
+  });
+});
+
+describe("probeVideoDurationSecs", () => {
+  it("returns null for blanks and unknown links", async () => {
+    await expect(probeVideoDurationSecs("")).resolves.toBeNull();
+    await expect(probeVideoDurationSecs("https://cdn.example.com/v.mp4")).resolves.toBeNull();
+  });
+
+  it("times out cleanly instead of hanging", async () => {
+    await expect(
+      probeVideoDurationSecs("https://drive.google.com/file/d/ABC123/view?usp=sharing", 50),
+    ).resolves.toBeNull();
   });
 });
 

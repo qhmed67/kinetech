@@ -149,7 +149,6 @@ export function loadYoutubeApi(): Promise<YtApi> {
 }
 
 /* ---------- rotating internal session ---------- */
-
 /**
  * Rotates an opaque internal session token on an interval and re-asserts
  * iframe isolation (pointer-events off, overlay intact) without touching
@@ -168,4 +167,106 @@ export function useRotatingSession(intervalMs = 5 * 60 * 1000): string {
     return () => window.clearInterval(id);
   }, [intervalMs]);
   return token;
+}
+
+/* ---------- duration probe (admin auto-detect) ---------- */
+
+function probeMediaUrl(mediaUrl: string, timeoutMs: number): Promise<number | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  return new Promise<number | null>((resolve) => {
+    let done = false;
+    const finish = (v: number | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      try {
+        el.pause();
+      } catch {
+        /* ignore */
+      }
+      el.removeAttribute("src");
+      el.remove();
+      resolve(v);
+    };
+    const timer = window.setTimeout(() => finish(null), timeoutMs);
+    const el = document.createElement("video");
+    el.preload = "metadata";
+    el.muted = true;
+    (el as HTMLVideoElement & { playsInline?: boolean }).playsInline = true;
+    el.style.display = "none";
+    el.onloadedmetadata = () => {
+      const d = el.duration;
+      finish(Number.isFinite(d) && d > 0 ? d : null);
+    };
+    el.onerror = () => finish(null);
+    document.body.appendChild(el);
+    el.src = mediaUrl;
+  });
+}
+
+function probeYoutubeId(id: string, timeoutMs: number): Promise<number | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  return (async () => {
+    let api: YtApi;
+    try {
+      api = await loadYoutubeApi();
+    } catch {
+      return null;
+    }
+    return new Promise<number | null>((resolve) => {
+      let done = false;
+      let player: YtPlayer | null = null;
+      const holder = document.createElement("div");
+      holder.style.cssText = "position:fixed;left:-9999px;top:0;width:4px;height:4px;overflow:hidden;";
+      const finish = (v: number | null) => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(timer);
+        try {
+          player?.destroy();
+        } catch {
+          /* ignore */
+        }
+        holder.remove();
+        resolve(v);
+      };
+      const timer = window.setTimeout(() => finish(null), timeoutMs);
+      try {
+        document.body.appendChild(holder);
+        player = new api.Player(holder, {
+          videoId: id,
+          playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1 },
+          events: {
+            onReady: (e) => {
+              try {
+                const d = e.target.getDuration?.() ?? 0;
+                finish(d > 0 ? d : null);
+              } catch {
+                finish(null);
+              }
+            },
+            onError: () => finish(null),
+          },
+        });
+      } catch {
+        finish(null);
+      }
+    });
+  })();
+}
+
+/**
+ * Measure a video's real length in seconds. YouTube via a hidden IFrame API
+ * probe; Drive via a metadata preload of the direct media URL (headers only,
+ * no CORS needed). Null on any failure/timeout — callers keep the old value.
+ */
+export async function probeVideoDurationSecs(src: string, timeoutMs = 20000): Promise<number | null> {
+  const v = (src ?? "").trim();
+  if (!v) return null;
+  const yt = extractYoutubeId(v);
+  if (yt) return probeYoutubeId(yt, timeoutMs);
+  const { toDriveMediaUrl } = await import("./drive");
+  const media = toDriveMediaUrl(v);
+  if (!media) return null;
+  return probeMediaUrl(media, timeoutMs);
 }

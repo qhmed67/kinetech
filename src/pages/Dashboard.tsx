@@ -3,7 +3,7 @@ import { courseExists, getCourse, getVideos, useContent } from "../store";
 import type { ExamContent, ExamKind, LessonWork, WorkItemState } from "../lib/db/examsDb";
 import { ExamTake } from "../components/ExamTake";
 import { initialsOf, setUser, type KtUser } from "../auth";
-import { getViews, isDone } from "../watch";
+import { getViews, isDone, replaceProgress } from "../watch";
 import { SafeImg } from "../components/SafeImg";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
@@ -399,6 +399,19 @@ export function Dashboard({
           try {
             const rows = await m.getWatchStateDb(slug, lang);
             if (rows.length === 0) continue;
+            // Reconcile THIS browser's cache from the same answer: an admin
+            // restart on another device must clear stale local done/views —
+            // otherwise the cards show ghost 100% over locked parts.
+            try {
+              replaceProgress(user, slug, rows.map((r) => ({
+                idx: r.sort_order,
+                views: r.views_count,
+                done: r.done,
+                unlocked: (r as unknown as { unlocked?: boolean }).unlocked,
+              })));
+            } catch {
+              /* local cache only — server numbers below still win display */
+            }
             // Same definition as local: distinct watched parts, any order.
             const watched = rows.filter((r) => r.done || r.views_count > 0);
             const mins = watched.reduce((a, r) => a + (r.mins || 0), 0);
@@ -425,7 +438,8 @@ export function Dashboard({
   const progBySlug = new Map(
     enrolledSlugs.map((s) => [s, serverProg[s] ?? courseProgress(user, s)]),
   );
-  const hours = [...progBySlug.values()].reduce((a, p) => a + p.hours, 0);
+  // Summed from 1-decimal parts — round again or float dust (0.6000000001) leaks into display.
+  const hours = Math.round([...progBySlug.values()].reduce((a, p) => a + p.hours, 0) * 10) / 10;
   const lessonsDone = [...progBySlug.values()].reduce((a, p) => a + p.done, 0);
 
   const switchTab = (tb: Tab) => {

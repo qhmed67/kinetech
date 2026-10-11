@@ -53,8 +53,7 @@ export function setViewsCount(u: KtUser, slug: string, idx: number, n: number): 
   writeDB(db);
 }
 
-/** Drop every local trace of a course: views + completions + sticky unlocks. */
-export function purgeProgress(u: KtUser, slug: string): void {
+/** Drop every local trace of a course: views + completions + sticky unlocks. */export function purgeProgress(u: KtUser, slug: string): void {
   const uk = userKeyOf(u);
   try {
     const db = readDB();
@@ -82,6 +81,43 @@ export function purgeProgress(u: KtUser, slug: string): void {
     if (un[uk]?.[slug]) {
       const next = { ...un, [uk]: { ...(un[uk] ?? {}) } };
       delete next[uk][slug];
+      window.localStorage.setItem(UNLOCK_KEY, JSON.stringify(next));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Drop EVERY local trace of one person (by email): all courses' views,
+    completions, and sticky unlocks. Used after an admin full-delete so a
+    same-device re-register starts at absolute zero. */
+export function purgeAllProgress(email: string): void {
+  const uk = (email || "").toLowerCase();
+  if (!uk || typeof window === "undefined") return;
+  try {
+    const db = readDB();
+    if (db[uk]) {
+      delete db[uk];
+      writeDB(db);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const done = readDone();
+    if (done[uk]) {
+      const next = { ...done };
+      delete next[uk];
+      window.localStorage.setItem(DONE_KEY, JSON.stringify(next));
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    const un = readUnlocked();
+    if (un[uk]) {
+      const next = { ...un };
+      delete next[uk];
       window.localStorage.setItem(UNLOCK_KEY, JSON.stringify(next));
     }
   } catch {

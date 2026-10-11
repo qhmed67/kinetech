@@ -64,11 +64,11 @@ const WM_SPOTS = [
  * with DevTools + time can still extract the stream — that half is enforced
  * server-side (signed-in RPCs, 3-view cap, watermarked identity).
  *
- * Drive mode limits: Drive exposes no playback API, so progress is
- * wall-clock while the tab is visible (paused when hidden) and completion
- * fires at ~80% of the nominal minutes. Right-clicks INSIDE the Drive frame
- * cannot be intercepted cross-origin — the sandbox (no downloads, no
- * pop-out, no top navigation) plus Drive-side "disable download" carry that.
+ * Drive mode limits: the file plays directly in our chrome (real progress
+ * + completion events, no Google menus at all) when the link permits; the
+ * sandboxed preview is fallback only. A DevTools-armed attacker can extract
+ * the file URL — server gates (signed-in RPCs, 3-view cap, watermarked
+ * identity) carry the real protection.
  */
 export function ProtectedVideoPlayer({
   src,
@@ -136,6 +136,10 @@ export function ProtectedVideoPlayer({
   const [driveStarted, setDriveStarted] = useState(false);
   const [driveFailed, setDriveFailed] = useState(false);
   const [driveRetry, setDriveRetry] = useState(0);
+  // Direct file playback failed (scan page / 403 / download disabled) →
+  // fall back to the sandboxed Drive preview for this lesson.
+  const [driveDirectFailed, setDriveDirectFailed] = useState(false);
+  const driveVideoRef = useRef<HTMLVideoElement>(null);
   const [elapsed, setElapsed] = useState(0);
   const elapsedRef = useRef(0);
 
@@ -350,19 +354,24 @@ export function ProtectedVideoPlayer({
     setElapsed(0);
     setDriveStarted(false);
     setDriveFailed(false);
+    setDriveDirectFailed(false);
   }, [src]);
 
   // Drive load watchdog: DNS blocks / ISP filters / adblock can make
-  // drive.google.com unresolvable — the iframe then never fires onLoad.
+  // drive.google.com unresolvable — the preview iframe then never fires
+  // onLoad. Only armed for the preview fallback (direct <video> has onError).
   // After 20s show a retry panel instead of a dead spinner.
   useEffect(() => {
-    if (!drivePreview || !driveStarted || ready || driveFailed) return;
+    if (!drivePreview || !driveStarted || !driveDirectFailed || ready || driveFailed) return;
     const id = window.setTimeout(() => setDriveFailed(true), 20000);
     return () => window.clearTimeout(id);
-  }, [drivePreview, driveStarted, ready, driveFailed]);
+  }, [drivePreview, driveStarted, driveDirectFailed, ready, driveFailed]);
 
   useEffect(() => {
     if (!drivePreview || !driveStarted) return;
+    // Direct <video> reports real events — the wall clock only serves the
+    // preview fallback, which has no playback API at all.
+    if (!driveDirectFailed) return;
     const id = window.setInterval(() => {
       if (document.hidden) return;
       elapsedRef.current += 1;
@@ -377,7 +386,17 @@ export function ProtectedVideoPlayer({
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [drivePreview, driveStarted, nominalMins]);
+  }, [drivePreview, driveStarted, driveDirectFailed, nominalMins]);
+
+  // Poster click chains into playback while the tap gesture is fresh —
+  // when autoplay is refused the native controls take over seamlessly.
+  useEffect(() => {
+    if (driveStarted && !driveDirectFailed && driveVideoRef.current) {
+      driveVideoRef.current.play().catch(() => {
+        /* native controls take over */
+      });
+    }
+  }, [driveStarted, driveDirectFailed, drivePreview]);
 
   // Session rotation: re-assert isolation without touching playback.
   // sessionToken is a state string, so each rotation re-runs this effect.
@@ -517,13 +536,122 @@ export function ProtectedVideoPlayer({
   const pos = WM_SPOTS[spot % WM_SPOTS.length];
   const wmText = [email, phone].filter(Boolean).join(" • ");
 
-  /* Drive mode: sandboxed preview iframe behind a poster gate.
+  /* FALLBACK: sandboxed preview iframe behind a poster gate (direct file
+     blocked: virus-scan page / 403 / download disabled on the file).
      Sandbox = allow-scripts + allow-same-origin ONLY: no allow-downloads
      (kills Drive's download button in Chrome), no allow-top-navigation
      (kills "open in new window"), no allow-popups. Clicks must reach
      Drive's own controls, so there is no click shield here — right-clicks
      inside the frame stay Google's, unblockable cross-origin. */
   if (drivePreview) {
+    // PRIMARY: the file itself in a native <video> — zero Google UI, no
+    // menus, no pop-out icon, instant controls. Right-click is ours again
+    // (same-document element, wrapper blocks it); nodownload strips the
+    // download item, nofullscreen forces OUR fullscreen (watermark kept).
+    // Requires "anyone with the link" + download allowed on the file —
+    // our player hides the download button; DevTools extraction stays
+    // possible (same deterrence class as a YouTube ID) and server gates +
+    // watermark carry the real protection.
+    if (!driveDirectFailed && driveMedia) {
+      return (
+        <div
+          ref={boxRef}
+          tabIndex={0}
+          onKeyDown={blockKeys}
+          onContextMenu={(e) => e.preventDefault()}
+          onDragStart={(e) => e.preventDefault()}
+          onDoubleClick={toggleFullscreen}
+          onMouseMove={wake}
+          className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${idle && driveStarted ? "cursor-none" : ""}`}
+          style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
+          aria-label="Protected video player"
+        >
+          <video
+            ref={driveVideoRef}
+            key={driveMedia}
+            src={driveMedia}
+            controls={driveStarted}
+            controlsList="nodownload nofullscreen noremoteplayback"
+            disablePictureInPicture
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={(e) => {
+              const d = e.currentTarget.duration;
+              if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
+            }}
+            onCanPlay={() => setReady(true)}
+            onTimeUpdate={(e) => cbRef.current.onProgress(e.currentTarget.currentTime)}
+            onSeeked={(e) => cbRef.current.onSeeked(e.currentTarget.currentTime)}
+            onEnded={() => {
+              if (!endedRef.current) {
+                endedRef.current = true;
+                cbRef.current.onEnded();
+              }
+            }}
+            onError={() => setDriveDirectFailed(true)}
+            className="absolute inset-0 h-full w-full"
+            style={{ background: "#000" }}
+          />
+          {!driveStarted && (
+            <button
+              type="button"
+              onClick={() => {
+                setDriveStarted(true);
+                wake();
+              }}
+              aria-label="Start video"
+              className="absolute inset-0 z-20 grid place-items-center"
+              style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
+            >
+              <span
+                aria-hidden="true"
+                className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
+                style={{ background: "#3BBCD9" }}
+              >
+                <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+              </span>
+            </button>
+          )}
+
+          {wmText !== "" && (
+            <div
+              aria-hidden="true"
+              dir="ltr"
+              className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
+              style={{
+                ...pos,
+                background: "rgba(0,0,0,0.45)",
+                color: "rgba(255,255,255,0.85)",
+                fontFamily: "var(--font-display)",
+              }}
+            >
+              {wmText}
+            </div>
+          )}
+
+          {driveStarted && !ready && (
+            <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+              <span
+                aria-hidden="true"
+                className="h-12 w-12 animate-spin rounded-full"
+                style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+              />
+            </div>
+          )}
+
+          <div
+            className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && driveStarted ? "pointer-events-none opacity-0" : "opacity-100"}`}
+          >
+            <div className="mt-1 flex items-center gap-1.5 text-white sm:gap-2">
+              <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen" className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-white/15">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+              <span className="flex-1" />
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         ref={boxRef}
