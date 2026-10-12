@@ -562,6 +562,18 @@ export function deleteCourse(slug: string): void {
   pushToCloud((m) => m.pushDeleteCourseToDb(slug));
 }
 
+/** Awaitable whole-course cloud delete: surfaces RLS/session failures so a
+    course never silently resurrects on the next hydrate. */
+export async function pushDeleteCourseNow(slug: string): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const m = await import("./lib/db/sync");
+    await m.pushDeleteCourseToDb(slug);
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export function getRawCourse(slug: string): StoreCourse | null {
   const raw = loadStore().courses.find((c) => c.slug === slug);
   return raw ? JSON.parse(JSON.stringify(raw)) : null;
