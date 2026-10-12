@@ -520,3 +520,46 @@ export async function deleteProfile(userId: string): Promise<void> {
   );
   if (error) throw error;
 }
+
+/**
+ * One-click pipeline test: writes a single lesson notice for the newest
+ * video straight into the student's sessions widget — the exact shape the
+ * trigger + save-flow produce. If the student sees it after refresh, the
+ * pipeline (RLS, enrollment, widget query) is fine and the problem is in
+ * the save flow; if not, the pipeline itself is broken. Throws with reason.
+ */
+export async function sendLessonNotice(userId: string, courseSlug: string): Promise<string> {
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) throw new Error("course not found");
+  const { data: vids } = await withTimeout(
+    (async () => sb.from("videos").select("module_id").eq("course_id", courseId)
+      .order("sort_order", { ascending: false }).limit(1))(),
+    NETWORK_TIMEOUT_MS,
+    "video-lookup",
+  );
+  const row = ((vids ?? []) as unknown as Array<{ module_id: string }>)[0];
+  if (!row) throw new Error("course has no videos");
+  const { data: trs } = await withTimeout(
+    (async () => sb.from("module_translations").select("lang,title").eq("module_id", row.module_id))(),
+    NETWORK_TIMEOUT_MS,
+    "title-lookup",
+  );
+  const list = ((trs ?? []) as unknown as Array<{ lang: string; title: string }>);
+  const name = list.find((t) => t.lang === "ar")?.title?.trim()
+    || list.find((t) => t.lang === "en")?.title?.trim()
+    || "New lesson";
+  const title = `New lesson · درس جديد: ${name}`;
+  const { error } = await withTimeout(
+    (async () => sb.from("upcoming_sessions").insert({ user_id: userId, title, date: new Date().toISOString() }))(),
+    NETWORK_TIMEOUT_MS,
+    "notice-test",
+  );
+  if (error) throw error;
+  return title;
+}

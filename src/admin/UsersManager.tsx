@@ -154,6 +154,7 @@ function CoursePartsRow({
   const [parts, setParts] = useState<{ sort_order: number; views: number; done: boolean }[] | null>(null);
   const [busyPart, setBusyPart] = useState<number | null>(null);
   const [okPart, setOkPart] = useState<number | null>(null);
+  const [testState, setTestState] = useState<"idle" | "busy" | "ok">("idle");
   const [err, setErr] = useState("");
 
   const load = async () => {
@@ -233,6 +234,35 @@ function CoursePartsRow({
               </button>
             </div>
           ))}
+          {/* Pipeline test: one lesson notice straight to this student's
+              widget. "✓ sent" + visible-after-refresh proves the pipeline;
+              an error names the broken half. */}
+          <button
+            type="button"
+            disabled={testState === "busy"}
+            onClick={() => {
+              setTestState("busy");
+              setErr("");
+              void import("../lib/db/adminUsers")
+                .then((m) => m.sendLessonNotice(userId, slug))
+                .then(() => {
+                  setTestState("ok");
+                  window.setTimeout(() => setTestState("idle"), 4000);
+                })
+                .catch((ex: unknown) => {
+                  setErr(ex instanceof Error ? ex.message : "error");
+                  setTestState("idle");
+                });
+            }}
+            className="mt-1 self-start rounded-lg bg-white px-3 py-2 text-sm font-bold disabled:opacity-50"
+            style={{ color: "var(--kt-teal)" }}
+          >
+            {testState === "ok"
+              ? (lang === "ar" ? "✓ اتبعت — حدّث ودجت الطالب" : "✓ sent — refresh student widget")
+              : testState === "busy"
+                ? "…"
+                : (lang === "ar" ? "اختبار تنبيه الدرس" : "Test lesson notice")}
+          </button>
         </div>
       )}
     </li>
