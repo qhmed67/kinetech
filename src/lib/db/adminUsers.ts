@@ -84,6 +84,43 @@ export async function grantEnrollment(userId: string, courseSlug: string): Promi
     "grant",
   );
   if (error) throw error;
+  // Late-enrolled students missed every notice fired at lesson creation —
+  // backfill the 5 newest lessons into their sessions widget (FIFO keeps 5).
+  // Best-effort: the grant already succeeded.
+  try {
+    const { data: vids } = await withTimeout(
+      (async () => sb.from("videos").select("sort_order,module_id").eq("course_id", courseId)
+        .order("sort_order", { ascending: false }).limit(5))(),
+      NETWORK_TIMEOUT_MS,
+      "grant-lessons",
+    );
+    const list = ((vids ?? []) as unknown as Array<{ sort_order: number; module_id: string }>);
+    if (list.length > 0) {
+      const modIds = [...new Set(list.map((v) => v.module_id))];
+      const { data: trs } = await withTimeout(
+        (async () => sb.from("module_translations").select("module_id,lang,title").in("module_id", modIds))(),
+        NETWORK_TIMEOUT_MS,
+        "grant-titles",
+      );
+      const rows = ((trs ?? []) as unknown as Array<{ module_id: string; lang: string; title: string }>);
+      const titleOf = (mid: string) => {
+        const mine = rows.filter((t) => t.module_id === mid);
+        return mine.find((t) => t.lang === "ar")?.title?.trim()
+          || mine.find((t) => t.lang === "en")?.title?.trim()
+          || "New lesson";
+      };
+      const stamp = new Date().toISOString();
+      await withTimeout(
+        (async () => sb.from("upcoming_sessions").insert(
+          list.map((v) => ({ user_id: userId, title: `New lesson · درس جديد: ${titleOf(v.module_id)}`, date: stamp })),
+        ))(),
+        NETWORK_TIMEOUT_MS,
+        "grant-notices",
+      );
+    }
+  } catch {
+    /* grant stands; notices retry on next grant/save */
+  }
 }
 
 /**
@@ -116,6 +153,11 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
       (async () => sb.from("exam_results").delete().eq("user_id", userId).in("video_id", ids))(),
     );
   }
+  // Stale lesson notices must not outlive the grant (sessions widget only —
+  // real scheduled sessions carry custom titles and are untouched).
+  ops.push(
+    (async () => sb.from("upcoming_sessions").delete().eq("user_id", userId).like("title", "New lesson ·%"))(),
+  );
   const results = await withTimeout(
     Promise.all(ops),
     NETWORK_TIMEOUT_MS,
