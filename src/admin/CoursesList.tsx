@@ -1,4 +1,5 @@
-import { deleteCourse, getCourse, getVideos, loadStore, useContent } from "../store";
+import { useState } from "react";
+import { deleteCourse, getCourse, getVideos, loadStore, pushDeleteCourseNow, useContent } from "../store";
 import { SafeImg } from "../components/SafeImg";
 import { useLang } from "../components/lang";
 
@@ -7,6 +8,7 @@ export function CoursesList() {
   const a = t.admin;
   useContent();
   const courses = loadStore().courses;
+  const [cloudErr, setCloudErr] = useState("");
 
   return (
     <div className="grid gap-4">
@@ -18,6 +20,11 @@ export function CoursesList() {
           + {a.addCourse}
         </a>
       </div>
+      {cloudErr && (
+        <p role="alert" dir="ltr" className="rounded-xl border px-4 py-2.5 text-[13px] font-bold" style={{ borderColor: "#B3261E", color: "#B3261E", background: "#FDF0EF" }}>
+          {cloudErr}
+        </p>
+      )}
       {courses.map((raw) => {
         // Localized view with cross-language fallback (raw store text blanks
         // one-language courses in the admin list).
@@ -55,7 +62,12 @@ export function CoursesList() {
             <button
               type="button"
               onClick={() => {
-                if (window.confirm(a.confirmDel)) deleteCourse(raw.slug);
+                if (!window.confirm(a.confirmDel)) return;
+                deleteCourse(raw.slug);
+                setCloudErr("");
+                void pushDeleteCourseNow(raw.slug).then((r) => {
+                  if (!r.ok) setCloudErr(`Delete ${raw.slug}: ${r.error ?? "cloud delete failed — it will reappear on refresh"}`);
+                });
               }}
               className="btn btn-secondary"
               style={{ minHeight: 40, padding: "8px 18px", fontSize: 14, color: "#B3261E" }}
