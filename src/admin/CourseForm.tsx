@@ -6,6 +6,7 @@ import {
   pushCourseNow,
   saveCourse,
   useContent,
+  verifyCloudState,
   type StoreCourse,
 } from "../store";
 import { useLang } from "../components/lang";
@@ -422,6 +423,9 @@ export function CourseForm({ slug }: { slug?: string }) {
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      // Close the loop: re-read the DB and let the pristine-follow reload
+      // the form from server truth (a "synced" lie can't survive this).
+      verifyCloudState();
     } else {
       setCloudErr(res.error ?? "");
     }
@@ -437,6 +441,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      verifyCloudState();
     } else {
       setCloudErr(res.error ?? "");
     }
