@@ -223,16 +223,32 @@ function healVideoSrc(courses: StoreCourse[]): boolean {
   return fixed;
 }
 
-/* Supabase is source of truth when configured: local cache seeds instantly,
-   then hydrateStoreFromDb() replaces it in the background and notifies. */
+/* Supabase is the ONLY source of truth. localStorage is a paint mirror for
+   instant first paint + offline survival — never a source when the DB is
+   reachable. The sole exception is the pending-push outbox (failed admin
+   saves/deletes), which protects queued slugs until they land or expire. */
 let cloudKick = false;
+let onlineHooked = false;
 function kickCloudHydrate(): void {
   if (cloudKick || typeof window === "undefined") return;
   cloudKick = true;
+  if (!onlineHooked) {
+    onlineHooked = true;
+    // Offline boot shows the mirror; the moment connectivity returns, the
+    // DB retakes the screen.
+    window.addEventListener("online", () => {
+      void import("./lib/db/sync")
+        .then((m) => m.hydrateStoreFromDb({ force: true }))
+        .catch(() => {
+          /* still offline — mirror stays */
+        });
+    });
+  }
+  // Forced: every fresh tab load re-reads the DB, no cooldown shortcuts.
   void import("./lib/db/sync")
-    .then((m) => m.hydrateStoreFromDb())
+    .then((m) => m.hydrateStoreFromDb({ force: true }))
     .catch(() => {
-      /* offline — seeds stay */
+      /* offline — mirror seeds stay */
     });
 }
 
@@ -533,13 +549,16 @@ export function saveCourse(course: StoreCourse, skipCloud = false): boolean {
 }
 
 /** Awaitable cloud push for admin saves: ok + null, or failed + the exact
-    database reason (RLS denial, constraint, trigger) for display. */
-export async function pushCourseNow(course: StoreCourse): Promise<{ ok: boolean; error: string | null }> {
+    database reason (RLS denial, constraint, trigger) for display. fresh =
+    titles of brand-new lesson videos this push inserted (for notices). */
+export async function pushCourseNow(course: StoreCourse): Promise<{
+  ok: boolean; error: string | null; fresh: Array<{ titleEn: string; titleAr: string }>;
+}> {
   try {
     const m = await import("./lib/db/sync");
     await m.pushCourseToDb(course);
     clearQueuedPush(course.slug);
-    return { ok: true, error: null };
+    return { ok: true, error: null, fresh: m.takeFreshLessons() };
   } catch (e) {
     // Remember the unsynced work: hydrate protects ONLY queued slugs, so a
     // failed save survives refreshes while every stale cache still dies.
@@ -548,7 +567,7 @@ export async function pushCourseNow(course: StoreCourse): Promise<{ ok: boolean;
     } catch {
       /* outbox best-effort */
     }
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: e instanceof Error ? e.message : String(e), fresh: [] };
   }
 }
 

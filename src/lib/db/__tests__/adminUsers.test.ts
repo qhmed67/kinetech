@@ -14,7 +14,7 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { getUserCourseViews, grantEnrollment, notifyNewLessons, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { ensureLessonNotices, getUserCourseViews, grantEnrollment, notifyNewLessons, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -191,6 +191,61 @@ describe("notifyNewLessons", () => {
     mockedSupabase.mockReturnValue(sb as never);
     await expect(notifyNewLessons("c", [])).resolves.toBe(0);
     expect(sb.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("ensureLessonNotices", () => {
+  const lesson = [{ titleEn: "Part 1", titleAr: "" }];
+  const title = "New lesson · درس جديد: Part 1";
+  const since = "2000-01-01T00:00:00.000Z";
+  const fresh = "2026-05-01T00:00:00.000Z";
+
+  function sessionsMock(rows: Array<{ user_id: string; title: string; date: string }>, insert: ReturnType<typeof vi.fn>) {
+    return {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "enrollments") return query({ data: [{ user_id: "u1" }, { user_id: "u2" }], error: null });
+        if (table === "upcoming_sessions") return { ...query({ data: rows, error: null }), insert };
+        return query({ data: null, error: null });
+      }),
+    };
+  }
+
+  it("skips insert when the trigger already covered everyone", async () => {
+    const insert = vi.fn();
+    const sb = sessionsMock(
+      [{ user_id: "u1", title, date: fresh }, { user_id: "u2", title, date: fresh }],
+      insert,
+    );
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    expect(insert).not.toHaveBeenCalled();
+    expect(sb.from).not.toHaveBeenCalledWith("notifications");
+  });
+
+  it("fills only the gaps, sessions widget only", async () => {
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = sessionsMock([{ user_id: "u1", title, date: fresh }], insert);
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    expect(insert).toHaveBeenCalledTimes(1);
+    const rows = insert.mock.calls[0][0] as Array<{ user_id: string; title: string; date: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ user_id: "u2", title });
+    expect(sb.from).not.toHaveBeenCalledWith("notifications");
+  });
+
+  it("ignores stale rows outside the save window", async () => {
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = sessionsMock(
+      [{ user_id: "u1", title, date: "1999-01-01T00:00:00.000Z" }],
+      insert,
+    );
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    expect(insert).toHaveBeenCalledTimes(1);
+    const rows = insert.mock.calls[0][0] as Array<{ user_id: string }>;
+    expect(rows.map((r) => r.user_id).sort()).toEqual(["u1", "u2"]);
   });
 });
 

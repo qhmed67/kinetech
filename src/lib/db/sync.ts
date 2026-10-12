@@ -13,6 +13,16 @@ import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
 const videoIds = new Map<string, string>();
 const vk = (slug: string, idx: number) => `${slug}:${idx}`;
 
+/* Titles of videos INSERTED by the latest push (brand-new lessons). The
+   course form takes them to verify/fill lesson notices; reset at each push
+   so a background push can never leak stale titles into the next save. */
+let lastFresh: Array<{ titleEn: string; titleAr: string }> = [];
+export function takeFreshLessons(): Array<{ titleEn: string; titleAr: string }> {
+  const f = lastFresh;
+  lastFresh = [];
+  return f;
+}
+
 /* Abuse guards: dedupe parallel hydrates, cooldown refetches, serialize
    bootstrap, coalesce rapid play pushes. Prevents sync spam on remounts,
    tab switches, and click storms. */
@@ -550,6 +560,7 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   };
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
+  lastFresh = [];
   const insEn = course.instructor.name.en.trim();
   let instructorId: string | null = null;
   if (insEn) {
@@ -656,6 +667,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
         // the old client broadcast lived here and could silently miss).
         if (!vid) throw new Error("videos: no id returned");
         videoIds.set(vk(course.slug, i), vid);
+        lastFresh.push({
+          titleEn: course.modules.en[i]?.t ?? "",
+          titleAr: course.modules.ar[i]?.t ?? "",
+        });
       }
     } else if (existingVid) {
       // Lesson dropped its video: remove the row (its views go with it).
