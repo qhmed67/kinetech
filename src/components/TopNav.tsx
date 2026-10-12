@@ -253,7 +253,39 @@ export function TopNav({
                   className="absolute end-0 top-full z-[120] mt-2 max-h-[60vh] w-72 overflow-y-auto rounded-2xl border bg-white shadow-xl ltr:origin-top-right rtl:origin-top-left"
                   style={{ borderColor: "var(--kt-line)" }}
                 >
-                  {liveNotifs === null || liveNotifs.length === 0 ? (
+                  {liveSessions !== null && liveSessions.length > 0 && (
+                    <>
+                      <p
+                        className="px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {lang === "ar" ? "دروس جديدة" : "New lessons"}
+                      </p>
+                      {liveSessions.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setBell(false);
+                            window.location.hash = "#/dashboard";
+                          }}
+                          className="flex w-full items-start gap-2.5 border-b px-4 py-3 text-start text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
+                          style={{ borderColor: "var(--kt-line)" }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="mt-1.5 h-2 w-2 flex-none rounded-full"
+                            style={{ background: seenIso !== null && s.date > seenIso ? "var(--kt-teal)" : "var(--kt-line)" }}
+                          />
+                          <span>
+                            <span className="block font-bold">{s.title}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(liveNotifs === null || liveNotifs.length === 0) &&
+                  (liveSessions === null || liveSessions.length === 0) ? (
                     <p
                       className="px-4 py-3 text-[13px] leading-snug"
                       style={{ color: "var(--muted)" }}
@@ -261,7 +293,7 @@ export function TopNav({
                       {t.dashboard.notifEmpty}
                     </p>
                   ) : (
-                    liveNotifs.map((n) => (
+                    (liveNotifs ?? []).map((n) => (
                       <button
                         key={n.id}
                         type="button"
