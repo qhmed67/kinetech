@@ -574,6 +574,18 @@ export async function pushDeleteCourseNow(slug: string): Promise<{ ok: boolean; 
   }
 }
 
+/** Re-read the catalog from the DB right after a successful admin write and
+    scream if it disagrees — closes the loop so a "synced" save that didn't
+    actually land can never sit unnoticed. Best-effort, never throws. */
+export function verifyCloudState(): void {
+  if (typeof window === "undefined") return;
+  void import("./lib/db/sync")
+    .then((m) => m.hydrateStoreFromDb({ force: true }))
+    .catch(() => {
+      /* verification failed — next load retries */
+    });
+}
+
 export function getRawCourse(slug: string): StoreCourse | null {
   const raw = loadStore().courses.find((c) => c.slug === slug);
   return raw ? JSON.parse(JSON.stringify(raw)) : null;

@@ -1,6 +1,7 @@
 import { useLang } from "../components/lang";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { resetAdminCache, useVerifiedAdmin } from "../lib/db/adminGuard";
+import { BUILD_HASH } from "../build";
 
 export function AdminShell({
   active,
@@ -56,6 +57,9 @@ export function AdminShell({
             {a.dashT}
           </span>
           <span className="flex-1" />
+          <span dir="ltr" className="hidden rounded px-2 py-1 font-mono text-[11px] text-white/50 sm:inline" title="Deployed commit — quote in bug reports">
+            build {BUILD_HASH}
+          </span>
           <button
             type="button"
             onClick={toggle}

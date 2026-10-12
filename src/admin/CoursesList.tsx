@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { deleteCourse, getCourse, getVideos, loadStore, pushDeleteCourseNow, useContent } from "../store";
+import { deleteCourse, getCourse, getVideos, loadStore, pushDeleteCourseNow, useContent, verifyCloudState } from "../store";
 import { SafeImg } from "../components/SafeImg";
 import { useLang } from "../components/lang";
 
@@ -67,6 +67,7 @@ export function CoursesList() {
                 setCloudErr("");
                 void pushDeleteCourseNow(raw.slug).then((r) => {
                   if (!r.ok) setCloudErr(`Delete ${raw.slug}: ${r.error ?? "cloud delete failed — it will reappear on refresh"}`);
+                  else verifyCloudState();
                 });
               }}
               className="btn btn-secondary"

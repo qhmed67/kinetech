@@ -528,7 +528,9 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
     p: PromiseLike<{ data: T; error: { message?: string } | null }>,
     what: string,
   ): Promise<T> => {
-    const r = await p;
+    // 15s cap: a hung network must surface as an error, never an endless
+    // "syncing…" spinner the admin mistakes for a save.
+    const r = await withTimeout(Promise.resolve(p), NETWORK_TIMEOUT_MS, what);
     if (r.error) throw new Error(`${what}: ${r.error.message ?? "unknown database error"}`);
     return r.data;
   };
