@@ -180,6 +180,8 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [cloudErr, setCloudErr] = useState("");
   // Students covered by new-lesson notices (sessions widget) for this save.
   const [notified, setNotified] = useState<number | null>(null);
+  // New-video titles this push detected (novel srcs). Null = not measured.
+  const [freshCount, setFreshCount] = useState<number | null>(null);
   // Notice step failed (save itself is green): exact reason, not silence.
   const [noticeErr, setNoticeErr] = useState("");
   const [saveTick, setSaveTick] = useState(0);
@@ -215,6 +217,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setDetectFail({});
     setNotified(null);
     setNoticeErr("");
+    setFreshCount(null);
     setOpenMod(0);
     probedRef.current.clear();
     failCounts.current = {};
@@ -237,6 +240,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("idle");
     setNotified(null);
     setNoticeErr("");
+    setFreshCount(null);
     dirtyRef.current = true;
   };
   const setL = (key: "name" | "quote" | "duration" | "lessons" | "schedule", v: string) =>
@@ -495,6 +499,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("syncing");
     setCloudErr("");
     setNotified(null);
+    setFreshCount(null);
     // Margin before the push: trigger rows carry server time, which may run
     // seconds ahead of this device — the check must not miss them.
     const pushStart = new Date(Date.now() - 60_000).toISOString();
@@ -503,6 +508,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      setFreshCount(res.fresh.length);
       void confirmNotices(s, res.fresh, pushStart);
       // Close the loop: re-read the DB and let the pristine-follow reload
       // the form from server truth (a "synced" lie can't survive this).
@@ -518,12 +524,14 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("syncing");
     setCloudErr("");
     setNotified(null);
+    setFreshCount(null);
     const pushStart = new Date(Date.now() - 60_000).toISOString();
     const res = await pushCourseNow({ ...course, slug: s });
     setCloud(res.ok ? "ok" : "fail");
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      setFreshCount(res.fresh.length);
       void confirmNotices(s, res.fresh, pushStart);
       verifyCloudState();
     } else {
@@ -536,7 +544,9 @@ export function CourseForm({ slug }: { slug?: string }) {
     : cloud === "syncing"
       ? `${a.saved} …`
       : cloud === "ok"
-        ? a.savedCloud + (notified !== null ? ` · ${a.notifiedN.replace("{n}", String(notified))}` : "")
+        ? a.savedCloud
+          + (freshCount !== null ? ` · ${a.newN.replace("{n}", String(freshCount))}` : "")
+          + (notified !== null ? ` · ${a.notifiedN.replace("{n}", String(notified))}` : "")
         : cloud === "fail"
           ? a.savedLocalOnly
           : a.saved;
