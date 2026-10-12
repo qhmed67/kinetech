@@ -538,10 +538,72 @@ export async function pushCourseNow(course: StoreCourse): Promise<{ ok: boolean;
   try {
     const m = await import("./lib/db/sync");
     await m.pushCourseToDb(course);
+    clearQueuedPush(course.slug);
     return { ok: true, error: null };
   } catch (e) {
+    // Remember the unsynced work: hydrate protects ONLY queued slugs, so a
+    // failed save survives refreshes while every stale cache still dies.
+    try {
+      queueCoursePush(course);
+    } catch {
+      /* outbox best-effort */
+    }
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/* -------- pending-push outbox: which slugs have unsynced admin work -------
+   The hydrate merge keeps local-longer content ONLY for queued slugs.
+   Everything else follows the DB wholesale — stale student caches can never
+   resurrect deleted parts again. */
+
+const OUTBOX_KEY = "kt-push-outbox";
+
+type OutboxEntry = { course?: StoreCourse; deleted?: boolean; at: number };
+
+function readOutbox(): Record<string, OutboxEntry> {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(OUTBOX_KEY);
+    if (!raw) return {};
+    const o = JSON.parse(raw) as Record<string, OutboxEntry>;
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeOutbox(o: Record<string, OutboxEntry>): void {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(OUTBOX_KEY, JSON.stringify(o));
+  } catch {
+    /* quota — protection degrades, loud error still shows */
+  }
+}
+
+export function queueCoursePush(course: StoreCourse): void {
+  const o = readOutbox();
+  o[course.slug] = { course: JSON.parse(JSON.stringify(course)) as StoreCourse, at: Date.now() };
+  writeOutbox(o);
+}
+
+export function queueCourseDelete(slug: string): void {
+  const o = readOutbox();
+  o[slug] = { deleted: true, at: Date.now() };
+  writeOutbox(o);
+}
+
+export function clearQueuedPush(slug: string): void {
+  const o = readOutbox();
+  if (o[slug]) {
+    delete o[slug];
+    writeOutbox(o);
+  }
+}
+
+export function getQueuedPush(slug: string): OutboxEntry | null {
+  return readOutbox()[slug] ?? null;
 }
 
 /** Self-heal: correct a lesson's minutes from the media's real duration
@@ -568,8 +630,14 @@ export async function pushDeleteCourseNow(slug: string): Promise<{ ok: boolean; 
   try {
     const m = await import("./lib/db/sync");
     await m.pushDeleteCourseToDb(slug);
+    clearQueuedPush(slug);
     return { ok: true, error: null };
   } catch (e) {
+    try {
+      queueCourseDelete(slug);
+    } catch {
+      /* outbox best-effort */
+    }
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

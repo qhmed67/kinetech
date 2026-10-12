@@ -266,24 +266,38 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
   }
 
     if (mySeq !== hydrateSeq) return false; // superseded — discard stale response
-    const { loadStore } = await import("../../store");
+    const { loadStore, getQueuedPush } = await import("../../store");
     const local = loadStore();
-    // Union merge: never drop unsynced admin work. A local course whose slug
-    // is absent remotely (push failed/offline) is kept whole; a local course
-    // with MORE lessons than its remote twin keeps the local twin (added
-    // parts not yet pushed). Otherwise the DB is source of truth.
+    // Outbox-gated merge: DB is source of truth EXCEPT slugs with queued
+    // unsynced admin work (failed push / failed delete). A stale cache that
+    // is merely LONGER (deleted parts elsewhere) now dies like everything
+    // else — no more resurrected lessons on student devices.
     const remoteBySlug = new Map(storeCourses.map((c) => [c.slug, c]));
-    const merged: StoreCourse[] = [...storeCourses];
+    const merged: StoreCourse[] = [];
+    for (const rc of storeCourses) {
+      const tq = getQueuedPush(rc.slug);
+      // Live tombstone only: our delete hasn't landed, keep it gone.
+      if (tq?.deleted && Date.now() - (tq.at ?? 0) < 7 * 24 * 3600 * 1000) continue;
+      merged.push(rc);
+    }
     for (const lc of local.courses) {
       const rc = remoteBySlug.get(lc.slug);
-      if (!rc) {
-        merged.push(lc);
-      } else if (
-        lc.modules.en.length > rc.modules.en.length ||
-        lc.videos.length > rc.videos.length
-      ) {
-        merged[merged.indexOf(rc)] = lc;
+      const q = getQueuedPush(lc.slug);
+      // Abandoned retries expire after 7 days — a forgotten queue must not
+      // pin ghosts forever; the loud error already had its chance.
+      const live = !!q && Date.now() - (q.at ?? 0) < 7 * 24 * 3600 * 1000;
+      if (rc) {
+        if (
+          live && q?.course &&
+          (lc.modules.en.length > rc.modules.en.length || lc.videos.length > rc.videos.length)
+        ) {
+          merged[merged.indexOf(rc)] = lc; // unsynced admin additions
+        }
+        // else DB wins — equal, shorter, or unqueued: stale rows die here
+      } else if (live && q?.course) {
+        merged.push(lc); // brand-new course, never landed remotely
       }
+      // else: slug gone remotely (deleted elsewhere) or local junk — drop
     }
     replaceStore({
       v: 3,
