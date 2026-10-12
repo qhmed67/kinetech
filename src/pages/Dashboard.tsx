@@ -258,6 +258,9 @@ export function Dashboard({
   const [spacesOpen, setSpacesOpen] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
   const [notifs, setNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+  // Cloud session alive? A dead session makes every server read return []
+  // (RLS sees nobody) — the widget must say "sign in again", never "empty".
+  const [cloudSession, setCloudSession] = useState<boolean | null>(null);
 
   // Re-adopt server grants on open: a course revoked while browsing must
   // disappear (with its local progress purged) instead of showing stale bars.
@@ -284,6 +287,16 @@ export function Dashboard({
     let alive = true;
     void import("../lib/db/activityDb")
       .then(async (m) => {
+        // Session first: no session means RLS returns [] for everything —
+        // flag it instead of rendering a lying "empty" widget.
+        try {
+          const { supabase } = await import("../lib/db/client");
+          const sb = supabase();
+          const { data } = sb ? await sb.auth.getSession() : { data: { session: null } };
+          if (alive) setCloudSession(!!data.session);
+        } catch {
+          if (alive) setCloudSession(null);
+        }
         const [s, n] = await Promise.all([m.getUpcomingSessions(), m.getNotifications()]);
         if (!alive) return;
         setSessions(s);
@@ -615,6 +628,12 @@ export function Dashboard({
                         <li key={i} className="animate-pulse rounded-xl p-5 text-sm" style={{ background: "var(--surface)" }} />
                       ))}
                     </ul>
+                  ) : cloudSession === false ? (
+                    <p role="alert" className="mt-3 rounded-xl p-4 text-sm font-bold" style={{ background: "#FFF8E6", color: "#9A6B00" }}>
+                      {lang === "ar"
+                        ? "الجلسة انتهت — سجّل خروج وسجّل دخول تاني عشان التنبيهات تظهر."
+                        : "Session expired — sign out and sign in again to load notices."}
+                    </p>
                   ) : sessions.length === 0 ? (
                     <p className="mt-3 rounded-xl p-4 text-sm" style={{ background: "var(--surface)", color: "var(--muted)" }}>
                       {d.upcomingEmpty}
