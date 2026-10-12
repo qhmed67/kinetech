@@ -180,6 +180,8 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [cloudErr, setCloudErr] = useState("");
   // Students covered by new-lesson notices (sessions widget) for this save.
   const [notified, setNotified] = useState<number | null>(null);
+  // Notice step failed (save itself is green): exact reason, not silence.
+  const [noticeErr, setNoticeErr] = useState("");
   const [saveTick, setSaveTick] = useState(0);
   // Dirty = admin typed something not yet saved. While pristine, the form
   // follows store updates (hydrates, other tabs) instead of showing stale
@@ -212,8 +214,11 @@ export function CourseForm({ slug }: { slug?: string }) {
     setDetecting({});
     setDetectFail({});
     setNotified(null);
+    setNoticeErr("");
     setOpenMod(0);
-    probedRef.current.clear();    dirtyRef.current = false;
+    probedRef.current.clear();
+    failCounts.current = {};
+    dirtyRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -231,6 +236,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setSaved(false);
     setCloud("idle");
     setNotified(null);
+    setNoticeErr("");
     dirtyRef.current = true;
   };
   const setL = (key: "name" | "quote" | "duration" | "lessons" | "schedule", v: string) =>
@@ -303,6 +309,9 @@ export function CourseForm({ slug }: { slug?: string }) {
 
   // Measure one lesson's real length and fill its minutes. Applies only if
   // the link is unchanged since the probe started (slow YT API vs fast typing).
+  // Success marks the link measured; failure counts up and shows only after
+  // 3 misses — transients retry on the next edit cycle instead of sticking.
+  const failCounts = useRef<Record<string, number>>({});
   const detectMins = async (i: number, src: string) => {
     const s = (src || "").trim();
     if (!s || typeof window === "undefined") return;
@@ -319,29 +328,31 @@ export function CourseForm({ slug }: { slug?: string }) {
           vids[i] = { ...vids[i], mins };
           return { ...c, videos: vids };
         });
+        probedRef.current.add(s);
+        delete failCounts.current[s];
         dirtyRef.current = true;
         setSaved(false);
         setCloud("idle");
       } else {
-        // Measured nothing: keep the old value, say why (Drive files need
-        // "anyone with the link" + download allowed, or the scan page won).
-        setDetectFail((d) => ({ ...d, [i]: true }));
+        failCounts.current[s] = (failCounts.current[s] ?? 0) + 1;
+        if (failCounts.current[s] >= 3) setDetectFail((d) => ({ ...d, [i]: true }));
       }
     } catch {
       /* keep the previous value */
-      setDetectFail((d) => ({ ...d, [i]: true }));
+      failCounts.current[s] = (failCounts.current[s] ?? 0) + 1;
+      if (failCounts.current[s] >= 3) setDetectFail((d) => ({ ...d, [i]: true }));
     } finally {
       setDetecting((d) => ({ ...d, [i]: false }));
     }
   };
 
-  // Paste → wait for typing to settle → measure every unprobed link.
+  // Paste → wait for typing to settle → measure every unmeasured link.
+  // Failed links retry on later cycles (up to 3 misses), successes stick.
   useEffect(() => {
     const t = window.setTimeout(() => {
       course.videos.forEach((v, i) => {
         const s = (v.src || "").trim();
-        if (s && !probedRef.current.has(s)) {
-          probedRef.current.add(s);
+        if (s && !probedRef.current.has(s) && (failCounts.current[s] ?? 0) < 3) {
           void detectMins(i, s);
         }
       });
@@ -351,12 +362,10 @@ export function CourseForm({ slug }: { slug?: string }) {
 
   const detectAll = () => {
     probedRef.current.clear();
+    failCounts.current = {};
     course.videos.forEach((v, i) => {
       const s = (v.src || "").trim();
-      if (s) {
-        probedRef.current.add(s);
-        void detectMins(i, s);
-      }
+      if (s) void detectMins(i, s);
     });
   };
 
@@ -369,13 +378,18 @@ export function CourseForm({ slug }: { slug?: string }) {
   ) => {
     if (fresh.length === 0) {
       setNotified(null);
+      setNoticeErr("");
       return;
     }
     try {
       const { ensureLessonNotices } = await import("../lib/db/adminUsers");
       setNotified(await ensureLessonNotices(slugVal, fresh, sinceIso));
-    } catch {
-      setNotified(null); // notices best-effort; the save already succeeded
+      setNoticeErr("");
+    } catch (e) {
+      // Save is green; the notice step is not — say why (often: nobody
+      // enrolled yet, or the admin session lapsed mid-save).
+      setNotified(null);
+      setNoticeErr(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -509,6 +523,11 @@ export function CourseForm({ slug }: { slug?: string }) {
       )}
       {saved && statusText && (
         <p role="status" className="text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
+      )}
+      {saved && cloud === "ok" && noticeErr && (
+        <p role="alert" className="rounded-xl border px-4 py-2.5 text-[13px] font-bold" style={{ borderColor: "#9A6B00", color: "#9A6B00", background: "#FFF8E6" }}>
+          {lt === "ar" ? `التنبيه متحفظش: ${noticeErr}` : `Notices failed: ${noticeErr}`}
+        </p>
       )}
       {saved && cloud === "fail" && (
         <div className="grid gap-2">
