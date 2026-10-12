@@ -340,7 +340,11 @@ function PartTitle({ slug, idx, lang }: { slug: string; idx: number; lang: "en" 
   useEffect(() => {
     void import("../store").then((m) => {
       const raw = m.getRawCourse(slug);
-      const t = raw?.modules?.[lang]?.[idx]?.t ?? raw?.modules?.en?.[idx]?.t;
+      const other = lang === "ar" ? "en" : "ar";
+      // Cross-language fallback: an Arabic-only title must still show when
+      // the admin UI runs in English (and vice versa) — never "#N".
+      const t = raw?.modules?.[lang]?.[idx]?.t?.trim()
+        || raw?.modules?.[other]?.[idx]?.t?.trim();
       if (t) setTitle(t);
     }).catch(() => {
       /* keep fallback */

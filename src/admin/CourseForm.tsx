@@ -264,7 +264,6 @@ export function CourseForm({ slug }: { slug?: string }) {
     });
   };
   const delMod = (i: number) => {
-    if (course.modules.en.length <= 1) return;
     const drop = (arr: string[]) => arr.filter((_, k) => k !== i);
     set({
       modules: {
@@ -476,11 +475,8 @@ export function CourseForm({ slug }: { slug?: string }) {
         .filter(({ i }) => keep[i])
         .map(({ v, i }) => (meas.has(i) ? { ...v, mins: meas.get(i) as number } : v)),
     };
-    if (pruned.modules.en.length === 0) {
-      pruned.modules = { en: [{ t: "", d: "" }], ar: [{ t: "", d: "" }] };
-      pruned.sections = { en: [""], ar: [""] };
-      pruned.videos = [{ src: "", mins: 10, assign: "", exam: "" }];
-    }
+    // Zero is allowed: an emptied course deletes every remote lesson (the
+    // student sees "no lessons yet", never a white page or a blank row).
     setCourse(pruned);
     // Local first (skip the fire-and-forget push — the awaited push below
     // replaces it, so two concurrent pushes can never duplicate modules).
@@ -679,8 +675,13 @@ export function CourseForm({ slug }: { slug?: string }) {
       <Section title={a.secCurr}>
         {course.modules[lt].map((m, i) => {
           const open = openMod === i;
-          const sec = (course.sections?.[lt]?.[i] ?? "").trim();
-          const title = (m.t || "").trim();
+          const other = lt === "ar" ? "en" : "ar";
+          // Cross-language fallback for header labels (titles typed in one
+          // language show in both UI languages).
+          const sec = ((course.sections?.[lt]?.[i] ?? "").trim()
+            || (course.sections?.[other]?.[i] ?? "").trim());
+          const title = ((m.t || "").trim()
+            || (course.modules[other][i]?.t || "").trim());
           const vsrc = (course.videos[i]?.src ?? "").trim();
           const badge = vsrc === ""
             ? (lt === "ar" ? " · بلا فيديو" : " · no video")

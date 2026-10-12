@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Seek } from "@/components/ui/seek-search";
 import { initialsOf, type KtUser } from "../auth";
 import { isSupabaseConfigured } from "../lib/db/env";
+import { readSeenSessionsIso, SESSIONS_SEEN_EVENT } from "../lib/seen";
 import { useLang } from "./lang";
 
 function sectionFor(query: string): string | null {
@@ -30,6 +31,15 @@ export function TopNav({
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
   const [liveNotifs, setLiveNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+  const [liveSessions, setLiveSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
+  // Recount the badge when another view marks sessions seen (same-tab
+  // storage events don't fire — the marker module dispatches this instead).
+  const [, setSeenTick] = useState(0);
+  useEffect(() => {
+    const onSeen = () => setSeenTick((t) => t + 1);
+    window.addEventListener(SESSIONS_SEEN_EVENT, onSeen);
+    return () => window.removeEventListener(SESSIONS_SEEN_EVENT, onSeen);
+  }, []);
   const bellBoxRef = useRef<HTMLDivElement>(null);
 
   // Modern dropdown behavior: outside click or Escape dismisses.
@@ -49,27 +59,41 @@ export function TopNav({
     };
   }, [bell]);
 
-  // Live notifications (server truth). Null = loading/offline.
+  // Live notifications + lesson sessions (server truth). Null = loading/offline.
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) {
       setLiveNotifs(null);
+      setLiveSessions(null);
       return;
     }
     let alive = true;
     void import("../lib/db/activityDb")
-      .then((m) => m.getNotifications(5))
-      .then((list) => {
-        if (alive) setLiveNotifs(list);
+      .then((m) => Promise.all([m.getNotifications(5), m.getUpcomingSessions(5)]))
+      .then(([notifs, sessions]) => {
+        if (alive) {
+          setLiveNotifs(notifs);
+          setLiveSessions(sessions);
+        }
       })
       .catch(() => {
-        if (alive) setLiveNotifs([]);
+        if (alive) {
+          setLiveNotifs([]);
+          setLiveSessions([]);
+        }
       });
     return () => {
       alive = false;
     };
   }, [user?.email]);
 
-  const unread = liveNotifs === null ? 0 : liveNotifs.filter((n) => !n.is_read).length;
+  const notifUnread = liveNotifs === null ? 0 : liveNotifs.filter((n) => !n.is_read).length;
+  // Lessons badge: rows newer than the last seen marker (null marker = 0,
+  // so first run never blasts; the overview visit below starts counting).
+  const seenIso = readSeenSessionsIso();
+  const newSessions = liveSessions === null || seenIso === null
+    ? 0
+    : liveSessions.filter((s) => s.date > seenIso).length;
+  const unread = notifUnread + newSessions;
   const openBell = () => {
     setBell((v) => !v);
     setMenu(false);

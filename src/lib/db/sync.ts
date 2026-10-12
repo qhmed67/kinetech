@@ -622,7 +622,14 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
     id: string; sort_order: number; videos: Array<{ id: string; sort_order: number }>;
   }>).sort((a, b) => a.sort_order - b.sort_order);
   const modByOrder = new Map(modRows.map((m) => [m.sort_order, m]));
-  const n = Math.max(course.modules.en.length, course.videos.length, 1);
+  const wantLen = Math.max(course.modules.en.length, course.videos.length);
+  if (wantLen === 0) {
+    // Truly emptied course: remove every remote lesson instead of
+    // manufacturing a blank placeholder row (old code forced min 1).
+    for (const m of modRows) await must(sb.from("modules").delete().eq("id", m.id), "modules");
+    return true;
+  }
+  const n = wantLen;
   const keepModIds = new Set<string>();
   for (let i = 0; i < n; i++) {
     let modId = modByOrder.get(i)?.id ?? null;

@@ -14,7 +14,7 @@ export type Notification = {
   is_read: boolean;
 };
 
-/** Future sessions first, capped for the overview card.
+/** Newest first (FIFO): the latest lesson notice tops the widget.
     7-day grace behind now: lesson notices carry server time, and a student
     device clock running ahead (wrong timezone/DST) must never hide rows
     that exist. FIFO keeps each user at 5 rows regardless. */
@@ -24,7 +24,7 @@ export async function getUpcomingSessions(limit = 5): Promise<UpcomingSession[]>
   const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const { data, error } = await withTimeout(
     (async () =>
-      sb.from("upcoming_sessions").select("id,title,date").gte("date", weekAgo).order("date").limit(limit))(),
+      sb.from("upcoming_sessions").select("id,title,date").gte("date", weekAgo).order("date", { ascending: false }).limit(limit))(),
     NETWORK_TIMEOUT_MS,
     "sessions",
   );
