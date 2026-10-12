@@ -301,6 +301,14 @@ export function Dashboard({
         if (!alive) return;
         setSessions(s);
         setNotifs(n);
+        // Viewing the overview marks sessions seen (badge clears via event).
+        try {
+          const { markSessionsSeen } = await import("../lib/seen");
+          const maxDate = s.reduce((a, r) => (r.date > a ? r.date : a), "");
+          markSessionsSeen(maxDate || new Date().toISOString());
+        } catch {
+          /* badge stays */
+        }
         if (n.some((x) => !x.is_read)) {
           void m.markNotificationsRead().then(() => {
             if (alive) setNotifs((cur) => (cur ?? []).map((x) => ({ ...x, is_read: true })));

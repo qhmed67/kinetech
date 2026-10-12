@@ -368,6 +368,10 @@ const en = {
     min: "min",
     watchBtn: "Watch",
     contentT: "Course content",
+    noCourseT: "Course unavailable",
+    noCourseD: "This course is gone or hasn't loaded yet. Go back and reopen it.",
+    emptyT: "No lessons yet",
+    emptyD: "The instructor hasn't added any parts to this course.",
   },
   dashboard: {
     title: "My courses",
@@ -1148,6 +1152,10 @@ const ar: Strings = {
     min: "د",
     watchBtn: "شاهد",
     contentT: "محتوى الكورس",
+    noCourseT: "الكورس مش متاح",
+    noCourseD: "الكورس ده اتمسح أو متحملش. ارجع وافتحه تاني.",
+    emptyT: "مفيش دروس لسه",
+    emptyD: "المدرس مضافش أي أجزاء للكورس ده.",
   },
   dashboard: {
     title: "كورساتي",

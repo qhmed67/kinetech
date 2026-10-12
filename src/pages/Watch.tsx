@@ -629,10 +629,41 @@ export function Watch({  slug,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, video, lang, user?.email, refreshKey]);
 
-  if (!user || !enrolled || !course) return null;
+  if (!user || !enrolled) return null;
 
-  const idx = Math.min(video, course.modules.length - 1);
-  const mod = course.modules[idx];
+  // Missing course or zero lessons must NEVER white-screen: friendly panels.
+  if (!course) {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap">
+          <div className="rounded-[20px] border p-8 text-center" style={{ borderColor: "var(--kt-line)" }}>
+            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>{w.noCourseT}</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{w.noCourseD}</p>
+            <a href="#/courses" className="btn btn-secondary mt-5">{w.backToCourse}</a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+  const total = course.modules.length;
+  if (total === 0) {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap">
+          <a href={`#/courses/${slug}`} className="text-sm font-bold" style={{ color: "var(--accent)" }}>
+            {w.backToCourse}
+          </a>
+          <div className="mt-5 rounded-[20px] border p-8 text-center" style={{ borderColor: "var(--kt-line)" }}>
+            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>{w.emptyT}</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{w.emptyD}</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const idx = Math.min(Math.max(0, video), total - 1);
+  const mod = course.modules[idx] ?? { t: "", d: "" };
   const vid = videos[idx] ?? { src: "", mins: 10, assign: "", exam: "" };
   const src = vid.src || null;
   const left = Math.max(0, MAX_VIEWS - plays);
