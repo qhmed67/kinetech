@@ -20,7 +20,7 @@ const mockedSupabase = vi.mocked(supabase);
 
 function query(result: unknown) {
   const chain: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "limit", "single", "maybeSingle", "insert", "update", "delete", "upsert", "in"]) {
+  for (const m of ["select", "eq", "limit", "single", "maybeSingle", "insert", "update", "delete", "upsert", "in", "like", "order"]) {
     chain[m] = vi.fn().mockReturnValue(chain);
   }
   (chain as { then: unknown }).then =
@@ -282,5 +282,40 @@ describe("grant/revoke/ban", () => {
     expect(del).toHaveBeenCalled();
     await setBanned("u1", true);
     expect(update).toHaveBeenCalledWith({ banned: true });
+  });
+
+  it("backfills the newest lessons into a late grantee's widget", async () => {
+    const upsert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "enrollments") return { upsert };
+        if (table === "videos") {
+          return query({ data: [{ sort_order: 1, module_id: "m2" }, { sort_order: 0, module_id: "m1" }], error: null });
+        }
+        if (table === "module_translations") {
+          return query({
+            data: [
+              { module_id: "m1", lang: "ar", title: "الأول" },
+              { module_id: "m2", lang: "en", title: "Second" },
+            ],
+            error: null,
+          });
+        }
+        if (table === "upcoming_sessions") return { insert };
+        return query({ data: null, error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await grantEnrollment("u9", "python-data");
+    expect(upsert).toHaveBeenCalled();
+    expect(insert).toHaveBeenCalledTimes(1);
+    const rows = insert.mock.calls[0][0] as Array<{ user_id: string; title: string; date: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.user_id)).toEqual(["u9", "u9"]);
+    expect(rows[0].title).toContain("Second");
+    expect(rows[1].title).toContain("الأول");
+    expect(sb.from).not.toHaveBeenCalledWith("notifications");
   });
 });

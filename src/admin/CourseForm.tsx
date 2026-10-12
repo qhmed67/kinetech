@@ -411,6 +411,45 @@ export function CourseForm({ slug }: { slug?: string }) {
     const photo = toDirectImageUrl(course.photoCard);
     const detailRaw = toDirectImageUrl(course.photoDetail);
     const photoDetail = detailRaw || photo;
+    // Deterministic measure moment: fill every unmeasured link BEFORE the
+    // snapshot is built, so Save stores real durations instead of hoping a
+    // background probe won the race. Bounded (~8s, parallel); failures keep
+    // going through paste-retry + Detect-all + student heal.
+    const meas = new Map<number, number>();
+    const pendIdx: number[] = [];
+    course.videos.forEach((v, i) => {
+      const s = (v.src || "").trim();
+      if (s !== "" && !probedRef.current.has(s)) pendIdx.push(i);
+    });
+    if (pendIdx.length > 0) {
+      try {
+        const { probeVideoDurationSecs } = await import("../lib/videoGuard");
+        const found = await Promise.all(pendIdx.map(async (i) => {
+          const s = (course.videos[i].src || "").trim();
+          try {
+            const secs = await Promise.race([
+              probeVideoDurationSecs(s, 8000, 1),
+              new Promise<null>((res) => window.setTimeout(() => res(null), 8500)),
+            ]);
+            if (typeof secs === "number" && secs > 0) {
+              return { i, s, mins: Math.max(1, Math.ceil(secs / 60)) };
+            }
+          } catch {
+            /* background retry covers */
+          }
+          return { i, s, mins: null as number | null };
+        }));
+        for (const r of found) {
+          if (r.mins !== null) {
+            meas.set(r.i, r.mins);
+            probedRef.current.add(r.s);
+            delete failCounts.current[r.s];
+          }
+        }
+      } catch {
+        /* background retry covers */
+      }
+    }
     // Prune fully-blank lesson rows (no video, no titles, no section):
     // they would otherwise persist as empty months/parts forever.
     const keep = course.videos.map((_, i) => {
@@ -431,7 +470,11 @@ export function CourseForm({ slug }: { slug?: string }) {
       photoDetail,
       modules: { en: dropMod(course.modules.en), ar: dropMod(course.modules.ar) },
       sections: { en: dropIdx(course.sections.en), ar: dropIdx(course.sections.ar) },
-      videos: course.videos.filter((_, i) => keep[i]),
+      // Measured-at-save durations win over whatever the field held.
+      videos: course.videos
+        .map((v, i) => ({ v, i }))
+        .filter(({ i }) => keep[i])
+        .map(({ v, i }) => (meas.has(i) ? { ...v, mins: meas.get(i) as number } : v)),
     };
     if (pruned.modules.en.length === 0) {
       pruned.modules = { en: [{ t: "", d: "" }], ar: [{ t: "", d: "" }] };
