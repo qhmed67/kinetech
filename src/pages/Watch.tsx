@@ -535,10 +535,9 @@ export function Watch({  slug,
     window.scrollTo(0, 0);
   }, [slug, video]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Bulk heal, once per session: measure EVERY part in the background so old
-  // default-10 rows correct themselves without opening each lesson. Drive
-  // metadata is headers-only; YouTube probes run sequentially, one hidden
-  // player at a time. Failures keep their value for the next visit.
+  // Bulk heal, once per success: measure EVERY part in the background so old
+  // default-10 rows correct themselves without opening each lesson. Measured
+  // links stick; failures retry on the next visit instead of sticking at 10.
   useEffect(() => {
     let alive = true;
     if (!course || !isSupabaseConfigured()) return;
@@ -546,7 +545,6 @@ export function Watch({  slug,
       .map((v, i) => ({ i, src: (v.src || "").trim() }))
       .filter((j) => j.src !== "" && !bulkProbed.has(j.src));
     if (jobs.length === 0) return;
-    jobs.forEach((j) => bulkProbed.add(j.src));
     void (async () => {
       try {
         const g = await import("../lib/videoGuard");
@@ -558,6 +556,7 @@ export function Watch({  slug,
         for (let k = 0; k < jobs.length; k++) {
           const s = secs[k];
           if (!alive || typeof s !== "number" || s <= 0) continue;
+          bulkProbed.add(jobs[k].src);
           const real = Math.max(1, Math.ceil(s / 60));
           if (real === (videos[jobs[k].i]?.mins ?? 10)) continue;
           store.setVideoMins(slug, jobs[k].i, real);
