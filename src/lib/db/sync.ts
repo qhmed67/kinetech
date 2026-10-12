@@ -384,10 +384,11 @@ export async function pushDoneToCloud(
   idx: number,
   watchedSecs = 0,
   durationSecs = 0,
+  ended = false,
 ): Promise<void> {
   try {
     const id = await resolveVideoId(slug, idx);
-    if (id) await completeVideoDb(id, watchedSecs, durationSecs);
+    if (id) await completeVideoDb(id, watchedSecs, durationSecs, ended);
   } catch {
     /* offline / requirement unmet — local decides UI, server decides truth */
   }
@@ -520,9 +521,19 @@ function parsePriceCents(price: { en: string; ar: string } | null): number | nul
 }
 
 export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
-  try {
+  // PostgREST RESOLVES (never rejects) on RLS/constraint/trigger failures —
+  // every write below asserts its error. Unchecked, failed saves LOOKED
+  // synced while modules/videos silently never landed (ghost adds/deletes).
+  const must = async <T>(
+    p: PromiseLike<{ data: T; error: { message?: string } | null }>,
+    what: string,
+  ): Promise<T> => {
+    const r = await p;
+    if (r.error) throw new Error(`${what}: ${r.error.message ?? "unknown database error"}`);
+    return r.data;
+  };
   const sb = supabase();
-  if (!sb) return false;
+  if (!sb) throw new Error("supabase-not-configured");
   const insEn = course.instructor.name.en.trim();
   let instructorId: string | null = null;
   if (insEn) {
@@ -531,18 +542,21 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
     if (f) {
       instructorId = f.id;
     } else {
-      const { data: created } = await sb.from("instructors").insert({
-        name_en: insEn,
-        name_ar: course.instructor.name.ar || insEn,
-        spec_en: course.instructor.spec.en || null,
-        spec_ar: course.instructor.spec.ar || null,
-        bio_en: course.instructor.bio.en || null,
-        bio_ar: course.instructor.bio.ar || null,
-      }).select("id").single();
+      const created = await must(
+        sb.from("instructors").insert({
+          name_en: insEn,
+          name_ar: course.instructor.name.ar || insEn,
+          spec_en: course.instructor.spec.en || null,
+          spec_ar: course.instructor.spec.ar || null,
+          bio_en: course.instructor.bio.en || null,
+          bio_ar: course.instructor.bio.ar || null,
+        }).select("id").single(),
+        "instructors",
+      );
       instructorId = (created as unknown as { id: string } | null)?.id ?? null;
     }
   }
-  const { data: c } = await sb.from("courses").upsert({
+  const c = await must(sb.from("courses").upsert({
     slug: course.slug,
     cat: dbCat(course.cat),
     is_bac: course.bac,
@@ -552,11 +566,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
     photo_card_url: toDirectImageUrl(course.photoCard) || null,
     photo_detail_url: toDirectImageUrl(course.photoDetail) || toDirectImageUrl(course.photoCard) || null,
     instructor_id: instructorId,
-  }, { onConflict: "slug" }).select("id").single();
+  }, { onConflict: "slug" }).select("id").single(), "courses");
   const courseId = (c as unknown as { id: string } | null)?.id;
-  if (!courseId) return false;
-  await sb.from("course_translations").upsert([
-    {
+  if (!courseId) throw new Error("courses: no row returned");
+  await must(sb.from("course_translations").upsert([    {
       course_id: courseId, lang: "en",
       name: course.name.en, designation: course.designation.en, quote: course.quote.en,
       duration: course.duration.en, lessons: course.lessons.en, schedule: course.schedule.en,
@@ -571,13 +584,13 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       seats_label: course.seats.ar, cta_label: course.cta.ar,
       outcomes: course.outcomes.ar.length > 0 ? course.outcomes.ar : course.outcomes.en,
     },
-  ], { onConflict: "course_id,lang" });
+  ], { onConflict: "course_id,lang" }), "course_translations");
   // Id-preserving sync: match existing rows by sort_order so student
   // video_views (keyed by video id) survive admin edits. Only rows past the
   // new length are deleted; that is the sole progress-loss case (removed lesson).
-  const { data: existing } = await sb.from("modules")
+  const existing = await must(sb.from("modules")
     .select("id,sort_order,videos(id,sort_order)")
-    .eq("course_id", courseId);
+    .eq("course_id", courseId), "modules");
   const modRows = ((existing ?? []) as unknown as Array<{
     id: string; sort_order: number; videos: Array<{ id: string; sort_order: number }>;
   }>).sort((a, b) => a.sort_order - b.sort_order);
@@ -587,11 +600,11 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   for (let i = 0; i < n; i++) {
     let modId = modByOrder.get(i)?.id ?? null;
     if (!modId) {
-      const { data: m } = await sb.from("modules")
-        .insert({ course_id: courseId, sort_order: i }).select("id").single();
+      const m = await must(sb.from("modules")
+        .insert({ course_id: courseId, sort_order: i }).select("id").single(), "modules");
       modId = (m as unknown as { id: string } | null)?.id ?? null;
     }
-    if (!modId) continue;
+    if (!modId) throw new Error(`modules: no id for position ${i}`);
     keepModIds.add(modId);
     // Section labels persist per module (best-effort on pre-migration DBs).
     try {
@@ -602,10 +615,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
     } catch {
       /* pre-sections schema — hydrate degrades gracefully */
     }
-    await sb.from("module_translations").upsert([
+    await must(sb.from("module_translations").upsert([
       { module_id: modId, lang: "en", title: course.modules.en[i]?.t ?? "", description: course.modules.en[i]?.d ?? "" },
       { module_id: modId, lang: "ar", title: course.modules.ar[i]?.t ?? course.modules.en[i]?.t ?? "", description: course.modules.ar[i]?.d ?? course.modules.en[i]?.d ?? "" },
-    ], { onConflict: "module_id,lang" });
+    ], { onConflict: "module_id,lang" }), "module_translations");
     const v = course.videos[i];
     const existingVid = (modByOrder.get(i)?.videos ?? []).find((x) => x.sort_order === i)?.id
       ?? (await sb.from("videos").select("id").eq("course_id", courseId).eq("sort_order", i).limit(1)
@@ -617,35 +630,34 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
         assign_url: v.assign || null, exam_url: v.exam || null,
       };
       if (existingVid) {
-        await sb.from("videos").update(row).eq("id", existingVid);
+        await must(sb.from("videos").update(row).eq("id", existingVid), "videos");
         videoIds.set(vk(course.slug, i), existingVid);
       } else {
-        const { data: vv } = await sb.from("videos").insert(row).select("id").single();
+        const vv = await must(sb.from("videos").insert(row).select("id").single(), "videos");
         const vid = (vv as unknown as { id: string } | null)?.id;
         // Brand-new lesson video: the trg_notify_enrolled_on_new_video
         // trigger notifies every enrolled user server-side (unskippable —
         // the old client broadcast lived here and could silently miss).
-        if (vid) videoIds.set(vk(course.slug, i), vid);
+        if (!vid) throw new Error("videos: no id returned");
+        videoIds.set(vk(course.slug, i), vid);
       }
     } else if (existingVid) {
       // Lesson dropped its video: remove the row (its views go with it).
-      await sb.from("videos").delete().eq("id", existingVid);
+      await must(sb.from("videos").delete().eq("id", existingVid), "videos");
       videoIds.delete(vk(course.slug, i));
     }
   }
   for (const m of modRows) {
-    if (!keepModIds.has(m.id)) await sb.from("modules").delete().eq("id", m.id);
+    if (!keepModIds.has(m.id)) await must(sb.from("modules").delete().eq("id", m.id), "modules");
   }
   return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function pushDeleteCourseToDb(slug: string): Promise<void> {
   const sb = supabase();
-  if (!sb) return;
-  await sb.from("courses").delete().eq("slug", slug);
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.from("courses").delete().eq("slug", slug);
+  if (error) throw new Error(`courses delete: ${error.message}`);
 }
 
 /** NOTE: deleting a course cascades its views server-side. */

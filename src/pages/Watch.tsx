@@ -681,10 +681,9 @@ export function Watch({  slug,
   };
 
   const onEnded = () => {
-    // completion requires ~80% genuinely watched (or burned views); a seek
-    // straight to the end accumulates ~0s and grants nothing. Real media
-    // duration wins over the nominal minutes label.
-    if (recordDone(user, slug, idx, watchAcc.current.total, realDur, vid.mins)) {
+    // Ended playback completes outright — seek-to-end included, by decision.
+    // The next part opens; watching honestly remains the student's choice.
+    if (recordDone(user, slug, idx, watchAcc.current.total, realDur, vid.mins, true)) {
       setDoneTick((n) => n + 1);
     }
   };

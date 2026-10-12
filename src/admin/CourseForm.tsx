@@ -5,6 +5,7 @@ import {
   getRawCourse,
   pushCourseNow,
   saveCourse,
+  useContent,
   type StoreCourse,
 } from "../store";
 import { useLang } from "../components/lang";
@@ -175,11 +176,19 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [err, setErr] = useState("");
   const [saved, setSaved] = useState(false);
   const [cloud, setCloud] = useState<"idle" | "syncing" | "ok" | "fail">("idle");
+  const [cloudErr, setCloudErr] = useState("");
   const [saveTick, setSaveTick] = useState(0);
+  // Dirty = admin typed something not yet saved. While pristine, the form
+  // follows store updates (hydrates, other tabs) instead of showing stale
+  // rows — the stale-editor overwrite that ate adds/deletes.
+  const dirtyRef = useRef(false);
+  const storeVersion = useContent();
   // Duration auto-detect: per-lesson "measuring…" flags + session memory of
   // already-probed links (paste → debounce → measure → fill minutes).
   const [detecting, setDetecting] = useState<Record<number, boolean>>({});
   const probedRef = useRef<Set<string>>(new Set());
+  // Accordion: one open part at a time (long curricula stay scannable).
+  const [openMod, setOpenMod] = useState<number | null>(0);
 
   // form follows the page language (global toggle in the admin header)
   useEffect(() => {
@@ -187,10 +196,34 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("idle");
   }, [lang]);
 
+  // New course opened (or slug changed): load it fresh, clear edit state.
+  useEffect(() => {
+    setCourse(getRawCourse(slug ?? "") ?? blank());
+    setErr("");
+    setSaved(false);
+    setCloud("idle");
+    setCloudErr("");
+    setDetecting({});
+    setOpenMod(0);
+    probedRef.current.clear();
+    dirtyRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  // Pristine follow: store changed under us (hydrate, another tab) and we
+  // have no unsaved edits — reload instead of showing stale rows.
+  useEffect(() => {
+    if (dirtyRef.current || !slug) return;
+    const fresh = getRawCourse(slug);
+    if (fresh && JSON.stringify(fresh) !== JSON.stringify(course)) setCourse(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeVersion, slug, course]);
+
   const set = (patch: Partial<StoreCourse>) => {
     setCourse((c) => ({ ...c, ...patch }));
     setSaved(false);
     setCloud("idle");
+    dirtyRef.current = true;
   };
   const setL = (key: "name" | "quote" | "duration" | "lessons" | "schedule", v: string) =>
     set({ [key]: { ...course[key], [lt]: v } } as Partial<StoreCourse>);
@@ -277,6 +310,7 @@ export function CourseForm({ slug }: { slug?: string }) {
           vids[i] = { ...vids[i], mins };
           return { ...c, videos: vids };
         });
+        dirtyRef.current = true;
         setSaved(false);
         setCloud("idle");
       }
@@ -330,10 +364,37 @@ export function CourseForm({ slug }: { slug?: string }) {
     const photo = toDirectImageUrl(course.photoCard);
     const detailRaw = toDirectImageUrl(course.photoDetail);
     const photoDetail = detailRaw || photo;
-    const snapshot = { ...course, slug: s, photoCard: photo, photoDetail };
+    // Prune fully-blank lesson rows (no video, no titles, no section):
+    // they would otherwise persist as empty months/parts forever.
+    const keep = course.videos.map((_, i) => {
+      const v = course.videos[i];
+      const hasVideo = (v.src || "").trim() !== "" || (v.assign || "").trim() !== "" || (v.exam || "").trim() !== "";
+      const t = (arr: Array<{ t: string; d: string }>) =>
+        ((arr[i]?.t || "").trim() !== "" || (arr[i]?.d || "").trim());
+      const hasText = t(course.modules.en) || t(course.modules.ar);
+      const hasSec = ((course.sections.en[i] || "").trim() !== "" || (course.sections.ar[i] || "").trim() !== "");
+      return hasVideo || hasText || hasSec;
+    });
+    const dropIdx = (arr: string[]) => arr.filter((_, i) => keep[i]);
+    const dropMod = (arr: Array<{ t: string; d: string }>) => arr.filter((_, i) => keep[i]);
+    const pruned: StoreCourse = {
+      ...course,
+      slug: s,
+      photoCard: photo,
+      photoDetail,
+      modules: { en: dropMod(course.modules.en), ar: dropMod(course.modules.ar) },
+      sections: { en: dropIdx(course.sections.en), ar: dropIdx(course.sections.ar) },
+      videos: course.videos.filter((_, i) => keep[i]),
+    };
+    if (pruned.modules.en.length === 0) {
+      pruned.modules = { en: [{ t: "", d: "" }], ar: [{ t: "", d: "" }] };
+      pruned.sections = { en: [""], ar: [""] };
+      pruned.videos = [{ src: "", mins: 10, assign: "", exam: "" }];
+    }
+    setCourse(pruned);
     // Local first (skip the fire-and-forget push — the awaited push below
     // replaces it, so two concurrent pushes can never duplicate modules).
-    const ok = saveCourse(snapshot, true);
+    const ok = saveCourse(pruned, true);
     if (!ok) {
       const detail = getLastStoreError();
       setErr(detail ? `${a.storageFull} (${detail})` : a.storageFull);
@@ -343,11 +404,33 @@ export function CourseForm({ slug }: { slug?: string }) {
     setSaved(true);
     if (isNew) window.location.hash = `#/admin/courses/${s}`;
     // Awaited cloud push: the UI says plainly whether the save reached the
-    // DB. On success the exam builders remount (video ids now resolvable).
+    // DB — including the exact database reason on failure. On success the
+    // exam builders remount (video ids now resolvable).
     setCloud("syncing");
-    const synced = await pushCourseNow(snapshot);
-    setCloud(synced ? "ok" : "fail");
-    if (synced) setSaveTick((k) => k + 1);
+    setCloudErr("");
+    const res = await pushCourseNow(pruned);
+    setCloud(res.ok ? "ok" : "fail");
+    if (res.ok) {
+      dirtyRef.current = false;
+      setSaveTick((k) => k + 1);
+    } else {
+      setCloudErr(res.error ?? "");
+    }
+  };
+
+  // Retry the cloud push with the CURRENT form state (slug normalized).
+  const retryPush = async () => {
+    const s = (isNew || !course.slug ? slug ?? "" : course.slug).trim() || course.slug.trim();
+    setCloud("syncing");
+    setCloudErr("");
+    const res = await pushCourseNow({ ...course, slug: s });
+    setCloud(res.ok ? "ok" : "fail");
+    if (res.ok) {
+      dirtyRef.current = false;
+      setSaveTick((k) => k + 1);
+    } else {
+      setCloudErr(res.error ?? "");
+    }
   };
 
   const statusText = !saved
@@ -381,6 +464,18 @@ export function CourseForm({ slug }: { slug?: string }) {
       )}
       {saved && statusText && (
         <p role="status" className="text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
+      )}
+      {saved && cloud === "fail" && (
+        <div className="grid gap-2">
+          {cloudErr && (
+            <p role="alert" dir="ltr" className="rounded-xl border px-4 py-2.5 text-[13px] font-bold" style={{ borderColor: "#B3261E", color: "#B3261E", background: "#FDF0EF" }}>
+              {cloudErr}
+            </p>
+          )}
+          <button type="button" onClick={retryPush} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
+            {lt === "ar" ? "إعادة المزامنة" : "Retry cloud sync"}
+          </button>
+        </div>
       )}
 
       <Section title={a.secBasic}>
@@ -475,10 +570,35 @@ export function CourseForm({ slug }: { slug?: string }) {
       </Section>
 
       <Section title={a.secCurr}>
-        {course.modules[lt].map((m, i) => (
+        {course.modules[lt].map((m, i) => {
+          const open = openMod === i;
+          const sec = (course.sections?.[lt]?.[i] ?? "").trim();
+          const title = (m.t || "").trim();
+          const vsrc = (course.videos[i]?.src ?? "").trim();
+          const badge = vsrc === ""
+            ? (lt === "ar" ? " · بلا فيديو" : " · no video")
+            : extractYoutubeId(vsrc) !== null
+              ? " · YouTube"
+              : extractDriveId(vsrc) !== null
+                ? " · Drive"
+                : "";
+          return (
           <div key={i} className="rounded-2xl border p-4" style={{ borderColor: "var(--kt-line)", background: "var(--surface)" }}>
             <div className="flex items-center justify-between gap-2">
-              <strong style={{ fontFamily: "var(--font-display)" }}>#{i + 1}</strong>
+              <button
+                type="button"
+                onClick={() => setOpenMod(open ? null : i)}
+                aria-expanded={open}
+                className="flex min-w-0 flex-1 items-center gap-2 text-start"
+              >
+                <strong className="flex-none" style={{ fontFamily: "var(--font-display)" }}>#{i + 1}</strong>
+                <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--muted)" }}>
+                  {[sec, title].filter(Boolean).join(" · ")}{badge}
+                </span>
+                <span aria-hidden="true" className="flex-none text-sm" style={{ color: "var(--muted)" }}>
+                  {open ? "▾" : "▸"}
+                </span>
+              </button>
               <RowActions
                 onUp={() => move(i, -1)}
                 onDown={() => move(i, 1)}
@@ -487,6 +607,7 @@ export function CourseForm({ slug }: { slug?: string }) {
                 downLast={i === course.modules[lt].length - 1}
               />
             </div>
+            {open && (
             <div className="mt-3 grid gap-3">
               <Field label={a.secLabel}>
                 <Text
@@ -511,7 +632,6 @@ export function CourseForm({ slug }: { slug?: string }) {
                         ? (lt === "ar" ? "بيقيس…" : "measuring…")
                         : `${course.videos[i]?.mins ?? 10} ${lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}`}
                     </p>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>{a.vidMinsAuto}</p>
                   </div>
                 </Field>
               </div>
@@ -533,8 +653,10 @@ export function CourseForm({ slug }: { slug?: string }) {
                 </div>
               )}
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={addMod} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
             + {a.addMod}
@@ -552,12 +674,26 @@ export function CourseForm({ slug }: { slug?: string }) {
         />
       </Section>
 
-      <div className="flex gap-3">
-        <button type="button" onClick={save} className="btn btn-primary">
-          {a.save}
-        </button>
-        {saved && statusText && (
-          <p role="status" className="self-center text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
+      <div className="grid gap-3">
+        <div className="flex gap-3">
+          <button type="button" onClick={save} className="btn btn-primary">
+            {a.save}
+          </button>
+          {saved && statusText && (
+            <p role="status" className="self-center text-sm font-bold" style={{ color: statusColor }}>{statusText}</p>
+          )}
+        </div>
+        {saved && cloud === "fail" && (
+          <div className="grid gap-2">
+            {cloudErr && (
+              <p role="alert" dir="ltr" className="rounded-xl border px-4 py-2.5 text-[13px] font-bold" style={{ borderColor: "#B3261E", color: "#B3261E", background: "#FDF0EF" }}>
+                {cloudErr}
+              </p>
+            )}
+            <button type="button" onClick={retryPush} className="btn btn-secondary self-start" style={{ minHeight: 40, padding: "8px 18px", fontSize: 14 }}>
+              {lt === "ar" ? "إعادة المزامنة" : "Retry cloud sync"}
+            </button>
+          </div>
         )}
       </div>
     </div>

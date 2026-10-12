@@ -532,14 +532,15 @@ export function saveCourse(course: StoreCourse, skipCloud = false): boolean {
   return ok;
 }
 
-/** Awaitable cloud push for admin saves: true = synced, false = local-only
-    (offline / RLS denial). Lets the UI say plainly which one happened. */
-export async function pushCourseNow(course: StoreCourse): Promise<boolean> {
+/** Awaitable cloud push for admin saves: ok + null, or failed + the exact
+    database reason (RLS denial, constraint, trigger) for display. */
+export async function pushCourseNow(course: StoreCourse): Promise<{ ok: boolean; error: string | null }> {
   try {
     const m = await import("./lib/db/sync");
-    return await m.pushCourseToDb(course);
-  } catch {
-    return false;
+    await m.pushCourseToDb(course);
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
