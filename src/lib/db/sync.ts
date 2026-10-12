@@ -13,9 +13,11 @@ import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
 const videoIds = new Map<string, string>();
 const vk = (slug: string, idx: number) => `${slug}:${idx}`;
 
-/* Titles of videos INSERTED by the latest push (brand-new lessons). The
-   course form takes them to verify/fill lesson notices; reset at each push
-   so a background push can never leak stale titles into the next save. */
+/* New watchable content of the latest push (lesson titles), by src novelty —
+   not by row INSERT. Position-matched sync rewrites rows in place, so a
+   delete+re-add in ONE save (same count) or a replaced video link produces
+   zero INSERTs and the old insert-only detection missed it forever. Reset at
+   each push so a background push never leaks stale titles into the next save. */
 let lastFresh: Array<{ titleEn: string; titleAr: string }> = [];
 export function takeFreshLessons(): Array<{ titleEn: string; titleAr: string }> {
   const f = lastFresh;
@@ -616,11 +618,20 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   // video_views (keyed by video id) survive admin edits. Only rows past the
   // new length are deleted; that is the sole progress-loss case (removed lesson).
   const existing = await must(sb.from("modules")
-    .select("id,sort_order,videos(id,sort_order)")
+    .select("id,sort_order,videos(id,sort_order,src_url)")
     .eq("course_id", courseId), "modules");
   const modRows = ((existing ?? []) as unknown as Array<{
-    id: string; sort_order: number; videos: Array<{ id: string; sort_order: number }>;
+    id: string; sort_order: number; videos: Array<{ id: string; sort_order: number; src_url: string }>;
   }>).sort((a, b) => a.sort_order - b.sort_order);
+  // Every src the course had BEFORE this push: only genuinely new watchable
+  // content notifies (edits to minutes/links, shifts from deletes stay silent).
+  const beforeSrcs = new Set<string>();
+  for (const m of modRows) {
+    for (const x of m.videos ?? []) {
+      if (x.src_url && x.src_url.trim() !== "") beforeSrcs.add(x.src_url.trim());
+    }
+  }
+  const seenSrcs = new Set<string>();
   const modByOrder = new Map(modRows.map((m) => [m.sort_order, m]));
   const wantLen = Math.max(course.modules.en.length, course.videos.length);
   if (wantLen === 0) {
@@ -658,6 +669,7 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       ?? (await sb.from("videos").select("id").eq("course_id", courseId).eq("sort_order", i).limit(1)
         .then((r) => ((r.data ?? []) as unknown as Array<{ id: string }>)[0]?.id ?? null));
     if (v && (v.src || "").trim()) {
+      const src = v.src.trim();
       const row = {
         course_id: courseId, module_id: modId, sort_order: i,
         src_url: v.src, mins: v.mins,
@@ -674,6 +686,12 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
         // the old client broadcast lived here and could silently miss).
         if (!vid) throw new Error("videos: no id returned");
         videoIds.set(vk(course.slug, i), vid);
+      }
+      // Novelty, not row-operation: a src the course never had (fresh insert,
+      // same-save delete+re-add, replaced link) notifies once per push.
+      // Minutes/link-only edits and delete-shifted rows reuse old srcs.
+      if (!beforeSrcs.has(src) && !seenSrcs.has(src)) {
+        seenSrcs.add(src);
         lastFresh.push({
           titleEn: course.modules.en[i]?.t ?? "",
           titleAr: course.modules.ar[i]?.t ?? "",
