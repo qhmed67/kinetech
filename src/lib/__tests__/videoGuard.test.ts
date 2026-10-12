@@ -57,6 +57,12 @@ describe("probeVideoDurationSecs", () => {
       probeVideoDurationSecs("https://drive.google.com/file/d/ABC123/view?usp=sharing", 50),
     ).resolves.toBeNull();
   });
+
+  it("retries then gives up without hanging", async () => {
+    await expect(
+      probeVideoDurationSecs("https://drive.google.com/file/d/ABC123/view?usp=sharing", 30, 2),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("probeEachDuration", () => {

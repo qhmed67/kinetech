@@ -178,6 +178,8 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [saved, setSaved] = useState(false);
   const [cloud, setCloud] = useState<"idle" | "syncing" | "ok" | "fail">("idle");
   const [cloudErr, setCloudErr] = useState("");
+  // Students covered by new-lesson notices (sessions widget) for this save.
+  const [notified, setNotified] = useState<number | null>(null);
   const [saveTick, setSaveTick] = useState(0);
   // Dirty = admin typed something not yet saved. While pristine, the form
   // follows store updates (hydrates, other tabs) instead of showing stale
@@ -209,6 +211,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloudErr("");
     setDetecting({});
     setDetectFail({});
+    setNotified(null);
     setOpenMod(0);
     probedRef.current.clear();    dirtyRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,6 +230,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCourse((c) => ({ ...c, ...patch }));
     setSaved(false);
     setCloud("idle");
+    setNotified(null);
     dirtyRef.current = true;
   };
   const setL = (key: "name" | "quote" | "duration" | "lessons" | "schedule", v: string) =>
@@ -356,6 +360,25 @@ export function CourseForm({ slug }: { slug?: string }) {
     });
   };
 
+  // Lessons-widget notices for brand-new videos: the DB trigger already
+  // made them — verify and fill only the gaps (missing trigger/partial).
+  const confirmNotices = async (
+    slugVal: string,
+    fresh: Array<{ titleEn: string; titleAr: string }>,
+    sinceIso: string,
+  ) => {
+    if (fresh.length === 0) {
+      setNotified(null);
+      return;
+    }
+    try {
+      const { ensureLessonNotices } = await import("../lib/db/adminUsers");
+      setNotified(await ensureLessonNotices(slugVal, fresh, sinceIso));
+    } catch {
+      setNotified(null); // notices best-effort; the save already succeeded
+    }
+  };
+
   const save = async () => {
     const name = course.name.en.trim() || course.name.ar.trim();
     if (!name) {
@@ -418,11 +441,16 @@ export function CourseForm({ slug }: { slug?: string }) {
     // exam builders remount (video ids now resolvable).
     setCloud("syncing");
     setCloudErr("");
+    setNotified(null);
+    // Margin before the push: trigger rows carry server time, which may run
+    // seconds ahead of this device — the check must not miss them.
+    const pushStart = new Date(Date.now() - 60_000).toISOString();
     const res = await pushCourseNow(pruned);
     setCloud(res.ok ? "ok" : "fail");
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      void confirmNotices(s, res.fresh, pushStart);
       // Close the loop: re-read the DB and let the pristine-follow reload
       // the form from server truth (a "synced" lie can't survive this).
       verifyCloudState();
@@ -436,11 +464,14 @@ export function CourseForm({ slug }: { slug?: string }) {
     const s = (isNew || !course.slug ? slug ?? "" : course.slug).trim() || course.slug.trim();
     setCloud("syncing");
     setCloudErr("");
+    setNotified(null);
+    const pushStart = new Date(Date.now() - 60_000).toISOString();
     const res = await pushCourseNow({ ...course, slug: s });
     setCloud(res.ok ? "ok" : "fail");
     if (res.ok) {
       dirtyRef.current = false;
       setSaveTick((k) => k + 1);
+      void confirmNotices(s, res.fresh, pushStart);
       verifyCloudState();
     } else {
       setCloudErr(res.error ?? "");
@@ -452,7 +483,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     : cloud === "syncing"
       ? `${a.saved} …`
       : cloud === "ok"
-        ? a.savedCloud
+        ? a.savedCloud + (notified !== null ? ` · ${a.notifiedN.replace("{n}", String(notified))}` : "")
         : cloud === "fail"
           ? a.savedLocalOnly
           : a.saved;

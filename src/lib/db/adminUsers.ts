@@ -372,6 +372,65 @@ export async function notifyNewLessons(
   return userIds.length;
 }
 
+/**
+ * Trigger-first lesson notices with client fallback, sessions widget ONLY.
+ * The DB trigger (trg_notify_enrolled_on_new_video) already inserts one row
+ * per (enrolled user × new lesson) synchronously inside the save — this
+ * verifies those rows landed and inserts ONLY the gaps (missing trigger,
+ * partial failure). Never duplicates, never touches general notifications.
+ * Returns total covered students.
+ */
+export async function ensureLessonNotices(
+  courseSlug: string,
+  lessons: Array<{ titleEn: string; titleAr: string }>,
+  sinceIso: string,
+): Promise<number> {
+  if (lessons.length === 0) return 0;
+  const sb = authed();
+  const { data: course } = await withTimeout(
+    (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
+    NETWORK_TIMEOUT_MS,
+    "course-lookup",
+  );
+  const courseId = (course as unknown as { id: string } | null)?.id;
+  if (!courseId) return 0;
+  const { data: enr } = await withTimeout(
+    (async () => sb.from("enrollments").select("user_id").eq("course_id", courseId))(),
+    NETWORK_TIMEOUT_MS,
+    "enrollment-list",
+  );
+  const userIds = ((enr ?? []) as unknown as Array<{ user_id: string }>).map((r) => r.user_id);
+  if (userIds.length === 0) return 0;
+  // Same title shape as the trigger: ar-first, trimmed, fallback literal.
+  const want = lessons.map(
+    (l) => `New lesson · درس جديد: ${(l.titleAr || "").trim() || (l.titleEn || "").trim() || "New lesson"}`,
+  );
+  const { data: rows } = await withTimeout(
+    (async () => sb.from("upcoming_sessions").select("user_id,title,date")
+      .in("user_id", userIds).in("title", want))(),
+    NETWORK_TIMEOUT_MS,
+    "notice-check",
+  );
+  const covered = new Set(
+    ((rows ?? []) as unknown as Array<{ user_id: string; title: string; date: string }>)
+      .filter((r) => r.date >= sinceIso)
+      .map((r) => r.user_id),
+  );
+  const missing = userIds.filter((u) => !covered.has(u));
+  if (missing.length > 0) {
+    const stamp = new Date().toISOString();
+    const inserts = missing.flatMap((user_id) => want.map((title) => ({ user_id, title, date: stamp })));
+    const { error } = await withTimeout(
+      (async () => sb.from("upcoming_sessions").insert(inserts))(),
+      NETWORK_TIMEOUT_MS,
+      "notice-fill",
+    );
+    if (error) throw error;
+    missing.forEach((u) => covered.add(u));
+  }
+  return covered.size;
+}
+
 /** Admin-only: auth accounts with no profile row. Empty = healthy. */
 export async function listOrphans(): Promise<Orphan[]> {
   const sb = authed();

@@ -257,23 +257,46 @@ function probeYoutubeId(id: string, timeoutMs: number): Promise<number | null> {
 
 /**
  * Measure a video's real length in seconds. YouTube via a hidden IFrame API
- * probe; Drive via a metadata preload of the direct media URL (headers only,
- * no CORS needed). Null on any failure/timeout — callers keep the old value.
+ * probe; Drive via the ordered direct-media candidates (uc, then
+ * usercontent+confirm — the second often beats the virus-scan interstitial).
+ * Retries the whole sequence; null only when everything failed — callers
+ * keep the old value. attempts=1 for bulk passes (time-bounded), 2+ for
+ * single admin detects.
  */
-export async function probeVideoDurationSecs(src: string, timeoutMs = 20000): Promise<number | null> {
+export async function probeVideoDurationSecs(
+  src: string,
+  timeoutMs = 20000,
+  attempts = 2,
+): Promise<number | null> {
   const v = (src ?? "").trim();
   if (!v) return null;
   const yt = extractYoutubeId(v);
-  if (yt) return probeYoutubeId(yt, timeoutMs);
-  const { toDriveMediaUrl } = await import("./drive");
-  const media = toDriveMediaUrl(v);
-  if (!media) return null;
-  return probeMediaUrl(media, timeoutMs);
+  if (!yt) {
+    const { driveMediaCandidates } = await import("./drive");
+    if (driveMediaCandidates(v).length === 0) return null;
+  }
+  for (let a = 0; a < Math.max(1, attempts); a++) {
+    try {
+      if (yt) {
+        const d = await probeYoutubeId(yt, timeoutMs);
+        if (d) return d;
+      } else {
+        const { driveMediaCandidates } = await import("./drive");
+        for (const url of driveMediaCandidates(v)) {
+          const d = await probeMediaUrl(url, timeoutMs);
+          if (d) return d;
+        }
+      }
+    } catch {
+      /* next attempt */
+    }
+  }
+  return null;
 }
 
-/* Bulk pass: measure every src in order (YouTube probes run sequentially —
-   one hidden player at a time, Drive metadata in parallel-ish sequence).
-   Nulls mark failures; callers skip those. */
+/* Bulk pass: measure every src in order (single attempt each — the pass is
+   already slow; Drive still tries both media hosts per src). Nulls mark
+   failures; callers skip those. */
 export async function probeEachDuration(srcs: string[], perMs = 12000): Promise<Array<number | null>> {
   const out: Array<number | null> = [];
   for (const s of srcs) {
@@ -282,7 +305,7 @@ export async function probeEachDuration(srcs: string[], perMs = 12000): Promise<
       continue;
     }
     try {
-      out.push(await probeVideoDurationSecs(s, perMs));
+      out.push(await probeVideoDurationSecs(s, perMs, 1));
     } catch {
       out.push(null);
     }
