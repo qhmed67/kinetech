@@ -186,6 +186,9 @@ export function CourseForm({ slug }: { slug?: string }) {
   // Duration auto-detect: per-lesson "measuring…" flags + session memory of
   // already-probed links (paste → debounce → measure → fill minutes).
   const [detecting, setDetecting] = useState<Record<number, boolean>>({});
+  // Probe failed (network blocked / Drive download off / scan page): the old
+  // value stays — the admin sees WHY instead of a silent "10 min".
+  const [detectFail, setDetectFail] = useState<Record<number, boolean>>({});
   const probedRef = useRef<Set<string>>(new Set());
   // Accordion: one open part at a time (long curricula stay scannable).
   const [openMod, setOpenMod] = useState<number | null>(0);
@@ -204,9 +207,9 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("idle");
     setCloudErr("");
     setDetecting({});
+    setDetectFail({});
     setOpenMod(0);
-    probedRef.current.clear();
-    dirtyRef.current = false;
+    probedRef.current.clear();    dirtyRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -299,6 +302,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     const s = (src || "").trim();
     if (!s || typeof window === "undefined") return;
     setDetecting((d) => ({ ...d, [i]: true }));
+    setDetectFail((d) => ({ ...d, [i]: false }));
     try {
       const { probeVideoDurationSecs } = await import("../lib/videoGuard");
       const secs = await probeVideoDurationSecs(s);
@@ -313,9 +317,14 @@ export function CourseForm({ slug }: { slug?: string }) {
         dirtyRef.current = true;
         setSaved(false);
         setCloud("idle");
+      } else {
+        // Measured nothing: keep the old value, say why (Drive files need
+        // "anyone with the link" + download allowed, or the scan page won).
+        setDetectFail((d) => ({ ...d, [i]: true }));
       }
     } catch {
       /* keep the previous value */
+      setDetectFail((d) => ({ ...d, [i]: true }));
     } finally {
       setDetecting((d) => ({ ...d, [i]: false }));
     }
@@ -632,6 +641,13 @@ export function CourseForm({ slug }: { slug?: string }) {
                         ? (lt === "ar" ? "بيقيس…" : "measuring…")
                         : `${course.videos[i]?.mins ?? 10} ${lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}`}
                     </p>
+                    {!detecting[i] && detectFail[i] && (
+                      <p className="text-xs font-bold" role="alert" style={{ color: "#B3261E" }}>
+                        {lt === "ar"
+                          ? "تعذر القياس — لـ Drive: أي حد معاه الرابط + السماح بالتحميل."
+                          : "Measure failed — Drive needs anyone-with-link + download allowed."}
+                      </p>
+                    )}
                   </div>
                 </Field>
               </div>
