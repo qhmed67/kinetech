@@ -14,7 +14,7 @@ vi.mock("../throttle", async (importOriginal) => {
 });
 
 import { supabase } from "../client";
-import { ensureLessonNotices, getUserCourseViews, grantEnrollment, notifyNewLessons, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, setBanned } from "../adminUsers";
+import { ensureLessonNotices, getUserCourseViews, grantEnrollment, notifyNewLessons, resetUserVideo, resetUserViews, revokeEnrollment, searchUser, sendLessonNotice, setBanned } from "../adminUsers";
 
 const mockedSupabase = vi.mocked(supabase);
 
@@ -317,5 +317,39 @@ describe("grant/revoke/ban", () => {
     expect(rows[0].title).toContain("Second");
     expect(rows[1].title).toContain("الأول");
     expect(sb.from).not.toHaveBeenCalledWith("notifications");
+  });
+});
+
+describe("sendLessonNotice", () => {
+  it("writes one widget row for the newest video, sessions only", async () => {
+    const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos") return query({ data: [{ module_id: "m9" }], error: null });
+        if (table === "module_translations") {
+          return query({ data: [{ lang: "ar", title: "الأخير" }], error: null });
+        }
+        if (table === "upcoming_sessions") return { insert };
+        return query({ data: null, error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(sendLessonNotice("u1", "c")).resolves.toContain("الأخير");
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(insert.mock.calls[0][0]).toMatchObject({ user_id: "u1" });
+    expect(sb.from).not.toHaveBeenCalledWith("notifications");
+  });
+
+  it("throws when the course has no videos", async () => {
+    const sb = {
+      from: vi.fn((table: string) => {
+        if (table === "courses") return query({ data: { id: "c1" }, error: null });
+        if (table === "videos") return query({ data: [], error: null });
+        return query({ data: null, error: null });
+      }),
+    };
+    mockedSupabase.mockReturnValue(sb as never);
+    await expect(sendLessonNotice("u1", "c")).rejects.toThrow("course has no videos");
   });
 });
