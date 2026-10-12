@@ -9,7 +9,7 @@ import {
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
-import { toDriveMediaUrl, toDrivePreviewUrl } from "../lib/drive";
+import { driveMediaCandidates, toDrivePreviewUrl } from "../lib/drive";
 
 export type ProtectedVideoPlayerProps = {
   /** YouTube URL/ID, or a Google Drive share link (rendered via Drive preview). */
@@ -129,10 +129,14 @@ export function ProtectedVideoPlayer({
   // Drive mode: poster-gated (proves intent before any view burns), then a
   // wall-clock timer while the tab stays visible — Drive offers no play state.
   const drivePreview = isDriveSource(src) ? (toDrivePreviewUrl(src) ?? null) : null;
+  // Ordered direct candidates (uc, then usercontent+confirm) — tried in turn
+  // before surrendering to the preview embed.
+  const driveMedias = isDriveSource(src) ? driveMediaCandidates(src) : [];
+  const [driveSrcIdx, setDriveSrcIdx] = useState(0);
   // Direct media URL: duration probe ONLY (hidden metadata preload, never
   // rendered, never persisted). Best-effort — Drive's virus-scan page for
   // huge files fails the probe and the nominal minutes simply stay.
-  const driveMedia = isDriveSource(src) ? toDriveMediaUrl(src) : null;
+  const driveMedia = driveMedias[Math.min(driveSrcIdx, Math.max(0, driveMedias.length - 1))] ?? null;
   const [driveStarted, setDriveStarted] = useState(false);
   const [driveFailed, setDriveFailed] = useState(false);
   const [driveRetry, setDriveRetry] = useState(0);
@@ -140,7 +144,9 @@ export function ProtectedVideoPlayer({
   // fall back to the sandboxed Drive preview for this lesson.
   const [driveDirectFailed, setDriveDirectFailed] = useState(false);
   const driveVideoRef = useRef<HTMLVideoElement>(null);
-  const [elapsed, setElapsed] = useState(0);
+  // Wall-clock completion counter for the preview fallback (no clock shown —
+  // Drive's own readout is the only one, avoiding double displays).
+  const [, setElapsed] = useState(0);
   const elapsedRef = useRef(0);
 
   const sessionToken = useRotatingSession();
@@ -355,6 +361,7 @@ export function ProtectedVideoPlayer({
     setDriveStarted(false);
     setDriveFailed(false);
     setDriveDirectFailed(false);
+    setDriveSrcIdx(0);
   }, [src]);
 
   // Drive load watchdog: DNS blocks / ISP filters / adblock can make
@@ -568,7 +575,7 @@ export function ProtectedVideoPlayer({
         >
           <video
             ref={driveVideoRef}
-            key={driveMedia}
+            key={`${driveMedia}:${driveSrcIdx}`}
             src={driveMedia}
             controls={driveStarted}
             controlsList="nodownload nofullscreen noremoteplayback"
@@ -588,7 +595,11 @@ export function ProtectedVideoPlayer({
                 cbRef.current.onEnded();
               }
             }}
-            onError={() => setDriveDirectFailed(true)}
+            onError={() => {
+              // Try the next direct host before surrendering to preview.
+              if (driveSrcIdx < driveMedias.length - 1) setDriveSrcIdx((k) => k + 1);
+              else setDriveDirectFailed(true);
+            }}
             className="absolute inset-0 h-full w-full"
             style={{ background: "#000" }}
           />
@@ -769,24 +780,9 @@ export function ProtectedVideoPlayer({
           />
         )}
 
-        {/* Slim bar: watched clock + fullscreen only — no seek API exists. */}
-        <div
-          className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && driveStarted ? "pointer-events-none opacity-0" : "opacity-100"}`}
-        >
-          <div className="mt-1 flex items-center gap-1.5 text-white sm:gap-2">
-            <span
-              dir="ltr"
-              className="rounded px-1.5 py-1 text-[13px] font-bold tabular-nums"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              {formatClock(elapsed)}
-            </span>
-            <span className="flex-1" />
-            <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen" className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-white/15">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
-          </div>
-        </div>
+        {/* No own bar over the preview: Drive's controls are the only ones
+            (a second bar + second clock is the "interference"). Watermark
+            stays; fullscreen via double-tap or Drive's own button. */}
       </div>
     );
   }

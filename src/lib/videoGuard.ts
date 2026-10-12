@@ -270,3 +270,22 @@ export async function probeVideoDurationSecs(src: string, timeoutMs = 20000): Pr
   if (!media) return null;
   return probeMediaUrl(media, timeoutMs);
 }
+
+/* Bulk pass: measure every src in order (YouTube probes run sequentially —
+   one hidden player at a time, Drive metadata in parallel-ish sequence).
+   Nulls mark failures; callers skip those. */
+export async function probeEachDuration(srcs: string[], perMs = 12000): Promise<Array<number | null>> {
+  const out: Array<number | null> = [];
+  for (const s of srcs) {
+    if (!(s ?? "").trim()) {
+      out.push(null);
+      continue;
+    }
+    try {
+      out.push(await probeVideoDurationSecs(s, perMs));
+    } catch {
+      out.push(null);
+    }
+  }
+  return out;
+}

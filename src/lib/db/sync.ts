@@ -584,7 +584,6 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   const modByOrder = new Map(modRows.map((m) => [m.sort_order, m]));
   const n = Math.max(course.modules.en.length, course.videos.length, 1);
   const keepModIds = new Set<string>();
-  const freshLessons: Array<{ titleEn: string; titleAr: string }> = [];
   for (let i = 0; i < n; i++) {
     let modId = modByOrder.get(i)?.id ?? null;
     if (!modId) {
@@ -623,14 +622,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       } else {
         const { data: vv } = await sb.from("videos").insert(row).select("id").single();
         const vid = (vv as unknown as { id: string } | null)?.id;
-        if (vid) {
-          videoIds.set(vk(course.slug, i), vid);
-          // Brand-new lesson video: enrolled students get notified below.
-          freshLessons.push({
-            titleEn: course.modules.en[i]?.t ?? "",
-            titleAr: course.modules.ar[i]?.t ?? "",
-          });
-        }
+        // Brand-new lesson video: the trg_notify_enrolled_on_new_video
+        // trigger notifies every enrolled user server-side (unskippable —
+        // the old client broadcast lived here and could silently miss).
+        if (vid) videoIds.set(vk(course.slug, i), vid);
       }
     } else if (existingVid) {
       // Lesson dropped its video: remove the row (its views go with it).
@@ -640,15 +635,6 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   }
   for (const m of modRows) {
     if (!keepModIds.has(m.id)) await sb.from("modules").delete().eq("id", m.id);
-  }
-  // New lessons only (edits never re-notify): tell every enrolled student.
-  if (freshLessons.length > 0) {
-    try {
-      const { notifyNewLessons } = await import("./adminUsers");
-      await notifyNewLessons(course.slug, freshLessons);
-    } catch {
-      /* notifications are best-effort; the save already succeeded */
-    }
   }
   return true;
   } catch {

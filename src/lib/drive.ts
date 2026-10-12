@@ -35,13 +35,24 @@ export function toDrivePreviewUrl(input: string): string | null {
 }
 
 /* Drive share-link -> direct media URL for duration probing only (a hidden
-   <video preload="metadata"> reads headers without CORS). Never rendered
-   or persisted — the preview embed stays the playback path. Best-effort:
+   <video preload="metadata"> reads headers without CORS). Never rendered,
+   never persisted — the preview embed stays the playback path. Best-effort:
    huge files may hit Drive's virus-scan interstitial and fail the probe. */
 export function toDriveMediaUrl(input: string): string | null {
+  return driveMediaCandidates(input)[0] ?? null;
+}
+
+/* Ordered playback candidates: the classic uc host first, then the newer
+   usercontent host with confirm=t (often skips the virus-scan interstitial
+   that breaks direct streaming of big files). The player tries each in turn
+   and only then falls back to the sandboxed preview embed. */
+export function driveMediaCandidates(input: string): string[] {
   const id = extractDriveId((input ?? "").trim());
-  if (!id) return null;
-  return `https://drive.google.com/uc?export=download&id=${id}`;
+  if (!id) return [];
+  return [
+    `https://drive.google.com/uc?export=download&id=${id}`,
+    `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
+  ];
 }
 
 /** Non-empty and (absolute https, already-direct, or bundled relative path). */

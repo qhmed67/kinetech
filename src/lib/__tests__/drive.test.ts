@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractDriveId, isUsableImageUrl, toDirectImageUrl, toDriveMediaUrl, toDrivePreviewUrl } from "../drive";
+import { driveMediaCandidates, extractDriveId, isUsableImageUrl, toDirectImageUrl, toDriveMediaUrl, toDrivePreviewUrl } from "../drive";
 
 describe("extractDriveId", () => {
   it("parses file/d links", () => {
@@ -70,5 +70,19 @@ describe("toDriveMediaUrl", () => {
   it("returns null for non-drive input", () => {
     expect(toDriveMediaUrl("https://youtu.be/dQw4w9WgXcQ")).toBeNull();
     expect(toDriveMediaUrl("")).toBeNull();
+  });
+});
+
+describe("driveMediaCandidates", () => {
+  it("orders uc before usercontent+confirm", () => {
+    expect(driveMediaCandidates("https://drive.google.com/file/d/ABC123/view?usp=sharing")).toEqual([
+      "https://drive.google.com/uc?export=download&id=ABC123",
+      "https://drive.usercontent.google.com/download?id=ABC123&export=download&confirm=t",
+    ]);
+  });
+
+  it("returns [] for non-drive input", () => {
+    expect(driveMediaCandidates("https://youtu.be/dQw4w9WgXcQ")).toEqual([]);
+    expect(driveMediaCandidates("")).toEqual([]);
   });
 });

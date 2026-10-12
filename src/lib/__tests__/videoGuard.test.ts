@@ -6,6 +6,7 @@ import {
   isDriveSource,
   isYoutubeSource,
   obfuscateId,
+  probeEachDuration,
   probeVideoDurationSecs,
 } from "../videoGuard";
 
@@ -55,6 +56,12 @@ describe("probeVideoDurationSecs", () => {
     await expect(
       probeVideoDurationSecs("https://drive.google.com/file/d/ABC123/view?usp=sharing", 50),
     ).resolves.toBeNull();
+  });
+});
+
+describe("probeEachDuration", () => {
+  it("maps blanks to null without probing", async () => {
+    await expect(probeEachDuration(["", "   "], 50)).resolves.toEqual([null, null]);
   });
 });
 

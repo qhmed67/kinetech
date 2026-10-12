@@ -470,8 +470,10 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
   );
 }
 
-export function Watch({
-  slug,
+/** Links already measured this tab — the bulk pass runs once per session. */
+const bulkProbed = new Set<string>();
+
+export function Watch({  slug,
   video,
   user,
   ready,
@@ -532,6 +534,49 @@ export function Watch({
     setOpen(video);
     window.scrollTo(0, 0);
   }, [slug, video]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bulk heal, once per session: measure EVERY part in the background so old
+  // default-10 rows correct themselves without opening each lesson. Drive
+  // metadata is headers-only; YouTube probes run sequentially, one hidden
+  // player at a time. Failures keep their value for the next visit.
+  useEffect(() => {
+    let alive = true;
+    if (!course || !isSupabaseConfigured()) return;
+    const jobs = videos
+      .map((v, i) => ({ i, src: (v.src || "").trim() }))
+      .filter((j) => j.src !== "" && !bulkProbed.has(j.src));
+    if (jobs.length === 0) return;
+    jobs.forEach((j) => bulkProbed.add(j.src));
+    void (async () => {
+      try {
+        const g = await import("../lib/videoGuard");
+        const secs = await g.probeEachDuration(jobs.map((j) => j.src));
+        if (!alive) return;
+        const store = await import("../store");
+        const exams = await import("../lib/db/examsDb");
+        const wdb = await import("../lib/db/watchDb");
+        for (let k = 0; k < jobs.length; k++) {
+          const s = secs[k];
+          if (!alive || typeof s !== "number" || s <= 0) continue;
+          const real = Math.max(1, Math.ceil(s / 60));
+          if (real === (videos[jobs[k].i]?.mins ?? 10)) continue;
+          store.setVideoMins(slug, jobs[k].i, real);
+          try {
+            const id = await exams.videoIdBySlug(slug, jobs[k].i);
+            if (id && alive) await wdb.reportVideoMins(id, real);
+          } catch {
+            /* local value stays */
+          }
+        }
+      } catch {
+        /* probes are best-effort */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   // Server truth wins on page open: an admin restart (or another device)
   // only reaches this browser by re-reading — local cache alone would show
