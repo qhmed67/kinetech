@@ -258,12 +258,15 @@ export function recordDone(
   watchedSecs = 0,
   durationSecs = 0,
   nominalMins = 10,
+  // Ended playback completes outright (seek-to-end included, by decision):
+  // burned-out views must never trap a student with no path forward.
+  ended = false,
 ): boolean {
-  if (!watchRequirementMet(u, slug, idx, watchedSecs, durationSecs, nominalMins)) return false;
+  if (!ended && !watchRequirementMet(u, slug, idx, watchedSecs, durationSecs, nominalMins)) return false;
   setDoneFlag(u, slug, idx);
   if (typeof window === "undefined") return true;
   void import("./lib/db/sync")
-    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs, durationSecs))
+    .then((m) => m.pushDoneToCloud(slug, idx, watchedSecs, durationSecs, ended))
     .catch(() => {
       /* offline — local flag stays */
     });

@@ -18,7 +18,7 @@ describe("completeVideoDb version tolerance", () => {
     await expect(completeVideoDb("v1", 10, 60)).rejects.toThrow("supabase-not-configured");
   });
 
-  it("uses the 3-param call when the server supports it", async () => {
+  it("uses the 4-param call when the server supports it", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     mockedSupabase.mockReturnValue({ rpc } as never);
     await completeVideoDb("v1", 50, 60);
@@ -27,18 +27,37 @@ describe("completeVideoDb version tolerance", () => {
       p_video: "v1",
       p_watched_secs: 50,
       p_duration_secs: 60,
+      p_ended: false,
     });
   });
 
-  it("falls back to the 2-param shape on 42883", async () => {
+  it("sends p_ended through on video end", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    mockedSupabase.mockReturnValue({ rpc } as never);
+    await completeVideoDb("v1", 0, 0, true);
+    expect(rpc).toHaveBeenCalledWith("complete_video", {
+      p_video: "v1",
+      p_watched_secs: 0,
+      p_duration_secs: 0,
+      p_ended: true,
+    });
+  });
+
+  it("falls back through older shapes on 42883", async () => {
     const rpc = vi
       .fn()
-      .mockResolvedValueOnce({ data: null, error: { code: "42883", message: "function does not exist" } })
+      .mockResolvedValueOnce({ data: null, error: { code: "42883", message: "no 4-param shape" } })
+      .mockResolvedValueOnce({ data: null, error: { code: "42883", message: "no 3-param shape" } })
       .mockResolvedValueOnce({ data: null, error: null });
     mockedSupabase.mockReturnValue({ rpc } as never);
     await completeVideoDb("v1", 50, 60);
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledTimes(3);
     expect(rpc).toHaveBeenNthCalledWith(2, "complete_video", {
+      p_video: "v1",
+      p_watched_secs: 50,
+      p_duration_secs: 60,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "complete_video", {
       p_video: "v1",
       p_watched_secs: 50,
     });

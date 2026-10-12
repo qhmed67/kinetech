@@ -47,30 +47,32 @@ export async function touchUnlockedDb(videoId: string): Promise<void> {
 }
 
 /**
- * Version-tolerant completion: the DB may run the 2-param
- * (p_video, p_watched_secs) or 3-param (+p_duration_secs) variant.
- * A 42883 (unknown function/argument) falls back to the older shape
- * instead of silently dropping the completion.
+ * Version-tolerant completion: tries the 4-param shape (p_video,
+ * p_watched_secs, p_duration_secs, p_ended) first, then the 3-param, then
+ * the legacy 2-param. A 42883 (unknown shape) falls through instead of
+ * silently dropping the completion.
  */
-export async function completeVideoDb(videoId: string, watchedSecs = 0, durationSecs = 0): Promise<void> {
+export async function completeVideoDb(
+  videoId: string,
+  watchedSecs = 0,
+  durationSecs = 0,
+  ended = false,
+): Promise<void> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const full = await sb.rpc("complete_video", {
-    p_video: videoId,
-    p_watched_secs: watchedSecs,
-    p_duration_secs: durationSecs,
-  });
-  if (!full.error) return;
-  if (full.error.code === "42883") {
-    const legacy = await sb.rpc("complete_video", {
-      p_video: videoId,
-      p_watched_secs: watchedSecs,
-    });
-    if (!legacy.error) return;
-    // Legacy variant also validates purely server-side; surface real errors.
-    if (legacy.error.code !== "42883") throw legacy.error;
+  const shapes: Array<Record<string, unknown>> = [
+    { p_video: videoId, p_watched_secs: watchedSecs, p_duration_secs: durationSecs, p_ended: ended },
+    { p_video: videoId, p_watched_secs: watchedSecs, p_duration_secs: durationSecs },
+    { p_video: videoId, p_watched_secs: watchedSecs },
+  ];
+  let firstErr: { code?: string } | null = null;
+  for (const shape of shapes) {
+    const r = await sb.rpc("complete_video", shape);
+    if (!r.error) return;
+    if (r.error.code !== "42883") throw r.error;
+    firstErr = r.error;
   }
-  throw full.error;
+  throw firstErr ?? new Error("complete_video failed");
 }
 
 /** Self-heal: first real playback reports the media's true duration and the
