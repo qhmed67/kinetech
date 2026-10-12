@@ -330,12 +330,16 @@ describe("sendLessonNotice", () => {
         if (table === "module_translations") {
           return query({ data: [{ lang: "ar", title: "الأخير" }], error: null });
         }
-        if (table === "upcoming_sessions") return { insert };
+        if (table === "upcoming_sessions") {
+          return { ...query({ data: [{ id: "s1" }, { id: "s2" }], error: null }), insert };
+        }
         return query({ data: null, error: null });
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(sendLessonNotice("u1", "c")).resolves.toContain("الأخير");
+    const out = await sendLessonNotice("u1", "c");
+    expect(out.title).toContain("الأخير");
+    expect(out.total).toBe(2);
     expect(insert).toHaveBeenCalledTimes(1);
     expect(insert.mock.calls[0][0]).toMatchObject({ user_id: "u1" });
     expect(sb.from).not.toHaveBeenCalledWith("notifications");

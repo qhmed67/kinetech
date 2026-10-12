@@ -524,11 +524,17 @@ export async function deleteProfile(userId: string): Promise<void> {
 /**
  * One-click pipeline test: writes a single lesson notice for the newest
  * video straight into the student's sessions widget — the exact shape the
- * trigger + save-flow produce. If the student sees it after refresh, the
- * pipeline (RLS, enrollment, widget query) is fine and the problem is in
- * the save flow; if not, the pipeline itself is broken. Throws with reason.
+ * trigger + save-flow produce. Returns the title plus how many widget rows
+ * the DB now holds for that student (proof the write landed; if the widget
+ * still shows empty, the fault is student-side: dead session or clock).
+ * If the student sees it after refresh, the pipeline (RLS, enrollment,
+ * widget query) is fine and the problem is in the save flow; if not, the
+ * pipeline itself is broken. Throws with reason.
  */
-export async function sendLessonNotice(userId: string, courseSlug: string): Promise<string> {
+export async function sendLessonNotice(
+  userId: string,
+  courseSlug: string,
+): Promise<{ title: string; total: number }> {
   const sb = authed();
   const { data: course } = await withTimeout(
     (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
@@ -561,5 +567,12 @@ export async function sendLessonNotice(userId: string, courseSlug: string): Prom
     "notice-test",
   );
   if (error) throw error;
-  return title;
+  // Proof-of-landing: read back how many widget rows this student now has.
+  const { data: mine, error: countError } = await withTimeout(
+    (async () => sb.from("upcoming_sessions").select("id").eq("user_id", userId))(),
+    NETWORK_TIMEOUT_MS,
+    "notice-verify",
+  );
+  if (countError) throw countError;
+  return { title, total: ((mine ?? []) as unknown as Array<unknown>).length };
 }

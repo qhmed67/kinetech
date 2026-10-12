@@ -14,13 +14,17 @@ export type Notification = {
   is_read: boolean;
 };
 
-/** Future sessions first, capped for the overview card. */
+/** Future sessions first, capped for the overview card.
+    7-day grace behind now: lesson notices carry server time, and a student
+    device clock running ahead (wrong timezone/DST) must never hide rows
+    that exist. FIFO keeps each user at 5 rows regardless. */
 export async function getUpcomingSessions(limit = 5): Promise<UpcomingSession[]> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
+  const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const { data, error } = await withTimeout(
     (async () =>
-      sb.from("upcoming_sessions").select("id,title,date").gte("date", new Date().toISOString()).order("date").limit(limit))(),
+      sb.from("upcoming_sessions").select("id,title,date").gte("date", weekAgo).order("date").limit(limit))(),
     NETWORK_TIMEOUT_MS,
     "sessions",
   );

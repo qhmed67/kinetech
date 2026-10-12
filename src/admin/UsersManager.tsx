@@ -155,6 +155,7 @@ function CoursePartsRow({
   const [busyPart, setBusyPart] = useState<number | null>(null);
   const [okPart, setOkPart] = useState<number | null>(null);
   const [testState, setTestState] = useState<"idle" | "busy" | "ok">("idle");
+  const [testTotal, setTestTotal] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
   const load = async () => {
@@ -242,12 +243,14 @@ function CoursePartsRow({
             disabled={testState === "busy"}
             onClick={() => {
               setTestState("busy");
+              setTestTotal(null);
               setErr("");
               void import("../lib/db/adminUsers")
                 .then((m) => m.sendLessonNotice(userId, slug))
-                .then(() => {
+                .then((out) => {
+                  setTestTotal(out.total);
                   setTestState("ok");
-                  window.setTimeout(() => setTestState("idle"), 4000);
+                  window.setTimeout(() => setTestState("idle"), 6000);
                 })
                 .catch((ex: unknown) => {
                   setErr(ex instanceof Error ? ex.message : "error");
@@ -258,7 +261,9 @@ function CoursePartsRow({
             style={{ color: "var(--kt-teal)" }}
           >
             {testState === "ok"
-              ? (lang === "ar" ? "✓ اتبعت — حدّث ودجت الطالب" : "✓ sent — refresh student widget")
+              ? (lang === "ar"
+                ? `✓ اتبعت (القاعدة فيها ${testTotal ?? 0}) — حدّث ودجت الطالب`
+                : `✓ sent (DB holds ${testTotal ?? 0}) — refresh student widget`)
               : testState === "busy"
                 ? "…"
                 : (lang === "ar" ? "اختبار تنبيه الدرس" : "Test lesson notice")}
