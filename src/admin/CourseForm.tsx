@@ -745,16 +745,29 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <VideoLinkField label={a.vidSrc} value={course.videos[i]?.src ?? ""} onChange={(v) => setVid(i, { src: v.trim() })} />
                 <Field label={a.vidMins}>
                   <div className="grid gap-1">
-                    <p dir="ltr" className="rounded-xl border bg-white px-4 py-2.5 text-[15px] font-bold" style={{ borderColor: "var(--border)" }}>
-                      {detecting[i]
-                        ? (lt === "ar" ? "بيقيس…" : "measuring…")
-                        : `${course.videos[i]?.mins ?? 10} ${lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}`}
-                    </p>
+                    {(!detecting[i] && detectFail[i]) ? (
+                      // Auto-measure impossible here (viewer-only Drive files
+                      // expose no duration headers) — manual fallback so the
+                      // lesson is never stuck on a wrong number.
+                      <Text
+                        type="number"
+                        dir="ltr"
+                        min={1}
+                        value={course.videos[i]?.mins ?? 10}
+                        onChange={(e) => setVid(i, { mins: Math.max(1, parseInt(e.target.value, 10) || 0) || 10 })}
+                      />
+                    ) : (
+                      <p dir="ltr" className="rounded-xl border bg-white px-4 py-2.5 text-[15px] font-bold" style={{ borderColor: "var(--border)" }}>
+                        {detecting[i]
+                          ? (lt === "ar" ? "بيقيس…" : "measuring…")
+                          : `${course.videos[i]?.mins ?? 10} ${lt === "ar" ? "دقيقة (تلقائي)" : "min (auto)"}`}
+                      </p>
+                    )}
                     {!detecting[i] && detectFail[i] && (
                       <p className="text-xs font-bold" role="alert" style={{ color: "#B3261E" }}>
                         {lt === "ar"
-                          ? "تعذر القياس — لـ Drive: أي حد معاه الرابط + السماح بالتحميل."
-                          : "Measure failed — Drive needs anyone-with-link + download allowed."}
+                          ? "تعذر القياس التلقائي (ملف مشاهدة فقط) — دخّل المدة يدويًا."
+                          : "Auto-measure impossible (view-only file) — enter minutes manually."}
                       </p>
                     )}
                   </div>
