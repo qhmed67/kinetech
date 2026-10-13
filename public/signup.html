@@ -242,6 +242,11 @@ document.getElementById('signupForm').addEventListener('submit', async function(
       try {
         window.localStorage.setItem('kt-user', JSON.stringify({ name: nm, email: em, phone: ph, enrolled: [], tracks: [tk] }));
       } catch (err) {}
+      // Single-session pin (best-effort; email-confirm flows have no session yet).
+      try {
+        const token = data.session && data.session.access_token;
+        if (token) fetch('/api/session-register', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token } }).catch(function() {});
+      } catch (err) {}
       window.location.href = '/#/dashboard';
     } catch (err) {
       const msg = err && err.message ? err.message : '';

@@ -1,49 +1,54 @@
 import { useEffect, useState } from "react";
 import { useLang } from "./lang";
 import {
+  emptyExam,
   getMyResult,
   submitAttempt,
+  type AttemptReview,
   type ExamContent,
   type ExamKind,
   type ExamResult,
 } from "../lib/db/examsDb";
 
 /**
- * Take-flow for one lesson exam/assignment. Choice answers score instantly;
- * any writing answer leaves the attempt pending until an instructor grades
- * it — the student sees the pending state, never a fake final score.
+ * Take-flow for one lesson exam/assignment. Questions, scoring, and review
+ * marks all come from the server — the answer key never reaches the client
+ * (review reveals correct options only for graded/final attempts).
  */
 export function ExamTake({
   videoId,
   kind,
-  content,
   onClose,
   startInReview,
 }: {
   videoId: string;
   kind: ExamKind;
-  content: ExamContent;
   onClose: () => void;
   startInReview?: boolean;
 }) {
   const { t } = useLang();
   const x = t.exam;
+  const [content, setContent] = useState<ExamContent>(emptyExam());
   const [answers, setAnswers] = useState<Record<string, number | string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState<ExamResult | null>(null);
+  const [review, setReview] = useState<AttemptReview[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviewing, setReviewing] = useState(startInReview ?? false);
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     void getMyResult(videoId, kind)
-      .then((r) => {
-        if (!alive) return;
-        if (r) {
-          setResult(r);
-          setAnswers(r.answers ?? {});
+      .then((a) => {
+        if (!alive || !a) return;
+        setContent(a.questions);
+        if (a.result) {
+          setResult(a.result);
+          setAnswers(a.result.answers ?? {});
         }
+        setReview(a.review);
       })
       .catch(() => {
         /* fresh attempt */
@@ -61,8 +66,9 @@ export function ExamTake({
     setBusy(true);
     setErr("");
     try {
-      const r = await submitAttempt(videoId, kind, content, answers);
-      setResult(r);
+      const r = await submitAttempt(videoId, kind, answers);
+      setResult(r.result);
+      setReview(r.review);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "error");
     } finally {
@@ -129,27 +135,32 @@ export function ExamTake({
             {content.questions.map((q, qi) => {
               const ans = result?.answers[q.id];
               const note = result?.feedback?.[q.id];
+              // Review marks come from the SERVER (never the question key):
+              // correct option shown only for graded/final attempts.
+              const rev = review?.find((r) => r.id === q.id);
               if (q.kind === "choice") {
-                const correct = q.correct;
                 const picked = typeof ans === "number" ? ans : -1;
-                const right = picked === correct;
+                const correctIndex = rev?.correctIndex ?? null;
+                const right = rev?.right ?? null;
                 return (
                   <div key={q.id}>
                     <p className="font-bold">
                       <span dir="ltr" className="me-2" style={{ color: "var(--muted)" }}>{qi + 1}.</span>
                       {q.prompt}
-                      <span
-                        className="ms-2 rounded-full px-2.5 py-0.5 text-xs font-bold"
-                        style={right
-                          ? { background: "var(--teal-soft)", color: "var(--kt-deep)" }
-                          : { background: "#FDECEA", color: "#B3261E" }}
-                      >
-                        {right ? x.rightMark : x.wrongMark}
-                      </span>
+                      {right !== null && (
+                        <span
+                          className="ms-2 rounded-full px-2.5 py-0.5 text-xs font-bold"
+                          style={right
+                            ? { background: "var(--teal-soft)", color: "var(--kt-deep)" }
+                            : { background: "#FDECEA", color: "#B3261E" }}
+                        >
+                          {right ? x.rightMark : x.wrongMark}
+                        </span>
+                      )}
                     </p>
                     <div className="mt-2 grid gap-2">
                       {q.choices.map((c, ci) => {
-                        const isCorrect = ci === correct;
+                        const isCorrect = correctIndex !== null && ci === correctIndex;
                         const isPicked = ci === picked;
                         return (
                           <div

@@ -112,7 +112,7 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
           ? "id,course_id,sort_order,section_en,section_ar,module_translations(lang,title,description)"
           : "id,course_id,sort_order,module_translations(lang,title,description)",
       ).order("sort_order"), signal),
-      sig(sb.from("videos").select("id,course_id,module_id,sort_order,src_url,mins,assign_url,exam_url").order("sort_order"), signal),
+      sig(sb.from("videos").select("id,course_id,module_id,sort_order,mins,assign_url,exam_url").order("sort_order"), signal),
     ]);
     // Sections columns are newer than some databases: a failed first pass
     // retries without them, degrading to flat lessons instead of wiping the
@@ -140,7 +140,7 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
   }>;
   const vidRows = (vids ?? []) as unknown as Array<{
     id: string; course_id: string; sort_order: number;
-    src_url: string; mins: number; assign_url: string | null; exam_url: string | null;
+    mins: number; assign_url: string | null; exam_url: string | null;
   }>;
   videoIds.clear();
   const modsByCourse = new Map<string, typeof modRows>();
@@ -177,8 +177,11 @@ export async function hydrateStoreFromDb(opts: { force?: boolean } = {}): Promis
     const videos = cMods.map((m, i) => {
       const v = vidByOrder.get(m.sort_order) ?? cVids[i];
       if (v) videoIds.set(vk(c.slug, i), v.id);
+      // src is NEVER hydrated (video_sources is RLS-locked; playback goes
+      // through POST /api/play). Admin editing state fills srcs separately
+      // via the admin_video_sources RPC.
       return {
-        src: v?.src_url ?? "",
+        src: "",
         mins: v?.mins ?? 10,
         assign: v?.assign_url ?? "",
         exam: v?.exam_url ?? "",
@@ -618,19 +621,25 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   // video_views (keyed by video id) survive admin edits. Only rows past the
   // new length are deleted; that is the sole progress-loss case (removed lesson).
   const existing = await must(sb.from("modules")
-    .select("id,sort_order,videos(id,sort_order,src_url)")
+    .select("id,sort_order")
     .eq("course_id", courseId), "modules");
   const modRows = ((existing ?? []) as unknown as Array<{
-    id: string; sort_order: number; videos: Array<{ id: string; sort_order: number; src_url: string }>;
+    id: string; sort_order: number;
   }>).sort((a, b) => a.sort_order - b.sort_order);
-  // Every src the course had BEFORE this push: only genuinely new watchable
-  // content notifies (edits to minutes/links, shifts from deletes stay silent).
-  const beforeSrcs = new Set<string>();
-  for (const m of modRows) {
-    for (const x of m.videos ?? []) {
-      if (x.src_url && x.src_url.trim() !== "") beforeSrcs.add(x.src_url.trim());
-    }
+  // Existing URLs come from the admin-only RPC (video_sources is RLS-locked;
+  // clients never select it). Only genuinely new watchable content notifies
+  // (edits to minutes/links, shifts from deletes stay silent). The RPC ships
+  // in migration 20261032 — fail loudly without it, never silently re-notify.
+  const srcRes = await sb.rpc("admin_video_sources", { p_slug: course.slug });
+  if (srcRes.error) {
+    throw new Error(`admin_video_sources: ${srcRes.error.message} (run migration 20261032)`);
   }
+  const knownRows = (((srcRes as { data: unknown }).data ?? []) as unknown as Array<{ video_id: string; sort_order: number; src_url: string }>);
+  const beforeSrcs = new Set<string>();
+  for (const r of knownRows) {
+    if (r.src_url && r.src_url.trim() !== "") beforeSrcs.add(r.src_url.trim());
+  }
+  const vidByOrder = new Map(knownRows.map((r) => [r.sort_order, r.video_id]));
   const seenSrcs = new Set<string>();
   const modByOrder = new Map(modRows.map((m) => [m.sort_order, m]));
   const wantLen = Math.max(course.modules.en.length, course.videos.length);
@@ -665,28 +674,26 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       { module_id: modId, lang: "ar", title: course.modules.ar[i]?.t ?? course.modules.en[i]?.t ?? "", description: course.modules.ar[i]?.d ?? course.modules.en[i]?.d ?? "" },
     ], { onConflict: "module_id,lang" }), "module_translations");
     const v = course.videos[i];
-    const existingVid = (modByOrder.get(i)?.videos ?? []).find((x) => x.sort_order === i)?.id
-      ?? (await sb.from("videos").select("id").eq("course_id", courseId).eq("sort_order", i).limit(1)
-        .then((r) => ((r.data ?? []) as unknown as Array<{ id: string }>)[0]?.id ?? null));
+    const existingVid = vidByOrder.get(i) ?? null;
+    // Video rows carry NO url column anymore (dropped in 20261033; before
+    // that a '' placeholder). The URL lives in video_sources, written via
+    // admin RPCs below. Minutes/links stay on the row (no secrets there).
     if (v && (v.src || "").trim()) {
       const src = v.src.trim();
-      const row = {
-        course_id: courseId, module_id: modId, sort_order: i,
-        src_url: v.src, mins: v.mins,
-        assign_url: v.assign || null, exam_url: v.exam || null,
-      };
-      if (existingVid) {
-        await must(sb.from("videos").update(row).eq("id", existingVid), "videos");
-        videoIds.set(vk(course.slug, i), existingVid);
-      } else {
-        const vv = await must(sb.from("videos").insert(row).select("id").single(), "videos");
-        const vid = (vv as unknown as { id: string } | null)?.id;
-        // Brand-new lesson video: the trg_notify_enrolled_on_new_video
-        // trigger notifies every enrolled user server-side (unskippable —
-        // the old client broadcast lived here and could silently miss).
-        if (!vid) throw new Error("videos: no id returned");
-        videoIds.set(vk(course.slug, i), vid);
-      }
+      const { data: upserted, error: upErr } = await sb.rpc("admin_upsert_video", {
+        p_course: courseId,
+        p_module: modId,
+        p_order: i,
+        p_mins: v.mins,
+        p_assign: v.assign || "",
+        p_exam: v.exam || "",
+      });
+      if (upErr) throw new Error(`videos: ${upErr.message}`);
+      const vid = upserted as unknown as string | null;
+      if (!vid) throw new Error("videos: no id returned");
+      const { error: srcErr } = await sb.rpc("admin_set_video_src", { p_video: vid, p_src: src });
+      if (srcErr) throw new Error(`video_sources: ${srcErr.message}`);
+      videoIds.set(vk(course.slug, i), vid);
       // Novelty, not row-operation: a src the course never had (fresh insert,
       // same-save delete+re-add, replaced link) notifies once per push.
       // Minutes/link-only edits and delete-shifted rows reuse old srcs.
@@ -699,7 +706,8 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       }
     } else if (existingVid) {
       // Lesson dropped its video: remove the row (its views go with it).
-      await must(sb.from("videos").delete().eq("id", existingVid), "videos");
+      const { error: delErr } = await sb.rpc("admin_delete_video", { p_video: existingVid });
+      if (delErr) throw new Error(`videos: ${delErr.message}`);
       videoIds.delete(vk(course.slug, i));
     }
   }

@@ -206,7 +206,9 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloud("idle");
   }, [lang]);
 
-  // New course opened (or slug changed): load it fresh, clear edit state.
+  // New course opened (or slug changed): load it fresh, clear edit state,
+  // then fill video links from the admin-only RPC (video_sources is
+  // RLS-locked; the store never carries playable URLs anymore).
   useEffect(() => {
     setCourse(getRawCourse(slug ?? "") ?? blank());
     setErr("");
@@ -222,15 +224,49 @@ export function CourseForm({ slug }: { slug?: string }) {
     probedRef.current.clear();
     failCounts.current = {};
     dirtyRef.current = false;
+    const s = slug ?? "";
+    if (s !== "") {
+      void import("../lib/db/client")
+        .then((m) => m.supabase())
+        .then((sb) => (sb ? sb.rpc("admin_video_sources", { p_slug: s }) : null))
+        .then((r) => {
+          if (!r || r.error || s !== slug) return;
+          const rows = ((r.data ?? []) as unknown as Array<{ video_id: string; sort_order: number; src_url: string }>);
+          if (rows.length === 0) return;
+          const byOrder = new Map(rows.map((x) => [x.sort_order, x.src_url]));
+          setCourse((cur) => {
+            if (cur.slug !== s) return cur;
+            const n = Math.max(cur.videos.length, ...[...byOrder.keys()], -1) + 1;
+            const videos = Array.from({ length: n }, (_, i) => ({
+              ...(cur.videos[i] ?? { src: "", mins: 10, assign: "", exam: "" }),
+              src: byOrder.get(i) ?? cur.videos[i]?.src ?? "",
+            }));
+            return { ...cur, videos };
+          });
+        })
+        .catch(() => {
+          /* links stay blank for typing; save fills them */
+        });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   // Pristine follow: store changed under us (hydrate, another tab) and we
-  // have no unsaved edits — reload instead of showing stale rows.
+  // have no unsaved edits — reload instead of showing stale rows. Video
+  // links always win from the current form (the store never carries them),
+  // everything else follows server truth.
   useEffect(() => {
     if (dirtyRef.current || !slug) return;
     const fresh = getRawCourse(slug);
-    if (fresh && JSON.stringify(fresh) !== JSON.stringify(course)) setCourse(fresh);
+    if (!fresh) return;
+    const strip = (c: StoreCourse) => ({ ...c, videos: c.videos.map((v) => ({ ...v, src: "" })) });
+    if (JSON.stringify(strip(course)) === JSON.stringify(strip(fresh))) return;
+    const n = Math.max(fresh.videos.length, course.videos.length);
+    const videos = Array.from({ length: n }, (_, i) => ({
+      ...(fresh.videos[i] ?? course.videos[i] ?? { src: "", mins: 10, assign: "", exam: "" }),
+      src: course.videos[i]?.src ?? fresh.videos[i]?.src ?? "",
+    }));
+    setCourse({ ...fresh, videos });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeVersion, slug, course]);
 

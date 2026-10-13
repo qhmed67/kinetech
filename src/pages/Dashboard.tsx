@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
-import type { ExamContent, ExamKind, LessonWork, WorkItemState } from "../lib/db/examsDb";
+import type { ExamKind, LessonWork, WorkItemState } from "../lib/db/examsDb";
 import { ExamTake } from "../components/ExamTake";
 import { initialsOf, setUser, type KtUser } from "../auth";
 import { getViews, isDone, replaceProgress } from "../watch";
@@ -21,7 +21,7 @@ type Tab = string;
  * row, loads its structured content, and lands in review mode.
  */
 function ReviewOpener({ slug, idx, kind, label }: { slug: string; idx: number; kind: ExamKind; label: string }) {
-  const [open, setOpen] = useState<{ videoId: string; content: ExamContent } | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
     <>
@@ -34,9 +34,7 @@ function ReviewOpener({ slug, idx, kind, label }: { slug: string; idx: number; k
           void import("../lib/db/examsDb")
             .then(async (m) => {
               const videoId = await m.videoIdBySlug(slug, idx);
-              if (!videoId) return;
-              const content = await m.getExam(videoId, kind);
-              if (content) setOpen({ videoId, content });
+              if (videoId) setOpen(videoId);
             })
             .catch(() => {
               /* offline — stays closed */
@@ -50,9 +48,8 @@ function ReviewOpener({ slug, idx, kind, label }: { slug: string; idx: number; k
       </button>
       {open && (
         <ExamTake
-          videoId={open.videoId}
+          videoId={open}
           kind={kind}
-          content={open.content}
           startInReview
           onClose={() => setOpen(null)}
         />

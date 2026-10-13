@@ -6,7 +6,7 @@ export type WatchRow = {
   sort_order: number;
   title: string;
   description: string;
-  src_url: string;
+  // NOTE: no src_url — playable URLs come only from POST /api/play.
   mins: number;
   assign_url: string | null;
   exam_url: string | null;

@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
-import { ProtectedVideoPlayer } from "../components/ProtectedVideoPlayer";
+import { ProtectedVideoPlayer, type PlayDenied } from "../components/ProtectedVideoPlayer";
 import { ExamTake } from "../components/ExamTake";
-import { isDriveSource, isYoutubeSource } from "../lib/videoGuard";
-import type { ExamContent, ExamKind } from "../lib/db/examsDb";
+import type { ExamKind } from "../lib/db/examsDb";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import { isSupabaseConfigured } from "../lib/db/env";
@@ -13,149 +12,12 @@ import {
   isDone,
   isUnlocked,
   recordDone,
-  recordPlay,
   replaceProgress,
+  setUnlockedFlag,
+  setViewsCount,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
-
-/* Adapter-ready player: file sources resolve through a script-built
-   blob/object URL (nothing static in the HTML to copy from view-source).
-   A future { kind: "embed", embedUrl } source renders an iframe here. */
-/* Anti-record watermark: verified identity floats over the video in every
-   playback mode (page + container fullscreen). pointer-events-none so it
-   never blocks controls; low opacity so it never blocks content. */
-const WM_SPOTS = [
-  { top: 12, insetInlineStart: 12 },
-  { top: 12, insetInlineEnd: 12 },
-  { bottom: 12, insetInlineStart: 12 },
-  { bottom: 12, insetInlineEnd: 12 },
-] as const;
-
-function Watermark({ email, phone }: { email: string; phone: string }) {
-  const [spot, setSpot] = useState(0);
-  useEffect(() => {
-    setSpot(Math.floor(Math.random() * WM_SPOTS.length));
-    const id = window.setInterval(
-      () => setSpot((s) => (s + 1) % WM_SPOTS.length),
-      18000,
-    );
-    return () => window.clearInterval(id);
-  }, []);
-  if (!email && !phone) return null;
-  const pos = WM_SPOTS[spot % WM_SPOTS.length];
-  return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute z-10 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
-      dir="ltr"
-      style={{
-        ...pos,
-        background: "rgba(0,0,0,0.45)",
-        color: "rgba(255,255,255,0.85)",
-        fontFamily: "var(--font-display)",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-      }}
-    >
-      {[email, phone].filter(Boolean).join(" • ")}
-    </div>
-  );
-}
-
-function Player({
-  src,
-  email,
-  phone,
-  onProgress,
-  onSeeked,
-  onDuration,
-  onEnded,
-}: {
-  src: string;
-  email: string;
-  phone: string;
-  onProgress: (seconds: number) => void;
-  onSeeked: (seconds: number) => void;
-  onDuration: (seconds: number) => void;
-  onEnded: () => void;
-}) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let alive = true;
-    let obj: string | null = null;
-    setBlobUrl(null);
-    fetch(src)
-      .then((r) => {
-        if (!r.ok) throw new Error("fetch failed");
-        return r.blob();
-      })
-      .then((b) => {
-        if (!alive) return;
-        obj = URL.createObjectURL(b);
-        setBlobUrl(obj);
-      })
-      .catch(() => {
-        // cross-origin fetch blocked → fall back to direct src
-        if (alive) setBlobUrl(src);
-      });
-    return () => {
-      alive = false;
-      if (obj) URL.revokeObjectURL(obj);
-    };
-  }, [src]);
-
-  if (!blobUrl) {
-    return (
-      <div
-        className="grid aspect-video w-full animate-pulse place-items-center rounded-[20px]"
-        style={{ background: "var(--surface)" }}
-        aria-label="loading"
-      />
-    );
-  }
-  return (
-    <div
-      ref={boxRef}
-      className="relative overflow-hidden rounded-[20px] select-none"
-      style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
-      onContextMenu={(e) => e.preventDefault()}
-      onDragStart={(e) => e.preventDefault()}
-      onDoubleClick={() => {
-        // Container fullscreen (not video-only) keeps the watermark visible.
-        const el = boxRef.current;
-        if (!el) return;
-        try {
-          if (document.fullscreenElement) void document.exitFullscreen();
-          else void el.requestFullscreen();
-        } catch {
-          /* ignore */
-        }
-      }}
-    >
-      <video
-        key={blobUrl}
-        src={blobUrl}
-        controls
-        controlsList="nodownload noremoteplayback nofullscreen"
-        disablePictureInPicture
-        playsInline
-        draggable={false}
-        className="aspect-video w-full"
-        onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration;
-          if (Number.isFinite(d) && d > 0) onDuration(d);
-        }}
-        onTimeUpdate={(e) => onProgress(e.currentTarget.currentTime)}
-        onSeeked={(e) => onSeeked(e.currentTarget.currentTime)}
-        onEnded={onEnded}
-      />
-      <Watermark email={email} phone={phone} />
-    </div>
-  );
-}
 
 function StatusIcon({ state }: { state: "current" | "done" | "locked" | "todo" }) {
   if (state === "locked")
@@ -341,7 +203,6 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [has, setHas] = useState<{ exam: boolean; assignment: boolean }>({ exam: false, assignment: false });
   const [openKind, setOpenKind] = useState<ExamKind | null>(null);
-  const [content, setContent] = useState<ExamContent | null>(null);
   const [deepReview, setDeepReview] = useState(false);
   // Attempt already submitted → the button flips to Review (opens the modal
   // straight in review mode). Refreshed when the modal closes (new submit).
@@ -369,7 +230,6 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     setVideoId(null);
     setHas({ exam: false, assignment: false });
     setOpenKind(null);
-    setContent(null);
     setDeepReview(false);
     setSubmitted({ exam: false, assignment: false });
     if (!isSupabaseConfigured()) return;
@@ -386,10 +246,9 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
         if (!alive) return;
         setVideoId(id);
         setHas({ exam: exam !== null, assignment: assign !== null });
-        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
+        setSubmitted({ exam: resExam?.result !== null, assignment: resAssign?.result !== null });
         const deep = consumeDeepLink();
         if (deep && (deep === "exam" ? exam : assign)) {
-          setContent(deep === "exam" ? exam : assign);
           setOpenKind(deep);
           setDeepReview(true);
         }
@@ -403,24 +262,15 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, idx]);
 
-  const open = async (kind: ExamKind, review: boolean) => {
+  const open = (kind: ExamKind, review: boolean) => {
     if (!videoId) return;
-    try {
-      const m = await import("../lib/db/examsDb");
-      const c = await m.getExam(videoId, kind);
-      if (!c) return;
-      setContent(c);
-      setOpenKind(kind);
-      setDeepReview(review);
-    } catch {
-      /* ignore */
-    }
+    setOpenKind(kind);
+    setDeepReview(review);
   };
 
   const closeModal = () => {
     // Re-check server state: a fresh submit flips Take → Review instantly.
     setOpenKind(null);
-    setContent(null);
     setDeepReview(false);
     if (!videoId || !isSupabaseConfigured()) return;
     void import("../lib/db/examsDb")
@@ -429,7 +279,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
           m.getMyResult(videoId, "exam").catch(() => null),
           m.getMyResult(videoId, "assignment").catch(() => null),
         ]);
-        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
+        setSubmitted({ exam: resExam?.result != null, assignment: resAssign?.result != null });
       })
       .catch(() => {
         /* keep previous labels */
@@ -463,15 +313,12 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
           )
         )}
       </div>
-      {openKind && content && videoId && (
-        <ExamTake videoId={videoId} kind={openKind} content={content} startInReview={deepReview} onClose={closeModal} />
+      {openKind && videoId && (
+        <ExamTake videoId={videoId} kind={openKind} startInReview={deepReview} onClose={closeModal} />
       )}
     </div>
   );
 }
-
-/** Links already measured this tab — the bulk pass runs once per session. */
-const bulkProbed = new Set<string>();
 
 export function Watch({  slug,
   video,
@@ -497,6 +344,12 @@ export function Watch({  slug,
   // Minutes self-heal: first real duration per lesson corrects videos.mins
   // locally + server-side, so the stored value is measured, never typed.
   const minsSavedRef = useRef(false);
+  // Playback grant: resolved video row id (player fetches its URL itself),
+  // plus terminal play states surfaced by the player.
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(true);
+  const [playErr, setPlayErr] = useState<PlayDenied | null>(null);
+  const [sessionDead, setSessionDead] = useState(false);
   // Continuous-watch accumulator: only contiguous playback counts toward
   // completion. Seek jumps reset continuity, so scrubbing to the end grants
   // nothing (server re-validates against DB-side minutes).
@@ -522,6 +375,17 @@ export function Watch({  slug,
     minsSavedRef.current = false;
     watchAcc.current = { last: 0, total: 0 };
     setRealDur(0);
+    setPlayErr(null);
+    setSessionDead(false);
+    setVideoId(null);
+    setResolving(true);
+    if (!course || !isSupabaseConfigured()) {
+      setResolving(false);
+      return;
+    }
+    // Resolve the DB row id for this position (player fetches its own URL).
+    const total = course.modules.length;
+    const at = Math.min(Math.max(0, video), Math.max(0, total - 1));
     if (user && course) {
       if (videoRef.current !== video) {
         videoRef.current = video;
@@ -533,49 +397,23 @@ export function Watch({  slug,
     }
     setOpen(video);
     window.scrollTo(0, 0);
-  }, [slug, video]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Bulk heal, once per success: measure EVERY part in the background so old
-  // default-10 rows correct themselves without opening each lesson. Measured
-  // links stick; failures retry on the next visit instead of sticking at 10.
-  useEffect(() => {
     let alive = true;
-    if (!course || !isSupabaseConfigured()) return;
-    const jobs = videos
-      .map((v, i) => ({ i, src: (v.src || "").trim() }))
-      .filter((j) => j.src !== "" && !bulkProbed.has(j.src));
-    if (jobs.length === 0) return;
-    void (async () => {
-      try {
-        const g = await import("../lib/videoGuard");
-        const secs = await g.probeEachDuration(jobs.map((j) => j.src));
-        if (!alive) return;
-        const store = await import("../store");
-        const exams = await import("../lib/db/examsDb");
-        const wdb = await import("../lib/db/watchDb");
-        for (let k = 0; k < jobs.length; k++) {
-          const s = secs[k];
-          if (!alive || typeof s !== "number" || s <= 0) continue;
-          bulkProbed.add(jobs[k].src);
-          const real = Math.max(1, Math.ceil(s / 60));
-          if (real === (videos[jobs[k].i]?.mins ?? 10)) continue;
-          store.setVideoMins(slug, jobs[k].i, real);
-          try {
-            const id = await exams.videoIdBySlug(slug, jobs[k].i);
-            if (id && alive) await wdb.reportVideoMins(id, real);
-          } catch {
-            /* local value stays */
-          }
+    void import("../lib/db/examsDb")
+      .then((m) => m.videoIdBySlug(course.slug, at))
+      .then((id) => {
+        if (alive) {
+          setVideoId(id);
+          setResolving(false);
         }
-      } catch {
-        /* probes are best-effort */
-      }
-    })();
+      })
+      .catch(() => {
+        if (alive) setResolving(false);
+      });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, [slug, video]);
 
   // Server truth wins on page open: an admin restart (or another device)
   // only reaches this browser by re-reading — local cache alone would show
@@ -665,7 +503,6 @@ export function Watch({  slug,
   const idx = Math.min(Math.max(0, video), total - 1);
   const mod = course.modules[idx] ?? { t: "", d: "" };
   const vid = videos[idx] ?? { src: "", mins: 10, assign: "", exam: "" };
-  const src = vid.src || null;
   const left = Math.max(0, MAX_VIEWS - plays);
   const unlocked = isUnlocked(user, slug, idx);
   const links = [
@@ -679,10 +516,31 @@ export function Watch({  slug,
     const delta = seconds - acc.last;
     if (delta >= 0 && delta < 2) acc.total += delta;
     acc.last = seconds;
-    // count only after 3s of REAL playback — stalls/reloads before that burn nothing
+    // LOCAL estimate only: the server counts the view at grant time
+    // (POST /api/play, with a 30-minute repeat window). Mirror the unlock so
+    // the next part opens without waiting for a refetch; the server decides.
     if (counted.current || seconds < 3 || left <= 0) return;
     counted.current = true;
-    setPlays((p) => Math.max(p, recordPlay(user, slug, idx)));
+    setViewsCount(user, slug, idx, Math.min(MAX_VIEWS, getViews(user, slug, idx) + 1));
+    setUnlockedFlag(user, slug, idx);
+    setPlays((p) => Math.min(MAX_VIEWS, p + 1));
+  };
+
+  const onPlayDenied = (e: PlayDenied) => {
+    setPlayErr(e);
+  };
+
+  const onSessionDead = () => {
+    setSessionDead(true);
+  };
+
+  const signOutToLogin = () => {
+    void import("../auth")
+      .then((m) => m.signOutEverywhere())
+      .catch(() => {})
+      .finally(() => {
+        window.location.href = "signin.html";
+      });
   };
 
   const onSeeked = (seconds: number) => {
@@ -747,17 +605,54 @@ export function Watch({  slug,
             </p>
 
             <div className="mt-5">
-              {!src ? (
+              {sessionDead ? (
                 <div
                   className="rounded-[20px] border p-8 text-center"
                   style={{ borderColor: "var(--kt-line)" }}
+                  role="alert"
                 >
-                  <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                    No video attached yet
+                  <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                    تم تسجيل الدخول من جهاز آخر
                   </p>
-                  <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-                    Send the video file to attach it here.
+                  <p className="mt-1 text-sm" style={{ color: "var(--muted)" }} dir="ltr">
+                    Signed in on another device. This device has been signed out.
                   </p>
+                  <div className="mt-5 flex flex-wrap justify-center gap-3">
+                    <button type="button" onClick={signOutToLogin} className="btn btn-primary">
+                      {lang === "ar" ? "تسجيل الدخول" : "Sign in"}
+                    </button>
+                  </div>
+                </div>
+              ) : playErr ? (
+                <div
+                  className="rounded-[20px] border p-8 text-center"
+                  style={{ borderColor: "var(--kt-line)" }}
+                  role="alert"
+                >
+                  <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                    {playErr.ar || playErr.en || w.limitT}
+                  </p>
+                  {playErr.en && playErr.ar !== playErr.en && (
+                    <p className="mt-1 text-sm" dir="ltr" style={{ color: "var(--muted)" }}>
+                      {playErr.en}
+                    </p>
+                  )}
+                  <div className="mt-5 flex flex-wrap justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlayErr(null);
+                        setRefreshKey((k) => k + 1);
+                      }}
+                      disabled={refreshing}
+                      className="btn btn-secondary disabled:opacity-60"
+                    >
+                      {refreshing ? "…" : w.retryBtn}
+                    </button>
+                    <a href={WA} className="btn btn-primary">
+                      WhatsApp
+                    </a>
+                  </div>
                 </div>
               ) : !unlocked ? (
                 <div
@@ -796,10 +691,35 @@ export function Watch({  slug,
                     </a>
                   </div>
                 </div>
-              ) : isYoutubeSource(src) || isDriveSource(src) ? (
-                <ProtectedVideoPlayer src={src} email={user.email} phone={user.phone} nominalMins={vid.mins} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
+              ) : resolving ? (
+                <div
+                  className="grid aspect-video w-full animate-pulse place-items-center rounded-[20px]"
+                  style={{ background: "var(--surface)" }}
+                  aria-label="loading"
+                />
+              ) : !videoId ? (
+                <div
+                  className="rounded-[20px] border p-8 text-center"
+                  style={{ borderColor: "var(--kt-line)" }}
+                >
+                  <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
+                    No video attached yet
+                  </p>
+                  <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+                    Send the video file to attach it here.
+                  </p>
+                </div>
               ) : (
-                <Player src={src} email={user.email} phone={user.phone} onProgress={onProgress} onSeeked={onSeeked} onDuration={onDuration} onEnded={onEnded} />
+                <ProtectedVideoPlayer
+                  key={videoId}
+                  videoId={videoId}
+                  onProgress={onProgress}
+                  onSeeked={onSeeked}
+                  onDuration={onDuration}
+                  onEnded={onEnded}
+                  onDenied={onPlayDenied}
+                  onSessionDead={onSessionDead}
+                />
               )}
             </div>
 

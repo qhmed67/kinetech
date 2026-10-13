@@ -9,19 +9,26 @@ import {
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
-import { driveMediaCandidates, toDrivePreviewUrl } from "../lib/drive";
+
+export type PlayDenied = { status: number; code: string; ar: string; en: string };
 
 export type ProtectedVideoPlayerProps = {
-  /** YouTube URL/ID, or a Google Drive share link (rendered via Drive preview). */
-  src: string;
-  email: string;
-  phone: string;
-  /** Nominal lesson minutes — Drive completion threshold (~80%) when no media duration is knowable. */
-  nominalMins?: number;
+  /** videos.id — the playable URL is NEVER in props/DOM. Fetched once per
+      mount from POST /api/play (server counts the view there). */
+  videoId: string;
   onProgress: (seconds: number) => void;
   onSeeked: (seconds: number) => void;
   onDuration: (seconds: number) => void;
   onEnded: () => void;
+  onDenied: (e: PlayDenied) => void;
+  onSessionDead: () => void;
+};
+
+type PlayGrant = {
+  embedUrl: string;
+  minutes: number;
+  email: string;
+  phoneLast4: string;
 };
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -55,44 +62,45 @@ const WM_SPOTS = [
 ] as const;
 
 /**
- * Enterprise-style guarded player over an UNLISTED YouTube source, plus a
- * Google Drive preview mode (no YouTube watermark).
- * Zero native chrome on YouTube; all input flows through our overlay + custom bar.
+ * Guarded player over server-issued embed URLs (POST /api/play).
+ * The raw Drive/YouTube URL never sits in props, state, or the DOM — only
+ * the sandboxed embed URL the server minted for this session.
+ * YouTube keeps zero native chrome + custom bar; Drive preview and legacy
+ * mp4 render in hardened frames with the same watermark + completion wiring.
  *
- * Honest limits: this defeats casual ripping (context menu, extensions
- * reading static links, fullscreen clean-capture). A determined attacker
- * with DevTools + time can still extract the stream — that half is enforced
- * server-side (signed-in RPCs, 3-view cap, watermarked identity).
- *
- * Drive mode limits: the file plays directly in our chrome (real progress
- * + completion events, no Google menus at all) when the link permits; the
- * sandboxed preview is fallback only. A DevTools-armed attacker can extract
- * the file URL — server gates (signed-in RPCs, 3-view cap, watermarked
- * identity) carry the real protection.
+ * Honest limits: the Drive FILE ID is visible in the browser at playback
+ * time (iframe src, network tab), and screen recording cannot be blocked by
+ * any website technology. Real protection stays server-side (single session,
+ * enrollment + 3-view cap + rate/suspicion rules, watermarked identity).
  */
 export function ProtectedVideoPlayer({
-  src,
-  email,
-  phone,
-  nominalMins = 10,
+  videoId,
   onProgress,
   onSeeked,
   onDuration,
   onEnded,
+  onDenied,
+  onSessionDead,
 }: ProtectedVideoPlayerProps) {
   const cbAllRef = useRef({ onDuration });
   cbAllRef.current.onDuration = onDuration;
+  const cbRef = useRef({ onProgress, onSeeked, onEnded, onDenied, onSessionDead });
+  cbRef.current = { onProgress, onSeeked, onEnded, onDenied, onSessionDead };
   const boxRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
-  const cbRef = useRef({ onProgress, onSeeked, onEnded });
-  cbRef.current = { onProgress, onSeeked, onEnded };
 
+  // Play grant from the server; null until /api/play answers.
+  const [grant, setGrant] = useState<PlayGrant | null>(null);
+  // Terminal (denied/session-dead): parent takes over the area.
+  const [over, setOver] = useState(false);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
   // Poster covers the unstarted frame (where YouTube shows title/avatar).
   const [started, setStarted] = useState(false);
+  // Non-YouTube poster gate (Drive preview / mp4 need an explicit start).
+  const [mediaStarted, setMediaStarted] = useState(false);
   const gotQualities = useRef(false);
   const [time, setTime] = useState(0);
   const [dur, setDur] = useState(0);
@@ -126,32 +134,15 @@ export function ProtectedVideoPlayer({
   const levelsRef = useRef<string[]>([]);
   const [muted, setMuted] = useState(false);
   const [spot, setSpot] = useState(() => Math.floor(Math.random() * WM_SPOTS.length));
-  // Drive mode: poster-gated (proves intent before any view burns), then a
-  // wall-clock timer while the tab stays visible — Drive offers no play state.
-  const drivePreview = isDriveSource(src) ? (toDrivePreviewUrl(src) ?? null) : null;
-  // Ordered direct candidates (uc, then usercontent+confirm) — tried in turn
-  // before surrendering to the preview embed.
-  const driveMedias = isDriveSource(src) ? driveMediaCandidates(src) : [];
-  const [driveSrcIdx, setDriveSrcIdx] = useState(0);
-  // Direct media URL: duration probe ONLY (hidden metadata preload, never
-  // rendered, never persisted). Best-effort — Drive's virus-scan page for
-  // huge files fails the probe and the nominal minutes simply stay.
-  const driveMedia = driveMedias[Math.min(driveSrcIdx, Math.max(0, driveMedias.length - 1))] ?? null;
-  const [driveStarted, setDriveStarted] = useState(false);
-  const [driveFailed, setDriveFailed] = useState(false);
-  const [driveRetry, setDriveRetry] = useState(0);
-  // Direct file playback failed (scan page / 403 / download disabled) →
-  // fall back to the sandboxed Drive preview for this lesson.
-  const [driveDirectFailed, setDriveDirectFailed] = useState(false);
-  const driveVideoRef = useRef<HTMLVideoElement>(null);
-  // Wall-clock completion counter for the preview fallback (no clock shown —
-  // Drive's own readout is the only one, avoiding double displays).
-  const [, setElapsed] = useState(0);
-  const elapsedRef = useRef(0);
 
   const sessionToken = useRotatingSession();
   const lastPoll = useRef(0);
   const endedRef = useRef(false);
+  // Preview watchdog/retry + wall-clock completion for API-less frames.
+  const [frameFailed, setFrameFailed] = useState(false);
+  const [frameRetry, setFrameRetry] = useState(0);
+  const elapsedRef = useRef(0);
+  const mediaRef = useRef<HTMLVideoElement>(null);
 
   // Watermark drift.
   useEffect(() => {
@@ -161,6 +152,115 @@ export function ProtectedVideoPlayer({
     );
     return () => window.clearInterval(id);
   }, []);
+
+  // Grant fetch: exactly one /api/play per mount. AbortController (not a
+  // ref guard) handles React StrictMode double-effects: the first request
+  // is cancelled before a second can start, and the server's 30-minute
+  // repeat window makes any residual duplicate free anyway.
+  useEffect(() => {
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let alive = true;
+    setGrant(null);
+    setOver(false);
+    setReady(false);
+    setFailed(false);
+    setPlaying(false);
+    setStarted(false);
+    setMediaStarted(false);
+    setFrameFailed(false);
+    gotQualities.current = false;
+    setQualities([]);
+    setQuality("auto");
+    qualityMarks.current = [{ t: 0, q: "auto" }];
+    levelsRef.current = [];
+    setTime(0);
+    setDur(0);
+    lastPoll.current = 0;
+    endedRef.current = false;
+    elapsedRef.current = 0;
+    void (async () => {
+      try {
+        const { supabase } = await import("../lib/db/client");
+        const sb = supabase();
+        const session = sb
+          ? await Promise.race([
+              sb.auth.getSession(),
+              new Promise<null>((res) => window.setTimeout(() => res(null), 10000)),
+            ])
+          : null;
+        const token = session && typeof session === "object" && "data" in session
+          ? (session as { data: { session: { access_token: string } | null } }).data.session?.access_token ?? null
+          : null;
+        if (!alive) return;
+        if (!token) {
+          setOver(true);
+          cbRef.current.onSessionDead();
+          return;
+        }
+        const r = await fetch("/api/play", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({ video_id: videoId }),
+          signal: ctl?.signal,
+        }).catch(() => null);
+        if (!alive) return;
+        if (!r) {
+          setFailed(true);
+          return;
+        }
+        const body = (await r.json().catch(() => null)) as {
+          ok?: boolean; code?: string; ar?: string; en?: string;
+          embedUrl?: string; minutes?: number;
+          watermark?: { email?: string; phoneLast4?: string };
+        } | null;
+        if (!alive) return;
+        if (!r.ok || !body || body.ok !== true || typeof body.embedUrl !== "string") {
+          const code = typeof body?.code === "string" ? body.code : "";
+          if (r.status === 401 || code === "SESSION_MISMATCH" || code === "INVALID_TOKEN") {
+            setOver(true);
+            cbRef.current.onSessionDead();
+          } else {
+            setOver(true);
+            cbRef.current.onDenied({
+              status: r.status,
+              code,
+              ar: typeof body?.ar === "string" ? body.ar : "",
+              en: typeof body?.en === "string" ? body.en : "",
+            });
+          }
+          return;
+        }
+        setGrant({
+          embedUrl: body.embedUrl,
+          minutes: typeof body.minutes === "number" ? body.minutes : 0,
+          email: body.watermark?.email ?? "",
+          phoneLast4: body.watermark?.phoneLast4 ?? "",
+        });
+      } catch {
+        if (alive) setFailed(true);
+      }
+    })();
+    return () => {
+      alive = false;
+      try {
+        ctl?.abort();
+      } catch {
+        /* ignore */
+      }
+      genRef.current += 1;
+      try {
+        playerRef.current?.destroy();
+      } catch {
+        /* ignore */
+      }
+      playerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId]);
+
+  const embedUrl = grant?.embedUrl ?? null;
+  const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
+  const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -240,31 +340,16 @@ export function ProtectedVideoPlayer({
     playerRef.current = player;
   }, []);
 
-  // Initial build per src. Raw ID lives only in this closure + ref.
+  // YouTube build once the grant lands. Raw ID lives only in ref.
   useEffect(() => {
+    if (!grant || !isYt || !embedUrl) return;
     let alive = true;
-    setReady(false);
-    setFailed(false);
-    setPlaying(false);
-    setStarted(false);
-    gotQualities.current = false;
-    setQualities([]);
-    setQuality("auto");
-    qualityMarks.current = [{ t: 0, q: "auto" }];
-    levelsRef.current = [];
-    setTime(0);
-    setDur(0);
-    lastPoll.current = 0;
-    endedRef.current = false;
-
-    const rawId = extractYoutubeId(src);
-    // Drive sources render the sandboxed preview branch — no YT API involved.
-    // (Shared resets above already ran: ready/failed/timers are lesson-fresh.)
-    if (drivePreview) return;
+    const rawId = extractYoutubeId(embedUrl);
     if (!rawId) {
       setFailed(true);
       return;
-    }    const encoded = obfuscateId(rawId);
+    }
+    const encoded = obfuscateId(rawId);
     void (async () => {
       try {
         const [api, guard] = await Promise.all([loadYoutubeApi(), import("../lib/videoGuard")]);
@@ -280,15 +365,16 @@ export function ProtectedVideoPlayer({
     })();
     return () => {
       alive = false;
-      genRef.current += 1;
-      try {
-        playerRef.current?.destroy();
-      } catch {
-        /* ignore */
-      }
-      playerRef.current = null;
     };
-  }, [src, spawn]);
+  }, [grant, isYt, embedUrl, spawn]);
+
+  // Server minutes feed duration-dependent UI for API-less frames (and the
+  // minutes self-heal downstream). YouTube reports its exact media length.
+  useEffect(() => {
+    if (!grant || isYt) return;
+    if (grant.minutes > 0) cbAllRef.current.onDuration(grant.minutes * 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grant]);
 
   // Telemetry poll, independent of (re)builds.
   useEffect(() => {
@@ -352,58 +438,41 @@ export function ProtectedVideoPlayer({
       }
     }, 250);
     return () => window.clearInterval(poll);
-  }, [src]);
+  }, [videoId]);
 
-  // Drive branch: per-lesson reset + wall-clock progress.
+  // Preview watchdog: unresolvable hosts never fire onLoad — show retry.
   useEffect(() => {
-    elapsedRef.current = 0;
-    setElapsed(0);
-    setDriveStarted(false);
-    setDriveFailed(false);
-    setDriveDirectFailed(false);
-    setDriveSrcIdx(0);
-  }, [src]);
-
-  // Drive load watchdog: DNS blocks / ISP filters / adblock can make
-  // drive.google.com unresolvable — the preview iframe then never fires
-  // onLoad. Only armed for the preview fallback (direct <video> has onError).
-  // After 20s show a retry panel instead of a dead spinner.
-  useEffect(() => {
-    if (!drivePreview || !driveStarted || !driveDirectFailed || ready || driveFailed) return;
-    const id = window.setTimeout(() => setDriveFailed(true), 20000);
+    if (!grant || !isDrive || !mediaStarted || ready || frameFailed) return;
+    const id = window.setTimeout(() => setFrameFailed(true), 20000);
     return () => window.clearTimeout(id);
-  }, [drivePreview, driveStarted, driveDirectFailed, ready, driveFailed]);
+  }, [grant, isDrive, mediaStarted, ready, frameFailed]);
 
+  // Wall-clock completion for API-less frames (Drive preview offers no play
+  // state; the server already counted the view at grant time).
   useEffect(() => {
-    if (!drivePreview || !driveStarted) return;
-    // Direct <video> reports real events — the wall clock only serves the
-    // preview fallback, which has no playback API at all.
-    if (!driveDirectFailed) return;
+    if (!grant || !isDrive || !mediaStarted) return;
+    const need = Math.max(60, Math.round((grant.minutes || 10) * 60 * 0.8));
     const id = window.setInterval(() => {
       if (document.hidden) return;
       elapsedRef.current += 1;
       const n = elapsedRef.current;
-      setElapsed(n);
       cbRef.current.onProgress(n);
-      // No media duration is knowable — nominal minutes carry completion.
-      const need = Math.max(60, Math.round((nominalMins || 10) * 60 * 0.8));
       if (n >= need && !endedRef.current) {
         endedRef.current = true;
         cbRef.current.onEnded();
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [drivePreview, driveStarted, driveDirectFailed, nominalMins]);
+  }, [grant, isDrive, mediaStarted]);
 
-  // Poster click chains into playback while the tap gesture is fresh —
-  // when autoplay is refused the native controls take over seamlessly.
+  // Poster click chains into native playback while the tap gesture is fresh.
   useEffect(() => {
-    if (driveStarted && !driveDirectFailed && driveVideoRef.current) {
-      driveVideoRef.current.play().catch(() => {
+    if (mediaStarted && grant && !isYt && !isDrive && mediaRef.current) {
+      mediaRef.current.play().catch(() => {
         /* native controls take over */
       });
     }
-  }, [driveStarted, driveDirectFailed, drivePreview]);
+  }, [mediaStarted, grant, isYt, isDrive]);
 
   // Session rotation: re-assert isolation without touching playback.
   // sessionToken is a state string, so each rotation re-runs this effect.
@@ -526,6 +595,8 @@ export function ProtectedVideoPlayer({
     }
   }, [togglePlay]);
 
+  if (over) return null;
+
   if (failed) {
     return (
       <div
@@ -541,145 +612,88 @@ export function ProtectedVideoPlayer({
   const frac = dur > 0 ? Math.min(time / dur, 1) : 0;
   const label = showRemaining ? `-${formatClock(dur - time)}` : formatClock(time);
   const pos = WM_SPOTS[spot % WM_SPOTS.length];
-  const wmText = [email, phone].filter(Boolean).join(" • ");
+  const wmText = [grant?.email ?? "", grant?.phoneLast4 ?? ""].filter(Boolean).join(" • ");
 
-  /* FALLBACK: sandboxed preview iframe behind a poster gate (direct file
-     blocked: virus-scan page / 403 / download disabled on the file).
-     Sandbox = allow-scripts + allow-same-origin ONLY: no allow-downloads
-     (kills Drive's download button in Chrome), no allow-top-navigation
-     (kills "open in new window"), no allow-popups. Clicks must reach
-     Drive's own controls, so there is no click shield here — right-clicks
-     inside the frame stay Google's, unblockable cross-origin. */
-  if (drivePreview) {
-    // PRIMARY: the file itself in a native <video> — zero Google UI, no
-    // menus, no pop-out icon, instant controls. Right-click is ours again
-    // (same-document element, wrapper blocks it); nodownload strips the
-    // download item, nofullscreen forces OUR fullscreen (watermark kept).
-    // Requires "anyone with the link" + download allowed on the file —
-    // our player hides the download button; DevTools extraction stays
-    // possible (same deterrence class as a YouTube ID) and server gates +
-    // watermark carry the real protection.
-    if (!driveDirectFailed && driveMedia) {
-      return (
-        <div
-          ref={boxRef}
-          tabIndex={0}
-          onKeyDown={blockKeys}
-          onContextMenu={(e) => e.preventDefault()}
-          onDragStart={(e) => e.preventDefault()}
-          onDoubleClick={toggleFullscreen}
-          onMouseMove={wake}
-          className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${idle && driveStarted ? "cursor-none" : ""}`}
-          style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
-          aria-label="Protected video player"
-        >
-          <video
-            ref={driveVideoRef}
-            key={`${driveMedia}:${driveSrcIdx}`}
-            src={driveMedia}
-            controls={driveStarted}
-            controlsList="nodownload nofullscreen noremoteplayback"
-            disablePictureInPicture
-            playsInline
-            preload="metadata"
-            onLoadedMetadata={(e) => {
-              const d = e.currentTarget.duration;
-              if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
-            }}
-            onCanPlay={() => setReady(true)}
-            onTimeUpdate={(e) => cbRef.current.onProgress(e.currentTarget.currentTime)}
-            onSeeked={(e) => cbRef.current.onSeeked(e.currentTarget.currentTime)}
-            onEnded={() => {
-              if (!endedRef.current) {
-                endedRef.current = true;
-                cbRef.current.onEnded();
-              }
-            }}
-            onError={() => {
-              // Try the next direct host before surrendering to preview.
-              if (driveSrcIdx < driveMedias.length - 1) setDriveSrcIdx((k) => k + 1);
-              else setDriveDirectFailed(true);
-            }}
-            className="absolute inset-0 h-full w-full"
-            style={{ background: "#000" }}
-          />
-          {!driveStarted && (
-            <button
-              type="button"
-              onClick={() => {
-                setDriveStarted(true);
-                wake();
-              }}
-              aria-label="Start video"
-              className="absolute inset-0 z-20 grid place-items-center"
-              style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
-            >
-              <span
-                aria-hidden="true"
-                className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
-                style={{ background: "#3BBCD9" }}
-              >
-                <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
-              </span>
-            </button>
-          )}
-
-          {wmText !== "" && (
-            <div
-              aria-hidden="true"
-              dir="ltr"
-              className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
-              style={{
-                ...pos,
-                background: "rgba(0,0,0,0.45)",
-                color: "rgba(255,255,255,0.85)",
-                fontFamily: "var(--font-display)",
-              }}
-            >
-              {wmText}
-            </div>
-          )}
-
-          {driveStarted && !ready && (
-            <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
-              <span
-                aria-hidden="true"
-                className="h-12 w-12 animate-spin rounded-full"
-                style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
-              />
-            </div>
-          )}
-
-          <div
-            className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && driveStarted ? "pointer-events-none opacity-0" : "opacity-100"}`}
-          >
-            <div className="mt-1 flex items-center gap-1.5 text-white sm:gap-2">
-              <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen" className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-white/15">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </button>
-              <span className="flex-1" />
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div
-        ref={boxRef}
-        tabIndex={0}
-        onKeyDown={blockKeys}
-        onContextMenu={(e) => e.preventDefault()}
-        onDragStart={(e) => e.preventDefault()}
-        onDoubleClick={toggleFullscreen}
-        onMouseMove={wake}
-        className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${idle && driveStarted ? "cursor-none" : ""}`}
-        style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
-        aria-label="Protected video player"
+  const poster = (start: () => void, readyToShow: boolean) =>
+    !readyToShow ? null : (
+      <button
+        type="button"
+        onClick={() => {
+          start();
+          wake();
+        }}
+        aria-label="Start video"
+        className="absolute inset-0 z-20 grid place-items-center"
+        style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
       >
-        {driveStarted ? (
+        <span
+          aria-hidden="true"
+          className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
+          style={{ background: "#3BBCD9" }}
+        >
+          <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+        </span>
+      </button>
+    );
+
+  const watermark = wmText !== "" && (
+    <div
+      aria-hidden="true"
+      dir="ltr"
+      className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
+      style={{
+        ...pos,
+        background: "rgba(0,0,0,0.45)",
+        color: "rgba(255,255,255,0.85)",
+        fontFamily: "var(--font-display)",
+      }}
+    >
+      {wmText}
+    </div>
+  );
+
+  const shell = (body: React.ReactNode, extraClass: string) => (
+    <div
+      ref={boxRef}
+      tabIndex={0}
+      onKeyDown={blockKeys}
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+      onDoubleClick={toggleFullscreen}
+      onMouseMove={wake}
+      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${extraClass}`}
+      style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
+      aria-label="Protected video player"
+    >
+      {body}
+    </div>
+  );
+
+  // Grant pending: spinner, no URL anywhere yet.
+  if (!grant || !embedUrl) {
+    return shell(
+      <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+        <span
+          aria-hidden="true"
+          className="h-12 w-12 animate-spin rounded-full"
+          style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+        />
+      </div>,
+      "",
+    );
+  }
+
+  /* Drive preview: sandboxed iframe. Sandbox = allow-scripts +
+     allow-same-origin ONLY (no downloads/pop-outs/popups, no PiP token).
+     Clicks must reach Drive's own controls — no click shield; right-clicks
+     inside the frame stay Google's, unblockable cross-origin. */
+  if (isDrive) {
+    return shell(
+      <>
+        {mediaStarted ? (
           <iframe
-            key={`${drivePreview}:${driveRetry}`}
-            src={drivePreview}
+            key={`${embedUrl}:${frameRetry}`}
+            src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
             allow="autoplay; fullscreen"
@@ -690,43 +704,10 @@ export function ProtectedVideoPlayer({
             style={{ border: 0 }}
           />
         ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setDriveStarted(true);
-              wake();
-            }}
-            aria-label="Start video"
-            className="absolute inset-0 z-20 grid place-items-center"
-            style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
-          >
-            <span
-              aria-hidden="true"
-              className="grid h-20 w-20 place-items-center rounded-full transition hover:scale-105"
-              style={{ background: "#3BBCD9" }}
-            >
-              <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
-            </span>
-          </button>
+          poster(() => setMediaStarted(true), true)
         )}
-
-        {wmText !== "" && (
-          <div
-            aria-hidden="true"
-            dir="ltr"
-            className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
-            style={{
-              ...pos,
-              background: "rgba(0,0,0,0.45)",
-              color: "rgba(255,255,255,0.85)",
-              fontFamily: "var(--font-display)",
-            }}
-          >
-            {wmText}
-          </div>
-        )}
-
-        {driveStarted && !ready && !driveFailed && (
+        {watermark}
+        {mediaStarted && !ready && !frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
               aria-hidden="true"
@@ -735,9 +716,7 @@ export function ProtectedVideoPlayer({
             />
           </div>
         )}
-
-        {/* Unreachable Drive (DNS/ISP/adblock): retry, plus the honest cause. */}
-        {driveStarted && driveFailed && (
+        {mediaStarted && frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center" style={{ background: "rgba(0,0,0,0.85)" }} role="alert">
             <div className="grid max-w-md gap-3">
               <p className="font-bold text-white">Video didn&apos;t load — your network can&apos;t reach Google Drive right now.</p>
@@ -749,9 +728,9 @@ export function ProtectedVideoPlayer({
                 <button
                   type="button"
                   onClick={() => {
-                    setDriveFailed(false);
+                    setFrameFailed(false);
                     setReady(false);
-                    setDriveRetry((k) => k + 1);
+                    setFrameRetry((k) => k + 1);
                   }}
                   className="btn btn-primary"
                 >
@@ -761,29 +740,64 @@ export function ProtectedVideoPlayer({
             </div>
           </div>
         )}
+      </>,
+      idle && mediaStarted ? "cursor-none" : "",
+    );
+  }
 
-        {/* Hidden duration probe: reads the file's real minutes for the
-            server self-heal. Silent when Drive refuses (scan page/CSP). */}
-        {driveMedia && (
-          <video
-            aria-hidden="true"
-            tabIndex={-1}
-            preload="metadata"
-            src={driveMedia}
-            muted
-            playsInline
-            onLoadedMetadata={(e) => {
-              const d = e.currentTarget.duration;
-              if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
-            }}
-            style={{ display: "none" }}
-          />
+  // Legacy direct file (seeds): native element, real media events.
+  if (!isYt) {
+    return shell(
+      <>
+        <video
+          ref={mediaRef}
+          key={embedUrl}
+          src={embedUrl}
+          controls={mediaStarted}
+          controlsList="nodownload nofullscreen noremoteplayback"
+          disablePictureInPicture
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration;
+            if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
+          }}
+          onCanPlay={() => setReady(true)}
+          onTimeUpdate={(e) => cbRef.current.onProgress(e.currentTarget.currentTime)}
+          onSeeked={(e) => cbRef.current.onSeeked(e.currentTarget.currentTime)}
+          onEnded={() => {
+            if (!endedRef.current) {
+              endedRef.current = true;
+              cbRef.current.onEnded();
+            }
+          }}
+          onError={() => setFailed(true)}
+          className="absolute inset-0 h-full w-full"
+          style={{ background: "#000" }}
+        />
+        {poster(() => setMediaStarted(true), !mediaStarted)}
+        {watermark}
+        {mediaStarted && !ready && (
+          <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+            <span
+              aria-hidden="true"
+              className="h-12 w-12 animate-spin rounded-full"
+              style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+            />
+          </div>
         )}
-
-        {/* No own bar over the preview: Drive's controls are the only ones
-            (a second bar + second clock is the "interference"). Watermark
-            stays; fullscreen via double-tap or Drive's own button. */}
-      </div>
+        <div
+          className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/70 to-transparent px-3 pb-2.5 pt-12 transition-opacity duration-300 sm:px-4 ${idle && mediaStarted ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        >
+          <div className="mt-1 flex items-center gap-1.5 text-white sm:gap-2">
+            <button type="button" onClick={toggleFullscreen} aria-label="Fullscreen" className="grid h-9 w-9 place-items-center rounded-full transition hover:bg-white/15">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <span className="flex-1" />
+          </div>
+        </div>
+      </>,
+      idle && mediaStarted ? "cursor-none" : "",
     );
   }
 
@@ -845,21 +859,7 @@ export function ProtectedVideoPlayer({
       )}
 
       {/* Floating identity watermark. */}
-      {wmText !== "" && (
-        <div
-          aria-hidden="true"
-          dir="ltr"
-          className="pointer-events-none absolute z-20 max-w-[70%] truncate rounded-lg px-3 py-1.5 text-xs font-bold"
-          style={{
-            ...pos,
-            background: "rgba(0,0,0,0.45)",
-            color: "rgba(255,255,255,0.85)",
-            fontFamily: "var(--font-display)",
-          }}
-        >
-          {wmText}
-        </div>
-      )}
+      {watermark}
 
       {(!ready || switching) && (
         <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">

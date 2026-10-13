@@ -145,11 +145,10 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
   );
   const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
   const ops: Array<Promise<unknown>> = [
-    (async () => sb.from("enrollments").delete().eq("user_id", userId).eq("course_id", courseId))(),
+    (async () => sb.rpc("admin_revoke_course_data", { p_user: userId, p_course: courseId }))(),
   ];
   if (ids.length > 0) {
     ops.push(
-      (async () => sb.from("video_views").delete().eq("user_id", userId).in("video_id", ids))(),
       (async () => sb.from("exam_results").delete().eq("user_id", userId).in("video_id", ids))(),
     );
   }
@@ -233,11 +232,9 @@ export async function resetUserVideo(userId: string, courseSlug: string, sortOrd
   );
   const rows = ((vids ?? []) as unknown as Array<{ id: string; module_id: string }>).filter((v) => v.id);
   if (rows.length === 0) throw new Error("This part has no video row yet — save the course from the editor first.");
-  const ids = rows.map((v) => v.id);
+  // Server-side reset (direct video_views writes are revoked for clients).
   const { error } = await withTimeout(
-    (async () =>
-      sb.from("video_views").update({ views_count: 0, done: false, updated_at: new Date().toISOString() })
-        .eq("user_id", userId).in("video_id", ids))(),
+    (async () => sb.rpc("admin_reset_video", { p_user: userId, p_video: rows[0].id }))(),
     NETWORK_TIMEOUT_MS,
     "reset-part",
   );
@@ -292,14 +289,14 @@ export async function resetUserViews(userId: string, courseSlug: string): Promis
   );
   const ids = ((vids ?? []) as unknown as Array<{ id: string }>).map((v) => v.id);
   if (ids.length === 0) throw new Error("This course has no video rows yet — save it from the course editor first.");
-  const { error, count } = await withTimeout(
-    (async () =>
-      sb.from("video_views").delete({ count: "exact" }).eq("user_id", userId).in("video_id", ids))(),
+  // Server-side delete (direct video_views writes are revoked for clients).
+  const { data: deleted, error } = await withTimeout(
+    (async () => sb.rpc("admin_reset_course_views", { p_user: userId, p_course: courseId }))(),
     NETWORK_TIMEOUT_MS,
     "reset-views",
   );
   if (error) throw error;
-  return { deleted: count ?? 0, total: ids.length };
+  return { deleted: (deleted as number | null) ?? 0, total: ids.length };
 }
 
 /**

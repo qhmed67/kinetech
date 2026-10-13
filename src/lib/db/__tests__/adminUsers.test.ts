@@ -92,18 +92,20 @@ describe("resetUserViews", () => {
     await expect(resetUserViews("u1", "python-data")).rejects.toThrow("no video rows");
   });
 
-  it("deletes the user's rows for the course videos", async () => {
-    const del = vi.fn().mockReturnValue(query({ data: null, error: null, count: 3 }));
+  it("deletes the user's rows for the course videos via RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: 3, error: null });
     const sb = {
       ...session,
+      rpc,
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
         if (table === "videos") return query({ data: [{ id: "v1" }, { id: "v2" }], error: null });
-        return { delete: del };
+        return query({ data: null, error: null });
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
     await expect(resetUserViews("u1", "python-data")).resolves.toEqual({ deleted: 3, total: 2 });
+    expect(rpc).toHaveBeenCalledWith("admin_reset_course_views", { p_user: "u1", p_course: "c1" });
   });
 });
 
@@ -138,27 +140,25 @@ describe("resetUserVideo", () => {
     auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "a1" } } } }) },
   };
 
-  it("updates (never deletes) to preserve the sticky unlock, then notifies", async () => {
-    const update = vi.fn().mockReturnValue(query({ data: null, error: null }));
+  it("resets via RPC (never direct writes) to preserve the sticky unlock, then notifies", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
     const sb = {
       ...session,
+      rpc,
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
         if (table === "videos")
           return query({ data: [{ id: "v1", module_id: "m1" }], error: null });
         if (table === "module_translations")
           return query({ data: { title: "Intro" }, error: null });
-        if (table === "video_views") return { update };
         if (table === "notifications") return { insert };
         return query({ data: null, error: null });
       }),
     };
     mockedSupabase.mockReturnValue(sb as never);
     await expect(resetUserVideo("u1", "c", 0)).resolves.toBe(true);
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ views_count: 0, done: false }),
-    );
+    expect(rpc).toHaveBeenCalledWith("admin_reset_video", { p_user: "u1", p_video: "v1" });
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: "u1" }),
     );
@@ -266,10 +266,12 @@ describe("grant/revoke/ban", () => {
     );
   });
 
-  it("revokes and bans by id", async () => {
+  it("revokes via RPC for views data and bans by id", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const del = vi.fn().mockReturnValue(query({ data: null, error: null }));
     const update = vi.fn().mockReturnValue(query({ data: null, error: null }));
     const sb = {
+      rpc,
       from: vi.fn((table: string) => {
         if (table === "courses") return query({ data: { id: "c1" }, error: null });
         if (table === "videos") return query({ data: [{ id: "v1" }], error: null });
@@ -279,6 +281,7 @@ describe("grant/revoke/ban", () => {
     };
     mockedSupabase.mockReturnValue(sb as never);
     await revokeEnrollment("u1", "python-data");
+    expect(rpc).toHaveBeenCalledWith("admin_revoke_course_data", { p_user: "u1", p_course: "c1" });
     expect(del).toHaveBeenCalled();
     await setBanned("u1", true);
     expect(update).toHaveBeenCalledWith({ banned: true });

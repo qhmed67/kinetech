@@ -125,6 +125,11 @@ document.getElementById('signinForm').addEventListener('submit', async function(
     try {
       window.localStorage.setItem('kt-user', JSON.stringify({ name: nm, email, phone: ph, enrolled: [], tracks: [] }));
     } catch (err) {}
+    // Single-session pin (best-effort): other devices learn at next play.
+    try {
+      const token = data.session && data.session.access_token;
+      if (token) fetch('/api/session-register', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token } }).catch(function() {});
+    } catch (err) {}
     window.location.href = '/#/dashboard';
   } catch (err) {
     fail(err && err.message ? err.message : undefined);
