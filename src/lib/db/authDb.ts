@@ -69,7 +69,28 @@ export async function signUpDb(input: {
     .from("user_tracks")
     .upsert({ user_id: uid, track: input.track }, { onConflict: "user_id,track" });
   if (tErr) throw tErr;
-  return { id: uid, email: input.email, name: input.name, phone: input.phone, role: "student", tracks: [input.track], enrolled: [], banned: false };
+  const out: SessionUser = { id: uid, email: input.email, name: input.name, phone: input.phone, role: "student", tracks: [input.track], enrolled: [], banned: false };
+  void registerSession();
+  return out;
+}
+
+/* Single-session registration: pin this login as THE active device session
+   (other devices learn at their next /api/play and sign out with a clear
+   message). Best-effort and non-blocking — never fails a login. */
+export async function registerSession(): Promise<void> {
+  try {
+    const sb = supabase();
+    if (!sb || typeof fetch === "undefined" || typeof window === "undefined") return;
+    const { data } = await sb.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    void fetch("/api/session-register", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    }).catch(() => null);
+  } catch {
+    /* play-time 401 covers stragglers */
+  }
 }
 
 export async function signInDb(email: string, password: string): Promise<SessionUser> {
@@ -82,7 +103,9 @@ export async function signInDb(email: string, password: string): Promise<Session
     "login",
   );
   if (error || !data.user) throw error ?? new Error("login failed");
-  return loadSessionUser(data.user.id);
+  const user = await loadSessionUser(data.user.id);
+  void registerSession();
+  return user;
 }
 
 /** One profiles row + tracks. No SELECT *. */
