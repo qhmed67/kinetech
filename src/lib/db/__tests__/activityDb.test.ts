@@ -66,13 +66,30 @@ describe("getUpcomingSessions", () => {
   it("maps rows and returns empty array when none", async () => {
     mockedSupabase.mockReturnValue(
       clientWith({
+        session: { user: { id: "u1" } },
         sessions: [{ id: "1", title: "Lab", date: "2026-10-20T18:00:00Z" }],
       }) as never,
     );
     const rows = await getUpcomingSessions();
     expect(rows).toEqual([{ id: "1", title: "Lab", date: "2026-10-20T18:00:00Z" }]);
 
-    mockedSupabase.mockReturnValue(clientWith({ sessions: [] }) as never);
+    mockedSupabase.mockReturnValue(clientWith({ session: { user: { id: "u1" } }, sessions: [] }) as never);
+    await expect(getUpcomingSessions()).resolves.toEqual([]);
+  });
+
+  it("scopes rows to self so admins never see the global firehose", async () => {
+    const sb = clientWith({ session: { user: { id: "u9" } }, sessions: [] });
+    mockedSupabase.mockReturnValue(sb as never);
+    await getUpcomingSessions();
+    const builder = (sb.from as ReturnType<typeof vi.fn>).mock.results
+      .map((r: { value: unknown }) => r.value)
+      .find((v: unknown) => v !== undefined);
+    expect((builder as { eq: ReturnType<typeof vi.fn> }).eq).toHaveBeenCalledWith("user_id", "u9");
+  });
+
+  it("returns [] with no session instead of leaking rows", async () => {
+    const sb = clientWith({ sessions: [{ id: "1", title: "Lab", date: "2026-10-20T18:00:00Z" }] });
+    mockedSupabase.mockReturnValue(sb as never);
     await expect(getUpcomingSessions()).resolves.toEqual([]);
   });
 });
@@ -85,6 +102,7 @@ describe("getNotifications", () => {
   it("maps is_read and defaults missing message", async () => {
     mockedSupabase.mockReturnValue(
       clientWith({
+        session: { user: { id: "u1" } },
         notifs: [
           { id: "a", title: "Hi", message: "hey", is_read: false },
           { id: "b", title: "Old", message: null, is_read: true },
@@ -96,6 +114,16 @@ describe("getNotifications", () => {
       { id: "a", title: "Hi", message: "hey", is_read: false },
       { id: "b", title: "Old", message: "", is_read: true },
     ]);
+  });
+
+  it("scopes rows to self", async () => {
+    const sb = clientWith({ session: { user: { id: "u9" } }, notifs: [] });
+    mockedSupabase.mockReturnValue(sb as never);
+    await getNotifications();
+    const builder = (sb.from as ReturnType<typeof vi.fn>).mock.results
+      .map((r: { value: unknown }) => r.value)
+      .find((v: unknown) => v !== undefined);
+    expect((builder as { eq: ReturnType<typeof vi.fn> }).eq).toHaveBeenCalledWith("user_id", "u9");
   });
 });
 
