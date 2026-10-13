@@ -14,6 +14,21 @@ export type Notification = {
   is_read: boolean;
 };
 
+/* Personal scope: the RLS bypass for admins (is_admin() in the read
+   policies) shows EVERY user's rows to admin sessions — personal surfaces
+   must filter to self explicitly, or one student's notice reads as
+   "sent to all users". No session = no rows (matches RLS). */
+async function ownUid(): Promise<string | null> {
+  const sb = supabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  try {
+    const { data } = await sb.auth.getSession();
+    return data.session?.user.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Newest first (FIFO): the latest lesson notice tops the widget.
     7-day grace behind now: lesson notices carry server time, and a student
     device clock running ahead (wrong timezone/DST) must never hide rows
@@ -21,10 +36,12 @@ export type Notification = {
 export async function getUpcomingSessions(limit = 5): Promise<UpcomingSession[]> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
+  const uid = await ownUid();
+  if (!uid) return [];
   const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const { data, error } = await withTimeout(
     (async () =>
-      sb.from("upcoming_sessions").select("id,title,date").gte("date", weekAgo).order("date", { ascending: false }).limit(limit))(),
+      sb.from("upcoming_sessions").select("id,title,date").eq("user_id", uid).gte("date", weekAgo).order("date", { ascending: false }).limit(limit))(),
     NETWORK_TIMEOUT_MS,
     "sessions",
   );
@@ -39,9 +56,11 @@ export async function getUpcomingSessions(limit = 5): Promise<UpcomingSession[]>
 export async function getNotifications(limit = 10): Promise<Notification[]> {
   const sb = supabase();
   if (!sb) throw new Error("supabase-not-configured");
+  const uid = await ownUid();
+  if (!uid) return [];
   const { data, error } = await withTimeout(
     (async () =>
-      sb.from("notifications").select("id,title,message,is_read").order("created_at", { ascending: false }).limit(limit))(),
+      sb.from("notifications").select("id,title,message,is_read").eq("user_id", uid).order("created_at", { ascending: false }).limit(limit))(),
     NETWORK_TIMEOUT_MS,
     "notifications",
   );
