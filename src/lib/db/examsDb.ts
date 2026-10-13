@@ -29,6 +29,22 @@ export type ExamResult = {
   feedback: Record<string, string>;
 };
 
+/** Per-question review marks, computed SERVER-side from the answer key.
+    correctIndex is present ONLY for graded (final) attempts — pending
+    results and resubmits never see the key. */
+export type AttemptReview = {
+  id: string;
+  picked: number | string | null;
+  right: boolean | null;
+  correctIndex: number | null;
+};
+
+export type MyAttempt = {
+  result: ExamResult | null;
+  questions: ExamContent;
+  review: AttemptReview[] | null;
+};
+
 export const emptyExam = (): ExamContent => ({ title: "", questions: [] });
 
 export function newQuestion(kind: "choice" | "writing"): ExamQuestion {
@@ -47,10 +63,6 @@ function authed() {
   return sb;
 }
 
-function colFor(kind: ExamKind): string {
-  return kind === "exam" ? "exam_json" : "assign_json";
-}
-
 /** Resolve the DB video id for a course lesson (needed for exam storage). */
 export async function videoIdBySlug(slug: string, sortOrder: number): Promise<string | null> {
   const sb = authed();
@@ -64,33 +76,64 @@ export async function videoIdBySlug(slug: string, sortOrder: number): Promise<st
   return (data as unknown as { id: string } | null)?.id ?? null;
 }
 
-/** Structured exam/assignment content, or null when the lesson has none. */
-export async function getExam(videoId: string, kind: ExamKind): Promise<ExamContent | null> {
-  const sb = authed();
-  const col = colFor(kind);
-  const { data, error } = await withTimeout(
-    (async () => sb.from("videos").select(`id,${col}`).eq("id", videoId).single())(),
-    NETWORK_TIMEOUT_MS,
-    "exam-load",
-  );
-  if (error || !data) return null;
-  const raw = (data as unknown as Record<string, ExamContent | null>)[col];
-  if (!raw || !Array.isArray(raw.questions) || raw.questions.length === 0) return null;
+function normalizeContent(raw: unknown): ExamContent {
+  const r = raw as { title?: unknown; questions?: unknown } | null;
+  const list = Array.isArray(r?.questions) ? r.questions : [];
   return {
-    title: raw.title ?? "",
-    questions: raw.questions
-      .filter((q) => q && typeof q.prompt === "string" && q.prompt.trim() !== "")
+    title: typeof r?.title === "string" ? r.title : "",
+    questions: (list as Array<Record<string, unknown>>)
+      .filter((q) => q && typeof q.prompt === "string" && (q.prompt as string).trim() !== "")
       .map((q) => ({
         id: String(q.id ?? Math.random().toString(36)),
         kind: q.kind === "writing" ? "writing" : "choice",
-        prompt: q.prompt,
-        choices: Array.isArray(q.choices) ? q.choices : [],
+        prompt: q.prompt as string,
+        choices: Array.isArray(q.choices) ? (q.choices as unknown[]).map(String) : [],
+        // Student paths always receive null here (key lives server-side).
         correct: typeof q.correct === "number" ? q.correct : null,
       })),
   };
 }
 
-/** Admin: replace a lesson's exam/assignment content. */
+function hasQuestions(c: ExamContent | null): boolean {
+  return !!c && Array.isArray(c.questions) && c.questions.length > 0;
+}
+
+/** Student content via RPC — questions WITHOUT correct indices. */
+export async function getExam(videoId: string, kind: ExamKind): Promise<ExamContent | null> {
+  const sb = authed();
+  const { data, error } = await withTimeout(
+    (async () => sb.rpc("get_exam", { p_video: videoId, p_kind: kind }))(),
+    NETWORK_TIMEOUT_MS,
+    "exam-load",
+  );
+  if (error || !data) return null;
+  const c = normalizeContent(data);
+  return hasQuestions(c) ? c : null;
+}
+
+/** Admin content WITH the answer key (merged client-side from key map). */
+export async function getExamAdmin(videoId: string, kind: ExamKind): Promise<ExamContent | null> {
+  const sb = authed();
+  const { data, error } = await withTimeout(
+    (async () => sb.rpc("get_exam_admin", { p_video: videoId, p_kind: kind }))(),
+    NETWORK_TIMEOUT_MS,
+    "exam-admin-load",
+  );
+  if (error || !data) return null;
+  const row = data as { content?: unknown; key?: Record<string, number> };
+  const c = normalizeContent(row.content);
+  if (!hasQuestions(c)) return null;
+  const key = row.key ?? {};
+  return {
+    ...c,
+    questions: c.questions.map((q) => ({
+      ...q,
+      correct: q.kind === "choice" && typeof key[q.id] === "number" ? key[q.id] : null,
+    })),
+  };
+}
+
+/** Admin: replace a lesson's exam/assignment content (key splits server-side). */
 export async function saveExam(videoId: string, kind: ExamKind, content: ExamContent): Promise<void> {
   if (!throttle(`exam-save-${videoId}`, 3000)) throw new Error("too many attempts");
   const sb = authed();
@@ -107,84 +150,79 @@ export async function saveExam(videoId: string, kind: ExamKind, content: ExamCon
       })),
   };
   const { error } = await withTimeout(
-    (async () => sb.from("videos").update({ [colFor(kind)]: clean }).eq("id", videoId))(),
+    (async () => sb.rpc("save_exam", { p_video: videoId, p_kind: kind, p_content: clean }))(),
     NETWORK_TIMEOUT_MS,
     "exam-save",
   );
   if (error) throw error;
 }
 
-export async function getMyResult(videoId: string, kind: ExamKind): Promise<ExamResult | null> {
-  const sb = authed();
-  const { data: session } = await sb.auth.getSession();
-  const uid = session.session?.user.id;
-  if (!uid) return null;
-  const { data, error } = await withTimeout(
-    (async () => sb.from("exam_results").select("*").eq("user_id", uid).eq("video_id", videoId).eq("kind", kind).limit(1).maybeSingle())(),
-    NETWORK_TIMEOUT_MS,
-    "result-load",
-  );
-  if (error || !data) return null;
-  const r = data as unknown as ExamResult;
+function normalizeReview(raw: unknown): AttemptReview[] | null {
+  if (!Array.isArray(raw)) return null;
+  return (raw as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id ?? ""),
+    picked: typeof r.picked === "number" || typeof r.picked === "string" ? (r.picked as number | string) : null,
+    right: typeof r.right === "boolean" ? r.right : null,
+    correctIndex: typeof r.correctIndex === "number" ? r.correctIndex : null,
+  }));
+}
+
+function normalizeResult(raw: unknown): ExamResult | null {
+  const r = raw as Record<string, unknown> | null;
+  if (!r || typeof r !== "object") return null;
   return {
-    answers: r.answers ?? {},
-    choice_score: r.choice_score ?? 0,
-    choice_total: r.choice_total ?? 0,
-    writing_score: r.writing_score ?? null,
-    writing_total: r.writing_total ?? 0,
+    answers: (r.answers ?? {}) as Record<string, number | string>,
+    choice_score: typeof r.choice_score === "number" ? r.choice_score : 0,
+    choice_total: typeof r.choice_total === "number" ? r.choice_total : 0,
+    writing_score: typeof r.writing_score === "number" ? r.writing_score : null,
+    writing_total: typeof r.writing_total === "number" ? r.writing_total : 0,
     status: r.status === "graded" ? "graded" : "pending",
-    feedback: (r as unknown as { feedback?: Record<string, string> }).feedback ?? {},
+    feedback: (r.feedback ?? {}) as Record<string, string>,
   };
 }
 
 /**
- * Student submit: choice questions score instantly; any writing question
- * leaves the attempt pending for instructor grading.
+ * Attempt + questions + review in one gated RPC call. Review reveals
+ * correct indices ONLY for graded (final) attempts — pending shows picks.
+ */
+export async function getMyResult(videoId: string, kind: ExamKind): Promise<MyAttempt | null> {
+  const sb = authed();
+  const { data, error } = await withTimeout(
+    (async () => sb.rpc("get_my_result", { p_video: videoId, p_kind: kind }))(),
+    NETWORK_TIMEOUT_MS,
+    "result-load",
+  );
+  if (error || !data) return null;
+  const row = data as { result?: unknown; questions?: unknown; review?: unknown };
+  return {
+    result: normalizeResult(row.result),
+    questions: normalizeContent(row.questions),
+    review: normalizeReview(row.review),
+  };
+}
+
+/**
+ * Student submit: scored SERVER-side from the answer key. Choice-only work
+ * grades instantly; any writing question leaves the attempt pending.
+ * Graded rows reject resubmits; pending rows resubmit key-free.
  */
 export async function submitAttempt(
   videoId: string,
   kind: ExamKind,
-  content: ExamContent,
   answers: Record<string, number | string>,
-): Promise<ExamResult> {
+): Promise<{ result: ExamResult; review: AttemptReview[] | null }> {
   if (!throttle(`exam-submit-${videoId}`, 3000)) throw new Error("too many attempts");
   const sb = authed();
-  const { data: session } = await sb.auth.getSession();
-  const uid = session.session?.user.id;
-  if (!uid) throw new Error("not signed in");
-  const existing = await getMyResult(videoId, kind);
-  if (existing?.status === "graded") throw new Error("Already graded — contact your instructor to retry.");
-  let choice_score = 0;
-  let choice_total = 0;
-  let writing_total = 0;
-  for (const q of content.questions) {
-    if (q.kind === "choice") {
-      choice_total += 1;
-      if (typeof answers[q.id] === "number" && answers[q.id] === q.correct) choice_score += 1;
-    } else {
-      writing_total += 1;
-    }
-  }
-  const status = writing_total > 0 ? "pending" : "graded";
-  const row = {
-    user_id: uid,
-    video_id: videoId,
-    kind,
-    answers,
-    choice_score,
-    choice_total,
-    writing_score: null,
-    writing_total,
-    status,
-    updated_at: new Date().toISOString(),
-  };
-  const { error } = await withTimeout(
-    (async () => sb.from("exam_results").upsert(row, { onConflict: "user_id,video_id,kind" }))(),
+  const { data, error } = await withTimeout(
+    (async () => sb.rpc("submit_exam", { p_video: videoId, p_kind: kind, p_answers: answers }))(),
     NETWORK_TIMEOUT_MS,
     "attempt-submit",
   );
   if (error) throw error;
-  return { answers, choice_score, choice_total, writing_score: null, writing_total, status, feedback: {} };
+  const row = (data ?? {}) as { result?: unknown; review?: unknown };
+  const result = normalizeResult(row.result);
+  if (!result) throw new Error("submit failed");
+  return { result, review: normalizeReview(row.review) };
 }
 
 export type WorkItemState =
@@ -218,13 +256,14 @@ export async function getCourseWorkStatus(
   if (!courseId) return [];
   const { data: session } = await sb.auth.getSession();
   const uid = session.session?.user.id ?? null;
-  const [modsRes, vidsRes, resRes] = await withTimeout(
+  const [modsRes, vidsRes, resRes, presRes] = await withTimeout(
     Promise.all([
       sb.from("modules").select("id,sort_order,module_translations(lang,title)").eq("course_id", courseId).order("sort_order"),
-      sb.from("videos").select("id,module_id,sort_order,exam_json,assign_json").eq("course_id", courseId).order("sort_order"),
+      sb.from("videos").select("id,module_id,sort_order").eq("course_id", courseId).order("sort_order"),
       uid
         ? sb.from("exam_results").select("video_id,kind,choice_score,choice_total,writing_score,writing_total,status").eq("user_id", uid)
         : Promise.resolve({ data: [] as unknown[] }),
+      sb.rpc("course_exam_presence", { p_course: courseId }),
     ]),
     NETWORK_TIMEOUT_MS,
     "work-status",
@@ -244,16 +283,22 @@ export async function getCourseWorkStatus(
   }>;
   const vids = ((vidsRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
     id: string; module_id: string; sort_order: number;
-    exam_json: ExamContent | null; assign_json: ExamContent | null;
   }>;
+  const pres = (((presRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
+    video_id: string; has_exam: boolean; has_assignment: boolean;
+  }>);
+  const hasExam = new Map(pres.map((p) => [p.video_id, p]));
   const results = ((resRes as unknown as { data: unknown }).data ?? []) as unknown as Array<{
     video_id: string; kind: string;
     choice_score: number; choice_total: number;
     writing_score: number | null; writing_total: number;
     status: string;
   }>;
-  const hasQuestions = (c: ExamContent | null): boolean =>
-    !!c && Array.isArray(c.questions) && c.questions.some((q) => q && typeof q.prompt === "string" && q.prompt.trim() !== "");
+  const hasQuestions = (videoId: string, kind: ExamKind): boolean => {
+    const p = hasExam.get(videoId);
+    if (!p) return false;
+    return kind === "exam" ? p.has_exam : p.has_assignment;
+  };
 
   return vids
     .filter((v) => unlockedSet === null || unlockedSet.has(v.sort_order))
@@ -261,8 +306,8 @@ export async function getCourseWorkStatus(
     const mod = mods.find((m) => m.id === v.module_id);
     const tr = mod?.module_translations.find((t) => t.lang === lang)
       ?? mod?.module_translations.find((t) => t.title?.trim());
-    const stateFor = (kind: ExamKind, content: ExamContent | null): WorkItemState | null => {
-      if (!hasQuestions(content)) return null;
+    const stateFor = (kind: ExamKind, present: boolean): WorkItemState | null => {
+      if (!present) return null;
       const r = results.find((x) => x.video_id === v.id && x.kind === kind);
       if (!r) return { state: "todo" };
       if (r.status === "graded") {
@@ -277,8 +322,8 @@ export async function getCourseWorkStatus(
     return {
       sort_order: v.sort_order,
       title: tr?.title ?? `Part ${v.sort_order + 1}`,
-      exam: stateFor("exam", v.exam_json),
-      assign: stateFor("assignment", v.assign_json),
+      exam: stateFor("exam", hasQuestions(v.id, "exam")),
+      assign: stateFor("assignment", hasQuestions(v.id, "assignment")),
     };
     });
 }
@@ -321,14 +366,14 @@ export async function listPendingGrading(): Promise<PendingGrading[]> {
     let exam: ExamContent | null = null;
     try {
       const { data: v } = await sb.from("videos")
-        .select("exam_json,assign_json,courses!inner(slug)").eq("id", r.video_id).single();
+        .select("courses!inner(slug)").eq("id", r.video_id).single();
       const vv = v as unknown as {
-        exam_json: ExamContent | null; assign_json: ExamContent | null;
         courses: { slug: string } | Array<{ slug: string }>;
       } | null;
       const cs = vv?.courses;
       course_slug = Array.isArray(cs) ? cs[0]?.slug ?? "" : cs?.slug ?? "";
-      exam = r.kind === "exam" ? vv?.exam_json ?? null : vv?.assign_json ?? null;
+      // Admin key view (direct exam_json reads are revoked for clients).
+      exam = await getExamAdmin(r.video_id, r.kind).catch(() => null);
     } catch {
       /* context optional */
     }
@@ -361,10 +406,11 @@ export async function gradeAttempt(
   for (const [qid, note] of Object.entries(notes)) {
     if (note.trim() !== "") feedback[qid] = note.trim();
   }
+  // Server-side grading (direct exam_results writes are revoked for clients).
   const { error } = await withTimeout(
-    (async () =>
-      sb.from("exam_results").update({ writing_score: score, status: "graded", feedback, updated_at: new Date().toISOString() })
-        .eq("user_id", userId).eq("video_id", videoId).eq("kind", kind))(),
+    (async () => sb.rpc("grade_writing", {
+      p_user: userId, p_video: videoId, p_kind: kind, p_score: score, p_notes: feedback,
+    }))(),
     NETWORK_TIMEOUT_MS,
     "grade-save",
   );

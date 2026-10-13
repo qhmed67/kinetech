@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { getCourse, getVideos, useContent, type VideoView } from "../store";
 import { ProtectedVideoPlayer, type PlayDenied } from "../components/ProtectedVideoPlayer";
 import { ExamTake } from "../components/ExamTake";
-import type { ExamContent, ExamKind } from "../lib/db/examsDb";
+import type { ExamKind } from "../lib/db/examsDb";
 import type { KtUser } from "../auth";
 import { useLang } from "../components/lang";
 import { isSupabaseConfigured } from "../lib/db/env";
@@ -203,7 +203,6 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [has, setHas] = useState<{ exam: boolean; assignment: boolean }>({ exam: false, assignment: false });
   const [openKind, setOpenKind] = useState<ExamKind | null>(null);
-  const [content, setContent] = useState<ExamContent | null>(null);
   const [deepReview, setDeepReview] = useState(false);
   // Attempt already submitted → the button flips to Review (opens the modal
   // straight in review mode). Refreshed when the modal closes (new submit).
@@ -231,7 +230,6 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     setVideoId(null);
     setHas({ exam: false, assignment: false });
     setOpenKind(null);
-    setContent(null);
     setDeepReview(false);
     setSubmitted({ exam: false, assignment: false });
     if (!isSupabaseConfigured()) return;
@@ -248,10 +246,9 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
         if (!alive) return;
         setVideoId(id);
         setHas({ exam: exam !== null, assignment: assign !== null });
-        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
+        setSubmitted({ exam: resExam?.result !== null, assignment: resAssign?.result !== null });
         const deep = consumeDeepLink();
         if (deep && (deep === "exam" ? exam : assign)) {
-          setContent(deep === "exam" ? exam : assign);
           setOpenKind(deep);
           setDeepReview(true);
         }
@@ -265,24 +262,15 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, idx]);
 
-  const open = async (kind: ExamKind, review: boolean) => {
+  const open = (kind: ExamKind, review: boolean) => {
     if (!videoId) return;
-    try {
-      const m = await import("../lib/db/examsDb");
-      const c = await m.getExam(videoId, kind);
-      if (!c) return;
-      setContent(c);
-      setOpenKind(kind);
-      setDeepReview(review);
-    } catch {
-      /* ignore */
-    }
+    setOpenKind(kind);
+    setDeepReview(review);
   };
 
   const closeModal = () => {
     // Re-check server state: a fresh submit flips Take → Review instantly.
     setOpenKind(null);
-    setContent(null);
     setDeepReview(false);
     if (!videoId || !isSupabaseConfigured()) return;
     void import("../lib/db/examsDb")
@@ -291,7 +279,7 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
           m.getMyResult(videoId, "exam").catch(() => null),
           m.getMyResult(videoId, "assignment").catch(() => null),
         ]);
-        setSubmitted({ exam: resExam !== null, assignment: resAssign !== null });
+        setSubmitted({ exam: resExam?.result != null, assignment: resAssign?.result != null });
       })
       .catch(() => {
         /* keep previous labels */
@@ -325,8 +313,8 @@ function LessonExams({ slug, idx }: { slug: string; idx: number }) {
           )
         )}
       </div>
-      {openKind && content && videoId && (
-        <ExamTake videoId={videoId} kind={openKind} content={content} startInReview={deepReview} onClose={closeModal} />
+      {openKind && videoId && (
+        <ExamTake videoId={videoId} kind={openKind} startInReview={deepReview} onClose={closeModal} />
       )}
     </div>
   );

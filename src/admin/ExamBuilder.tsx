@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLang } from "../components/lang";
 import { Field, Text, Area } from "./ui";
 import {
-  getExam,
+  getExamAdmin,
   newQuestion,
   saveExam,
   videoIdBySlug,
@@ -11,10 +11,9 @@ import {
 } from "../lib/db/examsDb";
 
 /**
- * Per-lesson exam/assignment builder. Loads the structured content stored on
- * the video row (not the legacy single-link fields), edits locally, saves
- * explicitly. Choice questions carry their own options + correct answer;
- * writing questions carry only a prompt and wait for instructor grading.
+ * Per-lesson exam/assignment builder (admin only). Loads content WITH the
+ * answer key via the admin RPC, edits locally, saves explicitly (server
+ * splits the key back out). Students never see this path.
  */
 export function ExamBuilder({ slug: courseSlug, idx }: { slug: string; idx: number }) {
   const { lang, t } = useLang();
@@ -36,7 +35,7 @@ export function ExamBuilder({ slug: courseSlug, idx }: { slug: string; idx: numb
         if (!alive) return;
         setVideoId(id);
         if (id) {
-          const c = await getExam(id, tab).catch(() => null);
+          const c = await getExamAdmin(id, tab).catch(() => null);
           if (alive && c) setContent(c);
           else if (alive) setContent({ title: "", questions: [] });
         }
