@@ -1,7 +1,13 @@
 // POST /api/play — the ONLY path to a watchable video URL.
 // Request:  { video_id: "<uuid>" }                 + Authorization: Bearer <user JWT>
 // Success:  { ok: true, embedUrl, minutes, watermark: { email, phoneLast4 }, viewsLeft }
-// Failure:  { ok: false, code, ar, en }            (codes in ./config.ts)
+// Failure:  { ok: false, code, ar, en }            (codes below)
+//
+// SELF-CONTAINED ON PURPOSE: no relative imports of any kind. Vercel's
+// function bundler has repeatedly choked on cross-file specifiers (notably
+// explicit `.ts` extensions), surfacing as a 100% function error rate with
+// empty non-JSON responses. The ONLY import is the @supabase/supabase-js
+// runtime dependency. Thresholds mirror api/config.ts — change both.
 //
 // Trust model: the JWT proves WHO (verified via getUser). request_play()
 // (SECURITY DEFINER, called with the caller's JWT) gates + counts. The
@@ -9,8 +15,47 @@
 // Raw URLs never leave this function except inside embedUrl.
 
 import { createClient } from "@supabase/supabase-js";
-import { PLAY, PLAY_ERRORS, type PlayErrorCode } from "./config.ts";
-import { toDrivePreviewUrl } from "../src/lib/drive.ts";
+
+// Mirrors api/config.ts PLAY — keep in sync (single-file constraint above).
+const R1_MAX = 5;
+const R1_SECS = 30;
+const R2_WARN = 120;
+const R2_DENY = 240;
+const R2_MINS = 60;
+const R3_MAX = 3;
+const REPEAT_MINS = 30;
+
+type PlayErrorCode =
+  | "INVALID_TOKEN"
+  | "SESSION_MISMATCH"
+  | "BANNED"
+  | "NOT_ENROLLED"
+  | "VIEW_CAP"
+  | "RATE_LIMITED"
+  | "SUSPICIOUS_DENY"
+  | "NOT_FOUND"
+  | "VIDEO_MISSING"
+  | "NO_PROFILE"
+  | "BAD_REQUEST"
+  | "SERVER_ERROR"
+  | "METHOD_NOT_ALLOWED";
+
+// Mirrors api/config.ts PLAY_ERRORS — keep in sync.
+const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
+  INVALID_TOKEN: { status: 401, ar: "انتهت الجلسة — سجّل الدخول مرة أخرى.", en: "Session invalid — please sign in again." },
+  SESSION_MISMATCH: { status: 401, ar: "تم تسجيل الدخول من جهاز آخر. تم تسجيل خروج هذا الجهاز.", en: "Signed in on another device. This device has been signed out." },
+  BANNED: { status: 403, ar: "تم إيقاف هذا الحساب. تواصل مع الدعم.", en: "This account is suspended. Contact support." },
+  NOT_ENROLLED: { status: 403, ar: "غير مسجل في هذا الكورس.", en: "Not enrolled in this course." },
+  VIEW_CAP: { status: 403, ar: "وصلت للحد الأقصى للمشاهدات (3).", en: "Viewing limit reached (3 views)." },
+  RATE_LIMITED: { status: 429, ar: "طلبات كثيرة جدًا — انتظر قليلًا وحاول مجددًا.", en: "Too many requests — wait a moment and retry." },
+  SUSPICIOUS_DENY: { status: 403, ar: "تم رفض التشغيل لنشاط غير معتاد. تواصل مع الدعم.", en: "Playback denied for unusual activity. Contact support." },
+  NOT_FOUND: { status: 404, ar: "الفيديو غير موجود.", en: "Video not found." },
+  VIDEO_MISSING: { status: 404, ar: "ملف الفيديو غير مرفق بعد.", en: "Video file not attached yet." },
+  NO_PROFILE: { status: 403, ar: "الحساب غير مكتمل. تواصل مع الدعم.", en: "Account incomplete. Contact support." },
+  BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
+  SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
+  METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
+};
 
 export type ApiRequest = {
   method?: string;
@@ -72,6 +117,17 @@ function jwtSessionId(jwt: string): string | null {
   }
 }
 
+const DRIVE_FILE = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+const DRIVE_ID_PARAM = /drive\.google\.com\/(?:open|uc)\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)/;
+
+function drivePreviewUrl(src: string): string | null {
+  const v = (src ?? "").trim();
+  if (v === "") return null;
+  const id = v.match(DRIVE_FILE)?.[1] ?? v.match(DRIVE_ID_PARAM)?.[1] ?? null;
+  if (!id) return null;
+  return `https://drive.google.com/file/d/${id}/preview`;
+}
+
 function youtubeId(src: string): string | null {
   const v = (src ?? "").trim();
   if (v === "") return null;
@@ -91,7 +147,7 @@ export function embedUrlFor(src: string): string | null {
   if (v === "") return null;
   const yt = youtubeId(v);
   if (yt) return `https://www.youtube-nocookie.com/embed/${yt}`;
-  const preview = toDrivePreviewUrl(v);
+  const preview = drivePreviewUrl(v);
   if (preview) return preview;
   if (/^https:\/\//i.test(v)) return v;
   return null;
@@ -163,13 +219,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     p_session: sessionId,
     p_ip: ip,
     p_ua: ua,
-    p_r1_max: PLAY.r1Max,
-    p_r1_secs: PLAY.r1Secs,
-    p_r2_warn: PLAY.r2Warn,
-    p_r2_deny: PLAY.r2Deny,
-    p_r2_mins: PLAY.r2Mins,
-    p_r3_max: PLAY.r3Max,
-    p_repeat_mins: PLAY.repeatMins,
+    p_r1_max: R1_MAX,
+    p_r1_secs: R1_SECS,
+    p_r2_warn: R2_WARN,
+    p_r2_deny: R2_DENY,
+    p_r2_mins: R2_MINS,
+    p_r3_max: R3_MAX,
+    p_repeat_mins: REPEAT_MINS,
   });
   if (rpcError) return fail(res, "SERVER_ERROR");
   const play = (Array.isArray(playRows) ? playRows[0] : playRows) as {
