@@ -167,11 +167,13 @@ export async function revokeEnrollment(userId: string, courseSlug: string): Prom
   }
 }
 
-export type PartViews = { sort_order: number; views: number; done: boolean };
+export type PartViews = { sort_order: number; views: number; done: boolean; updatedAt: string | null };
 
 /**
  * Per-part viewing sheet: one row per lesson with its own used/3 count.
  * This is what the admin sees and restarts — never a course-wide aggregate.
+ * updatedAt proves WHEN the server last wrote the row: bouncing counts with
+ * a moving timestamp = real rewrites; static timestamp = display artifact.
  */
 export async function getUserVideoViews(userId: string, courseSlug: string): Promise<PartViews[]> {
   const sb = authed();
@@ -185,13 +187,13 @@ export async function getUserVideoViews(userId: string, courseSlug: string): Pro
   const [{ data: vids }, { data: views }] = await withTimeout(
     Promise.all([
       sb.from("videos").select("id,sort_order").eq("course_id", courseId).order("sort_order"),
-      sb.from("video_views").select("video_id,views_count,done").eq("user_id", userId),
+      sb.from("video_views").select("video_id,views_count,done,updated_at").eq("user_id", userId),
     ]),
     NETWORK_TIMEOUT_MS,
     "parts-summary",
   );
   const byId = new Map(
-    ((views ?? []) as unknown as Array<{ video_id: string; views_count: number; done: boolean }>)
+    ((views ?? []) as unknown as Array<{ video_id: string; views_count: number; done: boolean; updated_at: string | null }>)
       .map((w) => [w.video_id, w] as const),
   );
   return ((vids ?? []) as unknown as Array<{ id: string; sort_order: number }>)
@@ -201,6 +203,7 @@ export async function getUserVideoViews(userId: string, courseSlug: string): Pro
         sort_order: v.sort_order,
         views: Math.min(3, Math.max(0, w?.views_count ?? 0)),
         done: w?.done ?? false,
+        updatedAt: w?.updated_at ?? null,
       };
     })
     .sort((a, b) => a.sort_order - b.sort_order);
