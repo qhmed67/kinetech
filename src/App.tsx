@@ -71,6 +71,20 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Home anchors (#/services …): scroll to the section after paint,
+  // overriding the top-scroll above. Runs on first load too.
+  useEffect(() => {
+    if (route.name !== "home" || !route.anchor) return;
+    const id = route.anchor;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const t1 = window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      });
+    }, 60);
+    return () => window.clearTimeout(t1);
+  }, [route]);
+
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "kt-user") setUser(getUser());

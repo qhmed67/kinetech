@@ -3,7 +3,7 @@ import { courseExists } from "./store";
 export const COURSE_SLUGS = ["python-data", "robotics", "solidworks"] as const;
 
 export type Route =
-  | { name: "home" }
+  | { name: "home"; anchor?: string }
   | { name: "courses" }
   | { name: "course"; slug: string }
   | { name: "watch"; slug: string; video: number }
@@ -25,6 +25,11 @@ export function courseIndex(slug: string): number {
 export function parseHash(hash: string): Route {
   const h = hash.replace(/^#\/?/, "");
   if (!h) return { name: "home" };
+  // In-page anchors ride the hash router: home + scroll target (the hash
+  // listener scrolls to top first; App scrolls to the anchor after paint).
+  if (h === "services" || h === "pillars" || h === "academy" || h === "contact") {
+    return { name: "home", anchor: h };
+  }
   if (h === "courses") return { name: "courses" };
   const wm = h.match(/^courses\/([a-z0-9-]+)\/watch(?:\/(\d+))?$/);
   if (wm) {
