@@ -71,23 +71,42 @@ export type ApiResponse = {
 
 type Env = { url: string; anonKey: string; serviceKey: string };
 
+// No process/Buffer/@types/node here on purpose: Vercel's function pipeline
+// has repeatedly failed to resolve node types, killing every invocation.
+// globalThis + string ops typecheck under any lib >= ES2020.
+function getEnvVar(name: string): string {
+  try {
+    const g = globalThis as unknown as {
+      process?: { env?: Record<string, string | undefined> };
+    };
+    const v = g.process?.env?.[name];
+    return typeof v === "string" ? v : "";
+  } catch {
+    return "";
+  }
+}
+
 function readEnv(): Env | null {
-  const url = process.env.SUPABASE_URL ?? "";
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? "";
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const url = getEnvVar("SUPABASE_URL");
+  const anonKey = getEnvVar("SUPABASE_ANON_KEY");
+  const serviceKey = getEnvVar("SUPABASE_SERVICE_ROLE_KEY");
   if (url === "" || anonKey === "" || serviceKey === "") return null;
   return { url, anonKey, serviceKey };
 }
 
-function fail(res: ApiResponse, code: PlayErrorCode, detail?: string): unknown {
-  const e = PLAY_ERRORS[code];
-  // Vercel captures stdout: every failure lands in Functions → Logs with
-  // its branch. Never log tokens, URLs, or profile fields — code only.
+function logError(tag: string): void {
+  // globalThis-cast, never bare console: api files must typecheck with NO
+  // node types at all (see getEnvVar).
   try {
-    console.error(`[api/play] ${code}${detail ? ` (${detail})` : ""}`);
+    (globalThis as unknown as { console?: { error: (...a: unknown[]) => void } }).console?.error(tag);
   } catch {
     /* logging must never break the response */
   }
+}
+
+function fail(res: ApiResponse, code: PlayErrorCode, detail?: string): unknown {
+  const e = PLAY_ERRORS[code];
+  logError(`[api/play] ${code}${detail ? ` (${detail})` : ""}`);
   return res.status(e.status).json({ ok: false, code, ar: e.ar, en: e.en });
 }
 
@@ -110,18 +129,49 @@ function headerFirst(headers: ApiRequest["headers"], name: string): string {
   return typeof v === "string" ? v : "";
 }
 
-function jwtSessionId(jwt: string): string | null {
-  const parts = jwt.split(".");
-  if (parts.length !== 3) return null;
+const B64ABC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Manual base64url -> binary string (latin-1). No Buffer/atob dependency (see
+// above). Only ASCII fields are ever read from the result (session_id is a
+// uuid), so multi-byte UTF-8 elsewhere cannot confuse the regex — quotes are
+// always single-byte 0x22.
+function base64UrlToBinary(input: string): string | null {
   try {
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf8"),
-    ) as { session_id?: unknown };
-    const sid = typeof payload.session_id === "string" ? payload.session_id.trim().toLowerCase() : "";
-    return sid !== "" ? sid : null;
+    let s = input.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = s.length % 4;
+    if (pad === 1) return null;
+    if (pad > 1) s += "=".repeat(4 - pad);
+    const val = (ch: string): number => {
+      if (ch === "=") return 0;
+      const i = B64ABC.indexOf(ch);
+      return i;
+    };
+    let out = "";
+    for (let i = 0; i < s.length; i += 4) {
+      const a = val(s.charAt(i));
+      const b = val(s.charAt(i + 1));
+      const c = val(s.charAt(i + 2));
+      const d = val(s.charAt(i + 3));
+      if (a < 0 || b < 0 || c < 0 || d < 0) return null;
+      const n = (a << 18) | (b << 12) | (c << 6) | d;
+      out += String.fromCharCode((n >> 16) & 255, (n >> 8) & 255, n & 255);
+    }
+    if (s.endsWith("==")) out = out.slice(0, -2);
+    else if (s.endsWith("=")) out = out.slice(0, -1);
+    return out;
   } catch {
     return null;
   }
+}
+
+function jwtSessionId(jwt: string): string | null {
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return null;
+  const bin = base64UrlToBinary(parts[1]);
+  if (!bin) return null;
+  const m = bin.match(/"session_id"\s*:\s*"([^"]+)"/);
+  const sid = m ? m[1].trim().toLowerCase() : "";
+  return sid !== "" ? sid : null;
 }
 
 const DRIVE_FILE = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
