@@ -23,7 +23,9 @@ const R2_WARN = 120;
 const R2_DENY = 240;
 const R2_MINS = 60;
 const R3_MAX = 3;
-const REPEAT_MINS = 30;
+// Duplicate-guard window, SECONDS (server param kept its legacy name
+// p_repeat_mins for rolling compatibility — value is seconds).
+const REPEAT_SECS = 90;
 
 type PlayErrorCode =
   | "INVALID_TOKEN"
@@ -282,7 +284,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     p_r2_deny: R2_DENY,
     p_r2_mins: R2_MINS,
     p_r3_max: R3_MAX,
-    p_repeat_mins: REPEAT_MINS,
+    p_repeat_mins: REPEAT_SECS,
   });
   if (rpcError) return fail(res, "SERVER_ERROR", "request-play");
   const play = (Array.isArray(playRows) ? playRows[0] : playRows) as {

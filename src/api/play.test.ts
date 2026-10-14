@@ -114,7 +114,7 @@ beforeEach(() => {
 describe("config", () => {
   it("matches the spec thresholds", () => {
     expect(PLAY).toMatchObject({
-      r1Max: 5, r1Secs: 30, r2Warn: 120, r2Deny: 240, r2Mins: 60, r3Max: 3, repeatMins: 30,
+      r1Max: 5, r1Secs: 30, r2Warn: 120, r2Deny: 240, r2Mins: 60, r3Max: 3, repeatSecs: 90,
     });
   });
 });
