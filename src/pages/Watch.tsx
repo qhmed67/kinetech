@@ -14,7 +14,6 @@ import {
   recordDone,
   replaceProgress,
   setUnlockedFlag,
-  setViewsCount,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
@@ -424,29 +423,33 @@ export function Watch({  slug,
   const [refreshing, setRefreshing] = useState(false);
   // Parts touched (sticky-unlock persisted) this session — no repeat calls.
   const touchedRef = useRef<string>("");
-  useEffect(() => {
-    if (!isSupabaseConfigured() || !user || !course) {
-      setRefreshing(false);
-      return;
-    }
-    let alive = true;
+  // Latest fetch wins: a slow answer for a previous lesson must never
+  // overwrite the current one (the old alive-flag, race-safe).
+  const refreshSeq = useRef(0);
+  // Single source of counts: re-read server rows and mirror them locally.
+  // Called on mount AND once real playback starts (the grant may have burned
+  // a view our mount snapshot predates). Never invents counts client-side —
+  // local +1 estimates overshot the server (repeat window) and oscillated.
+  const refreshServerCounts = (targetIdx: number) => {
+    if (!isSupabaseConfigured() || !user || !course) return;
+    const my = ++refreshSeq.current;
     setRefreshing(true);
     void import("../lib/db/watchDb")
       .then((m) => m.getWatchStateDb(slug, lang))
       .then((rows) => {
-        if (!alive) return;
+        if (my !== refreshSeq.current) return;
         replaceProgress(
           user,
           slug,
           rows.map((r) => ({ idx: r.sort_order, views: r.views_count, done: r.done, unlocked: r.unlocked })),
         );
-        const cur = rows.find((r) => r.sort_order === idx);
+        const cur = rows.find((r) => r.sort_order === targetIdx);
         setPlays(cur ? cur.views_count : 0);
         setDoneTick((n) => n + 1);
         // Persist the open state: an opened-while-entitled part stays open
         // even if an admin later restarts a DIFFERENT part. Burns no views.
         if (cur && cur.unlocked) {
-          const key = `${slug}:${idx}`;
+          const key = `${slug}:${targetIdx}`;
           if (touchedRef.current !== key) {
             touchedRef.current = key;
             void import("../lib/db/watchDb")
@@ -461,11 +464,15 @@ export function Watch({  slug,
         /* offline — local counts stay */
       })
       .finally(() => {
-        if (alive) setRefreshing(false);
+        if (my === refreshSeq.current) setRefreshing(false);
       });
-    return () => {
-      alive = false;
-    };
+  };
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !user || !course) {
+      setRefreshing(false);
+      return;
+    }
+    refreshServerCounts(idx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, video, lang, user?.email, refreshKey]);
 
@@ -518,14 +525,14 @@ export function Watch({  slug,
     const delta = seconds - acc.last;
     if (delta >= 0 && delta < 2) acc.total += delta;
     acc.last = seconds;
-    // LOCAL estimate only: the server counts the view at grant time
-    // (POST /api/play, with a 30-minute repeat window). Mirror the unlock so
-    // the next part opens without waiting for a refetch; the server decides.
+    // Count display follows the SERVER only: the grant may already have
+    // burned this view at mount (or the repeat window spared it) — a local
+    // +1 here overshot and oscillated on every remount. Mirror the unlock
+    // instantly, then re-read the authoritative count once per playback.
     if (counted.current || seconds < 3 || left <= 0) return;
     counted.current = true;
-    setViewsCount(user, slug, idx, Math.min(MAX_VIEWS, getViews(user, slug, idx) + 1));
     setUnlockedFlag(user, slug, idx);
-    setPlays((p) => Math.min(MAX_VIEWS, p + 1));
+    refreshServerCounts(idx);
   };
 
   const onPlayDenied = (e: PlayDenied) => {
