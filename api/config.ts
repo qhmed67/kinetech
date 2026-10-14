@@ -22,8 +22,9 @@ export const PLAY = {
   r2Mins: 60,
   /** R3: distinct IPs in 24h that only FLAGS (mobile networks rotate). */
   r3Max: 3,
-  /** Repeat window: same video+session inside this many minutes never burns. */
-  repeatMins: 30,
+  /** Duplicate-guard window, SECONDS: same video+session inside this burns
+      nothing (aborted retries, double mounts). Human rewatches always burn. */
+  repeatSecs: 90,
 } as const;
 
 export type PlayErrorCode =
