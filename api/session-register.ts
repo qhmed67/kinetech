@@ -35,8 +35,13 @@ function readEnv(): { url: string; anonKey: string; serviceKey: string } | null 
   return { url, anonKey, serviceKey };
 }
 
-function fail(res: ApiResponse, code: PlayErrorCode): unknown {
+function fail(res: ApiResponse, code: PlayErrorCode, detail?: string): unknown {
   const e = PLAY_ERRORS[code];
+  try {
+    console.error(`[api/session-register] ${code}${detail ? ` (${detail})` : ""}`);
+  } catch {
+    /* logging must never break the response */
+  }
   return res.status(e.status).json({ ok: false, code, ar: e.ar, en: e.en });
 }
 
@@ -70,21 +75,21 @@ function jwtSessionId(jwt: string): string | null {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<unknown> {
-  if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED");
+  if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED", "method");
   const env = readEnv();
-  if (!env) return fail(res, "SERVER_ERROR");
+  if (!env) return fail(res, "SERVER_ERROR", "env-missing");
 
   const token = bearer(req.headers);
-  if (!token) return fail(res, "INVALID_TOKEN");
+  if (!token) return fail(res, "INVALID_TOKEN", "no-bearer");
 
   const userClient = createClient(env.url, env.anonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
   const { data: authData, error: authError } = await userClient.auth.getUser();
-  if (authError || !authData.user) return fail(res, "INVALID_TOKEN");
+  if (authError || !authData.user) return fail(res, "INVALID_TOKEN", "get-user");
 
   const sessionId = jwtSessionId(token);
-  if (!sessionId) return fail(res, "SERVER_ERROR");
+  if (!sessionId) return fail(res, "SERVER_ERROR", "no-session-claim");
 
   const admin = createClient(env.url, env.serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -94,7 +99,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     { user_id: authData.user.id, session_id: sessionId, user_agent: ua },
     { onConflict: "user_id" },
   );
-  if (upErr) return fail(res, "SERVER_ERROR");
+  if (upErr) return fail(res, "SERVER_ERROR", "sessions-upsert");
 
   // Other devices out. Best-effort: the registration already succeeded.
   try {
