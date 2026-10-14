@@ -104,15 +104,15 @@ describe("getNotifications", () => {
       clientWith({
         session: { user: { id: "u1" } },
         notifs: [
-          { id: "a", title: "Hi", message: "hey", is_read: false },
-          { id: "b", title: "Old", message: null, is_read: true },
+          { id: "a", title: "Hi", message: "hey", is_read: false, created_at: "2026-10-20T18:00:00Z" },
+          { id: "b", title: "Old", message: null, is_read: true, created_at: "2026-10-19T18:00:00Z" },
         ],
       }) as never,
     );
     const rows = await getNotifications();
     expect(rows).toEqual([
-      { id: "a", title: "Hi", message: "hey", is_read: false },
-      { id: "b", title: "Old", message: "", is_read: true },
+      { id: "a", title: "Hi", message: "hey", is_read: false, created_at: "2026-10-20T18:00:00Z" },
+      { id: "b", title: "Old", message: "", is_read: true, created_at: "2026-10-19T18:00:00Z" },
     ]);
   });
 

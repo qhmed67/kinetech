@@ -29,3 +29,48 @@ export function markSessionsSeen(iso?: string): void {
     /* ignore */
   }
 }
+
+/* Bell dropdown feed: ONE merged recency list, not two capped sections.
+   Sessions + general rows interleave purely by date (newest first, FIFO
+   priority) and truncate to a preview count — the bell is a preview, the
+   dashboard widgets are the full centers. Dependency-free like the rest. */
+
+export type ActivitySession = { id: string; title: string; date: string };
+export type ActivityNotice = { id: string; title: string; message: string; is_read: boolean; created_at: string };
+
+export type ActivityItem = {
+  id: string;
+  title: string;
+  message: string;
+  date: string;
+  kind: "lesson" | "notice";
+  unread: boolean;
+};
+
+export function mergeActivity(
+  sessions: ActivitySession[],
+  notifs: ActivityNotice[],
+  limit: number,
+  seenSessionsIso: string | null,
+): ActivityItem[] {
+  const items: ActivityItem[] = [
+    ...sessions.map((s) => ({
+      id: `s-${s.id}`,
+      title: s.title,
+      message: "",
+      date: s.date,
+      kind: "lesson" as const,
+      unread: seenSessionsIso !== null && s.date > seenSessionsIso,
+    })),
+    ...notifs.map((n) => ({
+      id: `n-${n.id}`,
+      title: n.title,
+      message: n.message,
+      date: n.created_at,
+      kind: "notice" as const,
+      unread: !n.is_read,
+    })),
+  ];
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return items.slice(0, Math.max(0, limit));
+}
