@@ -99,4 +99,26 @@ describe("POST /api/session-register", () => {
     await handler(req(jwtFor(null)), r2);
     expect(s2.code).toBe(500);
   });
+
+  it("extracts session_id beside non-ASCII claims (manual base64url)", async () => {
+    const upsert = vi.fn().mockResolvedValue({ data: null, error: null });
+    const signOut = vi.fn().mockResolvedValue({});
+    mockedCreate.mockImplementation(((...args: unknown[]) => {
+      if (args[1] === ENV.SUPABASE_SERVICE_ROLE_KEY) {
+        return { from: () => ({ upsert }), auth: { admin: { signOut } } };
+      }
+      return {
+        auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u1" } }, error: null }) },
+      };
+    }) as never);
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const token = `${b64({ alg: "HS256" })}.${b64({ sub: "u1", session_id: "sess-uni", email: "طالب@مثال.مصر", name: "أحمد" })}.sig`;
+    const { res, seen } = resCapture();
+    await handler(req(token), res);
+    expect(seen.code).toBe(200);
+    expect(upsert).toHaveBeenCalledWith(
+      { user_id: "u1", session_id: "sess-uni", user_agent: "" },
+      { onConflict: "user_id" },
+    );
+  });
 });
