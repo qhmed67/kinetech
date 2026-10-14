@@ -1,9 +1,11 @@
 // Canonical playback-guard thresholds + error catalog for POST /api/play
 // and POST /api/session-register.
 //
-// SINGLE SOURCE for the TypeScript side. The Postgres function
-// request_play() carries the same numbers as parameter DEFAULTS — change
-// both together (see supabase/migrations/20261032_play_security_core.sql).
+// NOTE: api/*.ts are SELF-CONTAINED (no relative imports — Vercel's bundler
+// chokes on them) and carry inline copies of these values. This file is the
+// readable source of truth plus the thresholds asserted by tests — change
+// all three together (config.ts, api/play.ts, request_play() SQL defaults in
+// supabase/migrations/20261032_play_security_core.sql).
 // Every error below is bilingual (AR first in UI) with an explicit code the
 // client switches on (not on message text).
 

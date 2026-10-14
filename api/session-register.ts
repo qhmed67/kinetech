@@ -2,10 +2,30 @@
 // Verifies the JWT, pins this device session as THE active one, and signs
 // out every other device session via the admin API. The old device learns
 // at its next /api/play (401 SESSION_MISMATCH -> client signs out + message).
+//
+// SELF-CONTAINED ON PURPOSE: no relative imports of any kind (see api/play.ts).
 
 import { createClient } from "@supabase/supabase-js";
-import { PLAY_ERRORS, type PlayErrorCode } from "./config.ts";
-import type { ApiRequest, ApiResponse } from "./play.ts";
+
+type PlayErrorCode = "INVALID_TOKEN" | "SERVER_ERROR" | "METHOD_NOT_ALLOWED";
+
+const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
+  INVALID_TOKEN: { status: 401, ar: "انتهت الجلسة — سجّل الدخول مرة أخرى.", en: "Session invalid — please sign in again." },
+  SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
+  METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
+};
+
+export type ApiRequest = {
+  method?: string;
+  headers: Record<string, string | string[] | undefined>;
+  query?: Record<string, string | string[] | undefined>;
+  body?: unknown;
+};
+
+export type ApiResponse = {
+  status: (code: number) => ApiResponse;
+  json: (body: unknown) => unknown;
+};
 
 function readEnv(): { url: string; anonKey: string; serviceKey: string } | null {
   const url = process.env.SUPABASE_URL ?? "";
