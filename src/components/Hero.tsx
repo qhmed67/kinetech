@@ -95,7 +95,7 @@ function HeroDemo() {
           <span className="relative">{h.cta1}</span>
         </a>
         <a
-          href="#pillars"
+          href="#services"
           data-od-id="hero-link"
           className="group inline-flex w-60 items-center justify-center gap-2 rounded-full border px-6 py-3 text-center font-bold transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:text-[var(--accent)] hover:shadow-[0_12px_24px_-12px_rgba(110,78,156,0.4)] active:translate-y-0"
           style={{ borderColor: "var(--border)", color: "var(--fg)", background: "#fff", fontFamily: "var(--font-display)" }}
