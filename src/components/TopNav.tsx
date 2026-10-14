@@ -60,6 +60,8 @@ export function TopNav({
   }, [bell]);
 
   // Live notifications + lesson sessions (server truth). Null = loading/offline.
+  // Refetches when the bell opens too — a notice landing mid-session must
+  // appear without a full reload.
   useEffect(() => {
     if (!isSupabaseConfigured() || !user) {
       setLiveNotifs(null);
@@ -84,7 +86,7 @@ export function TopNav({
     return () => {
       alive = false;
     };
-  }, [user?.email]);
+  }, [user?.email, bell]);
 
   const notifUnread = liveNotifs === null ? 0 : liveNotifs.filter((n) => !n.is_read).length;
   // Lessons badge: rows newer than the last seen marker (null marker = 0,

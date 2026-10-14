@@ -349,6 +349,7 @@ export function Watch({  slug,
   const [videoId, setVideoId] = useState<string | null>(null);
   const [resolving, setResolving] = useState(true);
   const [playErr, setPlayErr] = useState<PlayDenied | null>(null);
+  const [playKey, setPlayKey] = useState(0);
   const [sessionDead, setSessionDead] = useState(false);
   // Continuous-watch accumulator: only contiguous playback counts toward
   // completion. Seek jumps reset continuity, so scrubbing to the end grants
@@ -376,6 +377,7 @@ export function Watch({  slug,
     watchAcc.current = { last: 0, total: 0 };
     setRealDur(0);
     setPlayErr(null);
+    setPlayKey(0);
     setSessionDead(false);
     setVideoId(null);
     setResolving(true);
@@ -630,9 +632,9 @@ export function Watch({  slug,
                   role="alert"
                 >
                   <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                    {playErr.ar || playErr.en || w.limitT}
+                    {playErr.ar !== "" ? playErr.ar : playErr.en !== "" ? playErr.en : w.refreshFail}
                   </p>
-                  {playErr.en && playErr.ar !== playErr.en && (
+                  {playErr.ar !== "" && playErr.en !== "" && playErr.ar !== playErr.en && (
                     <p className="mt-1 text-sm" dir="ltr" style={{ color: "var(--muted)" }}>
                       {playErr.en}
                     </p>
@@ -642,6 +644,7 @@ export function Watch({  slug,
                       type="button"
                       onClick={() => {
                         setPlayErr(null);
+                        setPlayKey((k) => k + 1);
                         setRefreshKey((k) => k + 1);
                       }}
                       disabled={refreshing}
@@ -711,7 +714,7 @@ export function Watch({  slug,
                 </div>
               ) : (
                 <ProtectedVideoPlayer
-                  key={videoId}
+                  key={`${videoId}:${playKey}`}
                   videoId={videoId}
                   onProgress={onProgress}
                   onSeeked={onSeeked}
