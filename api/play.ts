@@ -79,8 +79,15 @@ function readEnv(): Env | null {
   return { url, anonKey, serviceKey };
 }
 
-function fail(res: ApiResponse, code: PlayErrorCode): unknown {
+function fail(res: ApiResponse, code: PlayErrorCode, detail?: string): unknown {
   const e = PLAY_ERRORS[code];
+  // Vercel captures stdout: every failure lands in Functions → Logs with
+  // its branch. Never log tokens, URLs, or profile fields — code only.
+  try {
+    console.error(`[api/play] ${code}${detail ? ` (${detail})` : ""}`);
+  } catch {
+    /* logging must never break the response */
+  }
   return res.status(e.status).json({ ok: false, code, ar: e.ar, en: e.en });
 }
 
@@ -154,26 +161,26 @@ export function embedUrlFor(src: string): string | null {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<unknown> {
-  if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED");
+  if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED", "method");
   const env = readEnv();
-  if (!env) return fail(res, "SERVER_ERROR");
+  if (!env) return fail(res, "SERVER_ERROR", "env-missing");
 
   const token = bearer(req.headers);
-  if (!token) return fail(res, "INVALID_TOKEN");
+  if (!token) return fail(res, "INVALID_TOKEN", "no-bearer");
 
   const rawBody = typeof req.body === "string" ? safeJson(req.body) : req.body;
   const body = (rawBody ?? {}) as { video_id?: unknown };
   const videoId = typeof body.video_id === "string" ? body.video_id.trim() : "";
-  if (!/^[0-9a-fA-F-]{36}$/.test(videoId)) return fail(res, "BAD_REQUEST");
+  if (!/^[0-9a-fA-F-]{36}$/.test(videoId)) return fail(res, "BAD_REQUEST", "video-id");
 
   const userClient = createClient(env.url, env.anonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
   const { data: authData, error: authError } = await userClient.auth.getUser();
-  if (authError || !authData.user) return fail(res, "INVALID_TOKEN");
+  if (authError || !authData.user) return fail(res, "INVALID_TOKEN", "get-user");
 
   const sessionId = jwtSessionId(token);
-  if (!sessionId) return fail(res, "SERVER_ERROR");
+  if (!sessionId) return fail(res, "SERVER_ERROR", "no-session-claim");
 
   const admin = createClient(env.url, env.serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -188,7 +195,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     .select("session_id")
     .eq("user_id", authData.user.id)
     .maybeSingle();
-  if (sessError) return fail(res, "SERVER_ERROR");
+  if (sessError) return fail(res, "SERVER_ERROR", "sessions-read");
   const row = sess as { session_id: string } | null;
   if (!row) {
     const { error: upErr } = await admin
@@ -197,7 +204,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         { user_id: authData.user.id, session_id: sessionId, user_agent: ua },
         { onConflict: "user_id" },
       );
-    if (upErr) return fail(res, "SERVER_ERROR");
+    if (upErr) return fail(res, "SERVER_ERROR", "sessions-adopt");
   } else if (String(row.session_id).toLowerCase() !== sessionId) {
     try {
       await admin.from("watch_events").insert({
@@ -227,7 +234,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     p_r3_max: R3_MAX,
     p_repeat_mins: REPEAT_MINS,
   });
-  if (rpcError) return fail(res, "SERVER_ERROR");
+  if (rpcError) return fail(res, "SERVER_ERROR", "request-play");
   const play = (Array.isArray(playRows) ? playRows[0] : playRows) as {
     ok: boolean;
     code: string;
@@ -239,14 +246,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     views_count: number;
     consumed: boolean;
   } | null;
-  if (!play || !play.ok) return fail(res, knownCode(play?.code ?? ""));
+  if (!play || !play.ok) return fail(res, knownCode(play?.code ?? ""), `gate-${play?.code ?? "empty"}`);
 
   const { data: srcRow, error: srcError } = await admin
     .from("video_sources")
     .select("src_url")
     .eq("video_id", videoId)
     .maybeSingle();
-  if (srcError) return fail(res, "SERVER_ERROR");
+  if (srcError) return fail(res, "SERVER_ERROR", "sources-read");
   const raw = ((srcRow as { src_url?: string } | null)?.src_url ?? "").trim();
   if (raw === "") return fail(res, "VIDEO_MISSING");
   const embed = embedUrlFor(raw);
