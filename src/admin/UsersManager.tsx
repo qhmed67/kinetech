@@ -151,7 +151,7 @@ function CoursePartsRow({
   onRevoke: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [parts, setParts] = useState<{ sort_order: number; views: number; done: boolean }[] | null>(null);
+  const [parts, setParts] = useState<{ sort_order: number; views: number; done: boolean; updatedAt: string | null }[] | null>(null);
   const [busyPart, setBusyPart] = useState<number | null>(null);
   const [okPart, setOkPart] = useState<number | null>(null);
   const [testState, setTestState] = useState<"idle" | "busy" | "ok">("idle");
@@ -211,6 +211,7 @@ function CoursePartsRow({
                 <PartTitle slug={slug} idx={p.sort_order} lang={lang} />
                 <span dir="ltr" className="ms-2 font-medium tabular-nums" style={{ color: "var(--muted)" }}>
                   {p.views}/3{p.done ? " ✓" : ""}
+                  {p.updatedAt ? ` · ${new Date(p.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}
                 </span>
               </span>
               <button
