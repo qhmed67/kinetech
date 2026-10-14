@@ -12,6 +12,7 @@ export type Notification = {
   title: string;
   message: string;
   is_read: boolean;
+  created_at: string;
 };
 
 /* Personal scope: the RLS bypass for admins (is_admin() in the read
@@ -60,7 +61,7 @@ export async function getNotifications(limit = 10): Promise<Notification[]> {
   if (!uid) return [];
   const { data, error } = await withTimeout(
     (async () =>
-      sb.from("notifications").select("id,title,message,is_read").eq("user_id", uid).order("created_at", { ascending: false }).limit(limit))(),
+      sb.from("notifications").select("id,title,message,is_read,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(limit))(),
     NETWORK_TIMEOUT_MS,
     "notifications",
   );
@@ -70,6 +71,7 @@ export async function getNotifications(limit = 10): Promise<Notification[]> {
     title: r.title,
     message: r.message ?? "",
     is_read: r.is_read,
+    created_at: (r as unknown as { created_at?: string }).created_at ?? "",
   }));
 }
 

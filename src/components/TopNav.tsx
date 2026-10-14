@@ -5,6 +5,7 @@ import { Seek } from "@/components/ui/seek-search";
 import { initialsOf, type KtUser } from "../auth";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { readSeenSessionsIso, SESSIONS_SEEN_EVENT } from "../lib/seen";
+import { mergeActivity } from "../lib/seen";
 import { useLang } from "./lang";
 
 function sectionFor(query: string): string | null {
@@ -30,7 +31,7 @@ export function TopNav({
   const { lang, t, toggle } = useLang();
   const [menu, setMenu] = useState(false);
   const [bell, setBell] = useState(false);
-  const [liveNotifs, setLiveNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean }[] | null>(null);
+  const [liveNotifs, setLiveNotifs] = useState<{ id: string; title: string; message: string; is_read: boolean; created_at: string }[] | null>(null);
   const [liveSessions, setLiveSessions] = useState<{ id: string; title: string; date: string }[] | null>(null);
   // Recount the badge when another view marks sessions seen (same-tab
   // storage events don't fire — the marker module dispatches this instead).
@@ -96,6 +97,9 @@ export function TopNav({
     ? 0
     : liveSessions.filter((s) => s.date > seenIso).length;
   const unread = notifUnread + newSessions;
+  // Merged preview feed: sessions + general interleaved by recency (FIFO),
+  // top 3 only — the bell is a preview, widgets are the full centers.
+  const feed = mergeActivity(liveSessions ?? [], liveNotifs ?? [], 3, seenIso);
   const openBell = () => {
     setBell((v) => !v);
     setMenu(false);
@@ -255,39 +259,13 @@ export function TopNav({
                   className="absolute end-0 top-full z-[120] mt-2 max-h-[60vh] w-72 overflow-y-auto rounded-2xl border bg-white shadow-xl ltr:origin-top-right rtl:origin-top-left"
                   style={{ borderColor: "var(--kt-line)" }}
                 >
-                  {liveSessions !== null && liveSessions.length > 0 && (
-                    <>
-                      <p
-                        className="px-4 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wide"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        {lang === "ar" ? "دروس جديدة" : "New lessons"}
-                      </p>
-                      {liveSessions.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => {
-                            setBell(false);
-                            window.location.hash = "#/dashboard";
-                          }}
-                          className="flex w-full items-start gap-2.5 border-b px-4 py-3 text-start text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
-                          style={{ borderColor: "var(--kt-line)" }}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="mt-1.5 h-2 w-2 flex-none rounded-full"
-                            style={{ background: seenIso !== null && s.date > seenIso ? "var(--kt-teal)" : "var(--kt-line)" }}
-                          />
-                          <span>
-                            <span className="block font-bold">{s.title}</span>
-                          </span>
-                        </button>
+                  {liveSessions === null || liveNotifs === null ? (
+                    <ul className="mt-3 grid gap-2" aria-label="loading">
+                      {[0, 1].map((i) => (
+                        <li key={i} className="animate-pulse rounded-xl p-5 text-sm" style={{ background: "var(--surface)" }} />
                       ))}
-                    </>
-                  )}
-                  {(liveNotifs === null || liveNotifs.length === 0) &&
-                  (liveSessions === null || liveSessions.length === 0) ? (
+                    </ul>
+                  ) : feed.length === 0 ? (
                     <p
                       className="px-4 py-3 text-[13px] leading-snug"
                       style={{ color: "var(--muted)" }}
@@ -295,25 +273,25 @@ export function TopNav({
                       {t.dashboard.notifEmpty}
                     </p>
                   ) : (
-                    (liveNotifs ?? []).map((n) => (
+                    feed.map((f) => (
                       <button
-                        key={n.id}
+                        key={f.id}
                         type="button"
                         onClick={() => {
                           setBell(false);
                           window.location.hash = "#/dashboard";
                         }}
                         className="flex w-full items-start gap-2.5 border-b px-4 py-3 text-start text-[13px] leading-snug last:border-0 hover:bg-neutral-50"
-                        style={{ borderColor: "var(--kt-line)", opacity: n.is_read ? 0.7 : 1 }}
+                        style={{ borderColor: "var(--kt-line)", opacity: f.unread ? 1 : 0.7 }}
                       >
                         <span
                           aria-hidden="true"
                           className="mt-1.5 h-2 w-2 flex-none rounded-full"
-                          style={{ background: n.is_read ? "var(--kt-line)" : "var(--kt-teal)" }}
+                          style={{ background: f.unread ? "var(--kt-teal)" : "var(--kt-line)" }}
                         />
                         <span>
-                          <span className="block font-bold">{n.title}</span>
-                          {n.message && <span className="block">{n.message}</span>}
+                          <span className="block font-bold">{f.title}</span>
+                          {f.message && <span className="block">{f.message}</span>}
                         </span>
                       </button>
                     ))
