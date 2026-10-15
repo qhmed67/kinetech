@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearQueuedPush,
   getQueuedPush,
+  listQueuedPushes,
   queueCourseDelete,
   queueCoursePush,
   type StoreCourse,
@@ -60,5 +61,13 @@ describe("push outbox", () => {
   it("queues are per-slug", () => {
     queueCoursePush(course("a"));
     expect(getQueuedPush("b")).toBeNull();
+  });
+
+  it("lists queued slugs", () => {
+    queueCoursePush(course("a"));
+    queueCourseDelete("b");
+    expect(listQueuedPushes().sort()).toEqual(["a", "b"]);
+    clearQueuedPush("a");
+    expect(listQueuedPushes()).toEqual(["b"]);
   });
 });
