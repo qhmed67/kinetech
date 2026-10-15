@@ -625,6 +625,11 @@ export function getQueuedPush(slug: string): OutboxEntry | null {
   return readOutbox()[slug] ?? null;
 }
 
+/** Slugs with unsynced admin work (failed pushes/deletes awaiting retry). */
+export function listQueuedPushes(): string[] {
+  return Object.keys(readOutbox());
+}
+
 /** Self-heal: correct a lesson's minutes from the media's real duration
     (first playback reports it). Local cache updates instantly; the server
     row is corrected by the caller via reportVideoMins. */

@@ -6,6 +6,7 @@ import { AdminShell } from "./AdminShell";
 import { CoursesList } from "./CoursesList";
 import { CourseForm } from "./CourseForm";
 import { ServicesEditor } from "./ServicesEditor";
+import { Diagnostics } from "./Diagnostics";
 
 function Home() {
   const { t } = useLang();
@@ -47,6 +48,7 @@ function Home() {
       <a href="#/admin/courses/new" className="btn btn-primary self-start">
         + {a.addCourse}
       </a>
+      <Diagnostics />
     </div>
   );
 }
