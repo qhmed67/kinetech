@@ -66,6 +66,12 @@ export default function App() {
     const onHash = () => {
       setRoute(parseHash(window.location.hash));
       window.scrollTo(0, 0);
+      // Catalog freshness: hash navigation never reloads the tab, so a
+      // one-time boot hydrate would show yesterday's courses forever.
+      // Non-forced hydrate obeys the 30s cooldown + dedupe — cheap.
+      void import("./lib/db/sync")
+        .then((m) => m.hydrateStoreFromDb().catch(() => {}))
+        .catch(() => {});
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
