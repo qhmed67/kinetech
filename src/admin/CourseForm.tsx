@@ -13,7 +13,7 @@ import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 import { ExamBuilder } from "./ExamBuilder";
 import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
-import { extractYoutubeId } from "../lib/videoGuard";
+import { extractYoutubeId, isDriveSource } from "../lib/videoGuard";
 
 function blank(): StoreCourse {
   const lt = { en: "", ar: "" };
@@ -346,8 +346,38 @@ export function CourseForm({ slug }: { slug?: string }) {
     set({ videos: vids });
   };
 
+  // Viewer-only Drive files expose no duration headers to browsers: the
+  // server reads Google's Drive API metadata with a private key instead.
+  const probeDriveMinutesServer = async (src: string): Promise<number | null> => {
+    try {
+      const id = extractDriveId(src.trim());
+      if (!id) return null;
+      const { supabase } = await import("../lib/db/client");
+      const sb = supabase();
+      const { data } = sb ? await sb.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      if (!token) return null;
+      const r = await Promise.race([
+        fetch("/api/drive-minutes", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({ fileId: id }),
+        }),
+        new Promise<null>((res) => window.setTimeout(() => res(null), 15000)),
+      ]);
+      if (!r || !(r as Response).ok) return null;
+      const body = (await (r as Response).json().catch(() => null)) as {
+        ok?: boolean; minutes?: number;
+      } | null;
+      if (!body || body.ok !== true || typeof body.minutes !== "number" || body.minutes <= 0) return null;
+      return body.minutes * 60;
+    } catch {
+      return null;
+    }
+  };
+
   // Measure one lesson's real length and fill its minutes. Applies only if
-  // the link is unchanged since the probe started (slow YT API vs fast typing).
+  // the link is unchanged since the probe started (slow probes vs typing).
   // Success marks the link measured; failure counts up and shows only after
   // 3 misses — transients retry on the next edit cycle instead of sticking.
   const failCounts = useRef<Record<string, number>>({});
@@ -358,7 +388,11 @@ export function CourseForm({ slug }: { slug?: string }) {
     setDetectFail((d) => ({ ...d, [i]: false }));
     try {
       const { probeVideoDurationSecs } = await import("../lib/videoGuard");
-      const secs = await probeVideoDurationSecs(s);
+      // Drive first tries the server (works viewer-only); direct metadata
+      // preload only works when download is allowed — tried as fallback.
+      let secs: number | null = null;
+      if (isDriveSource(s)) secs = await probeDriveMinutesServer(s);
+      if (secs == null) secs = await probeVideoDurationSecs(s);
       if (typeof secs === "number" && secs > 0) {
         const mins = Math.max(1, Math.ceil(secs / 60));
         setCourse((c) => {
