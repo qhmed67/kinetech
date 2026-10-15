@@ -235,7 +235,10 @@ export function CourseForm({ slug }: { slug?: string }) {
           if (rows.length === 0) return;
           const byOrder = new Map(rows.map((x) => [x.sort_order, x.src_url]));
           setCourse((cur) => {
-            if (cur.slug !== s) return cur;
+            // Late response must NEVER clobber admin typing: the form wins
+            // over a stale fetch (this race ate freshly pasted links and the
+            // save then pushed the old ones — "0 new", nothing added).
+            if (cur.slug !== s || dirtyRef.current) return cur;
             const n = Math.max(cur.videos.length, ...[...byOrder.keys()], -1) + 1;
             const videos = Array.from({ length: n }, (_, i) => ({
               ...(cur.videos[i] ?? { src: "", mins: 10, assign: "", exam: "" }),
