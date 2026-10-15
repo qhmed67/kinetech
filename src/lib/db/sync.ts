@@ -569,7 +569,10 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
   const insEn = course.instructor.name.en.trim();
   let instructorId: string | null = null;
   if (insEn) {
-    const { data: found } = await sb.from("instructors").select("id").eq("name_en", insEn).limit(1);
+    const found = await must(
+      sb.from("instructors").select("id").eq("name_en", insEn).limit(1),
+      "instructors",
+    );
     const f = ((found ?? []) as unknown as Array<{ id: string }>)[0];
     if (f) {
       instructorId = f.id;
