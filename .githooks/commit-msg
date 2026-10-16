@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Conventional Commits: type(scope): description
+msg="$(head -n1 "$1")"
+case "$msg" in Merge*|Revert*|fixup!*|squash!*) exit 0;; esac
+if ! printf '%s' "$msg" | grep -qE '^(feat|fix|docs|refactor|test|chore|perf|build|ci|revert)(\([a-z0-9_./-]+\))?!?: .{3,}'; then
+  echo "commit-msg: use Conventional Commits, e.g. 'fix(orders): reject empty cart'"; exit 1
+fi
