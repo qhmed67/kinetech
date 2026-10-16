@@ -726,6 +726,18 @@ export function ProtectedVideoPlayer({
           poster(() => setMediaStarted(true), true)
         )}
         {watermark}
+        {/* Our fullscreen over Drive's dead pop-out corner: the ONLY chrome
+            we add here. Fullscreen gives Drive's own bar room to breathe on
+            phones, where the embedded bar is otherwise unusable. */}
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-label="Fullscreen"
+          className="absolute end-2 top-2 z-30 grid h-10 w-10 place-items-center rounded-full text-white transition hover:bg-white/15"
+          style={{ background: "rgba(0,0,0,0.45)" }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
         {/* One-time guide: only Drive's own ▶ starts playback — taps
             anywhere else do nothing. Dismisses forever on first tap. */}
         {mediaStarted && showDriveHint && !frameFailed && (
