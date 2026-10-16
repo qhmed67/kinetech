@@ -141,6 +141,23 @@ export function ProtectedVideoPlayer({
   // Preview watchdog/retry + wall-clock completion for API-less frames.
   const [frameFailed, setFrameFailed] = useState(false);
   const [frameRetry, setFrameRetry] = useState(0);
+  // In-app browsers (WhatsApp/Facebook/Instagram WebViews) size sandboxed
+  // iframes unpredictably — the Drive UI can come out huge or shifted.
+  // Detect once and suggest Chrome/Safari instead (info only, dismissable).
+  const [isWebView] = useState<boolean>(() => {
+    try {
+      return /wv;|FBAN|FB_IAB|FBAV|Instagram|Line\/|MicroMessenger/i.test(window.navigator.userAgent);
+    } catch {
+      return false;
+    }
+  });
+  const [showWebViewHint, setShowWebViewHint] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("kt-webview-hint") !== "1";
+    } catch {
+      return true;
+    }
+  });
   // One-time guide: Drive's own play button is small on phones and taps
   // elsewhere do nothing — point thumbs at it once, then never again.
   const [showDriveHint, setShowDriveHint] = useState<boolean>(() => {
@@ -748,6 +765,23 @@ export function ProtectedVideoPlayer({
             style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
           >
             اضغط زر التشغيل داخل الفيديو · Tap ▶ inside the video ✕
+          </button>
+        )}
+        {mediaStarted && isWebView && showWebViewHint && !frameFailed && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowWebViewHint(false);
+              try {
+                window.localStorage.setItem("kt-webview-hint", "1");
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="absolute inset-x-3 bottom-3 z-30 rounded-xl px-4 py-2.5 text-center text-xs font-bold text-white"
+            style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-display)" }}
+          >
+            للعرض الأفضل افتح في كروم/سفاري · Best in Chrome/Safari ✕
           </button>
         )}
         {mediaStarted && !ready && !frameFailed && (
