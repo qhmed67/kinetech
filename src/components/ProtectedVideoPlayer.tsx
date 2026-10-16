@@ -141,6 +141,23 @@ export function ProtectedVideoPlayer({
   // Preview watchdog/retry + wall-clock completion for API-less frames.
   const [frameFailed, setFrameFailed] = useState(false);
   const [frameRetry, setFrameRetry] = useState(0);
+  // One-time guide: Drive's own play button is small on phones and taps
+  // elsewhere do nothing — point thumbs at it once, then never again.
+  const [showDriveHint, setShowDriveHint] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("kt-drive-hint") !== "1";
+    } catch {
+      return true;
+    }
+  });
+  const dismissDriveHint = useCallback(() => {
+    setShowDriveHint(false);
+    try {
+      window.localStorage.setItem("kt-drive-hint", "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const elapsedRef = useRef(0);
   const mediaRef = useRef<HTMLVideoElement>(null);
 
@@ -683,10 +700,12 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Drive preview: sandboxed iframe. Sandbox = allow-scripts +
-     allow-same-origin ONLY (no downloads/pop-outs/popups, no PiP token).
-     Clicks must reach Drive's own controls — no click shield; right-clicks
-     inside the frame stay Google's, unblockable cross-origin. */
+  /* Drive preview: sandboxed iframe, TALLER on phones so Drive's own
+     controls are thumb-reachable (a short 16:9 box crushes them).
+     Sandbox = allow-scripts + allow-same-origin ONLY (no downloads/pop-outs/
+     popups, no PiP token). Clicks must reach Drive's own controls — no click
+     shield; right-clicks inside the frame stay Google's, unblockable
+     cross-origin. */
   if (isDrive) {
     return shell(
       <>
@@ -707,6 +726,18 @@ export function ProtectedVideoPlayer({
           poster(() => setMediaStarted(true), true)
         )}
         {watermark}
+        {/* One-time guide: only Drive's own ▶ starts playback — taps
+            anywhere else do nothing. Dismisses forever on first tap. */}
+        {mediaStarted && showDriveHint && !frameFailed && (
+          <button
+            type="button"
+            onClick={dismissDriveHint}
+            className="absolute left-1/2 top-2 z-30 w-max max-w-[90%] -translate-x-1/2 truncate rounded-full px-4 py-2 text-xs font-bold text-white"
+            style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
+          >
+            اضغط زر التشغيل داخل الفيديو · Tap ▶ inside the video ✕
+          </button>
+        )}
         {mediaStarted && !ready && !frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
@@ -741,7 +772,7 @@ export function ProtectedVideoPlayer({
           </div>
         )}
       </>,
-      idle && mediaStarted ? "cursor-none" : "",
+      `${idle && mediaStarted ? "cursor-none" : ""} min-h-[300px] sm:min-h-0`,
     );
   }
 
