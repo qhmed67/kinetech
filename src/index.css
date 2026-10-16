@@ -215,16 +215,12 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
 /* Guarded player frame: force the embed to exactly fill its mount in every
    direction/mode — kills offset/letterbox drift from the iframe defaults. */
-.pvp {
-  -webkit-tap-highlight-color: transparent;
-}
 .pvp iframe {
   display: block;
   width: 100% !important;
   height: 100% !important;
   border: 0;
   margin: 0;
-  touch-action: manipulation;
 }
 
 /* Exact-fill canvas: the frame matches the mount 1:1 — no offsets, no
