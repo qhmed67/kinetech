@@ -72,6 +72,15 @@ export default function App() {
       void import("./lib/db/sync")
         .then((m) => m.hydrateStoreFromDb().catch(() => {}))
         .catch(() => {});
+      // Grant freshness: an admin grant/revoke mid-session must reach this
+      // browser without forcing a logout — re-adopt server grants (purges
+      // revoked courses, unlocks re-granted ones) on every navigation.
+      void import("./lib/db/sync")
+        .then((m) => m.syncMyGrants())
+        .then((changed) => {
+          if (changed) setUser(getUser());
+        })
+        .catch(() => {});
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
