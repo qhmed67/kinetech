@@ -708,7 +708,10 @@ export function ProtectedVideoPlayer({
         )}
         {watermark}
         {mediaStarted && !ready && !frameFailed && (
-          <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+          /* Taps pass through: Drive's own ▶ (and our frame) must stay
+             clickable even while the spinner shows — onLoad never forming /
+             arriving late must never freeze the player behind a shield. */
+          <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
               aria-hidden="true"
               className="h-12 w-12 animate-spin rounded-full"
