@@ -218,7 +218,7 @@ describe("ensureLessonNotices", () => {
       insert,
     );
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toEqual({ covered: 2, total: 2 });
     expect(insert).not.toHaveBeenCalled();
     expect(sb.from).not.toHaveBeenCalledWith("notifications");
   });
@@ -227,7 +227,7 @@ describe("ensureLessonNotices", () => {
     const insert = vi.fn().mockReturnValue(query({ data: null, error: null }));
     const sb = sessionsMock([{ user_id: "u1", title, date: fresh }], insert);
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toEqual({ covered: 2, total: 2 });
     expect(insert).toHaveBeenCalledTimes(1);
     const rows = insert.mock.calls[0][0] as Array<{ user_id: string; title: string; date: string }>;
     expect(rows).toHaveLength(1);
@@ -242,7 +242,7 @@ describe("ensureLessonNotices", () => {
       insert,
     );
     mockedSupabase.mockReturnValue(sb as never);
-    await expect(ensureLessonNotices("c", lesson, since)).resolves.toBe(2);
+    await expect(ensureLessonNotices("c", lesson, since)).resolves.toEqual({ covered: 2, total: 2 });
     expect(insert).toHaveBeenCalledTimes(1);
     const rows = insert.mock.calls[0][0] as Array<{ user_id: string }>;
     expect(rows.map((r) => r.user_id).sort()).toEqual(["u1", "u2"]);

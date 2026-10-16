@@ -426,8 +426,8 @@ export async function ensureLessonNotices(
   courseSlug: string,
   lessons: Array<{ titleEn: string; titleAr: string }>,
   sinceIso: string,
-): Promise<number> {
-  if (lessons.length === 0) return 0;
+): Promise<{ covered: number; total: number }> {
+  if (lessons.length === 0) return { covered: 0, total: 0 };
   const sb = authed();
   const { data: course } = await withTimeout(
     (async () => sb.from("courses").select("id").eq("slug", courseSlug).single())(),
@@ -435,14 +435,14 @@ export async function ensureLessonNotices(
     "course-lookup",
   );
   const courseId = (course as unknown as { id: string } | null)?.id;
-  if (!courseId) return 0;
+  if (!courseId) return { covered: 0, total: 0 };
   const { data: enr } = await withTimeout(
     (async () => sb.from("enrollments").select("user_id").eq("course_id", courseId))(),
     NETWORK_TIMEOUT_MS,
     "enrollment-list",
   );
   const userIds = ((enr ?? []) as unknown as Array<{ user_id: string }>).map((r) => r.user_id);
-  if (userIds.length === 0) return 0;
+  if (userIds.length === 0) return { covered: 0, total: 0 };
   // Same title shape as the trigger: ar-first, trimmed, fallback literal.
   const want = lessons.map(
     (l) => `New lesson · درس جديد: ${(l.titleAr || "").trim() || (l.titleEn || "").trim() || "New lesson"}`,
@@ -470,7 +470,7 @@ export async function ensureLessonNotices(
     if (error) throw error;
     missing.forEach((u) => covered.add(u));
   }
-  return covered.size;
+  return { covered: covered.size, total: userIds.length };
 }
 
 /** Admin-only: auth accounts with no profile row. Empty = healthy. */
