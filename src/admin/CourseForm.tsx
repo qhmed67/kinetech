@@ -196,6 +196,9 @@ export function CourseForm({ slug }: { slug?: string }) {
   // Probe failed (network blocked / Drive download off / scan page): the old
   // value stays — the admin sees WHY instead of a silent "10 min".
   const [detectFail, setDetectFail] = useState<Record<number, boolean>>({});
+  // Why it failed: "refused" = Drive denied the file itself (restricted
+  // sharing, not anyone-with-link) — different fix than a blind file.
+  const [detectWhy, setDetectWhy] = useState<Record<number, "refused">>({});
   const probedRef = useRef<Set<string>>(new Set());
   // Accordion: one open part at a time (long curricula stay scannable).
   const [openMod, setOpenMod] = useState<number | null>(0);
@@ -217,6 +220,7 @@ export function CourseForm({ slug }: { slug?: string }) {
     setCloudErr("");
     setDetecting({});
     setDetectFail({});
+    setDetectWhy({});
     setNotified(null);
     setNoticeErr("");
     setFreshCount(null);
@@ -351,7 +355,9 @@ export function CourseForm({ slug }: { slug?: string }) {
 
   // Viewer-only Drive files expose no duration headers to browsers: the
   // server reads Google's Drive API metadata with a private key instead.
-  const probeDriveMinutesServer = async (src: string): Promise<number | null> => {
+  // Returns seconds, "refused" (Drive denied the file — sharing/key issue),
+  // or null (unreachable/unknown).
+  const probeDriveMinutesServer = async (src: string): Promise<number | "refused" | null> => {
     try {
       const id = extractDriveId(src.trim());
       if (!id) return null;
@@ -368,11 +374,16 @@ export function CourseForm({ slug }: { slug?: string }) {
         }),
         new Promise<null>((res) => window.setTimeout(() => res(null), 15000)),
       ]);
-      if (!r || !(r as Response).ok) return null;
+      if (!r) return null;
       const body = (await (r as Response).json().catch(() => null)) as {
-        ok?: boolean; minutes?: number;
+        ok?: boolean; minutes?: number; code?: string;
       } | null;
-      if (!body || body.ok !== true || typeof body.minutes !== "number" || body.minutes <= 0) return null;
+      if (!body || body.ok !== true) {
+        // UPSTREAM/FORBIDDEN = Drive refused the file itself (restricted
+        // sharing or key problem) — distinct from "no duration found".
+        return body?.code === "UPSTREAM" || body?.code === "FORBIDDEN" ? "refused" : null;
+      }
+      if (typeof body.minutes !== "number" || body.minutes <= 0) return null;
       return body.minutes * 60;
     } catch {
       return null;
@@ -389,11 +400,18 @@ export function CourseForm({ slug }: { slug?: string }) {
     if (!s || typeof window === "undefined") return;
     setDetecting((d) => ({ ...d, [i]: true }));
     setDetectFail((d) => ({ ...d, [i]: false }));
+    setDetectWhy((d) => {
+      const n: Record<number, "refused"> = {};
+      for (const [k, v] of Object.entries(d)) {
+        if (Number(k) !== i) n[Number(k)] = v;
+      }
+      return n;
+    });
     try {
       const { probeVideoDurationSecs } = await import("../lib/videoGuard");
       // Drive first tries the server (works viewer-only); direct metadata
       // preload only works when download is allowed — tried as fallback.
-      let secs: number | null = null;
+      let secs: number | "refused" | null = null;
       if (isDriveSource(s)) secs = await probeDriveMinutesServer(s);
       if (secs == null) secs = await probeVideoDurationSecs(s);
       if (typeof secs === "number" && secs > 0) {
@@ -411,7 +429,10 @@ export function CourseForm({ slug }: { slug?: string }) {
         setCloud("idle");
       } else {
         failCounts.current[s] = (failCounts.current[s] ?? 0) + 1;
-        if (failCounts.current[s] >= 3) setDetectFail((d) => ({ ...d, [i]: true }));
+        if (failCounts.current[s] >= 3) {
+          setDetectFail((d) => ({ ...d, [i]: true }));
+          if (secs === "refused") setDetectWhy((d) => ({ ...d, [i]: "refused" }));
+        }
       }
     } catch {
       /* keep the previous value */
@@ -842,9 +863,13 @@ export function CourseForm({ slug }: { slug?: string }) {
                     )}
                     {!detecting[i] && detectFail[i] && (
                       <p className="text-xs font-bold" role="alert" style={{ color: "#B3261E" }}>
-                        {lt === "ar"
-                          ? "تعذر القياس التلقائي (ملف مشاهدة فقط) — دخّل المدة يدويًا."
-                          : "Auto-measure impossible (view-only file) — enter minutes manually."}
+                        {detectWhy[i] === "refused"
+                          ? (lt === "ar"
+                            ? "درايف رفض الملف — المشاركة لازم تبقى Anyone with the link (التحميل يفضل مقفول عادي)."
+                            : "Drive refused the file — sharing must be Anyone with the link (download may stay OFF).")
+                          : (lt === "ar"
+                            ? "تعذر القياس التلقائي (ملف مشاهدة فقط) — دخّل المدة يدويًا."
+                            : "Auto-measure impossible (view-only file) — enter minutes manually.")}
                       </p>
                     )}
                   </div>
