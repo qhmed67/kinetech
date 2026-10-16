@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Same gate as CI. Install once per clone:  git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+[ -f scripts/verify.sh ] || exit 0
+echo "pre-commit: scripts/verify.sh quick"
+bash scripts/verify.sh quick

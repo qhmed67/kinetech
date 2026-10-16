@@ -1,0 +1,11 @@
+# Replace @your-user. Turn on "Require review from Code Owners" in branch protection:
+# then nobody (human or agent) can merge changes to the enforcement system without your approval.
+/scripts/                 @your-user
+/.githooks/               @your-user
+/.opencode/               @your-user
+/.github/                 @your-user
+/opencode.json            @your-user
+/docs/ARCHITECTURE.md     @your-user
+/.arch-rules              @your-user
+/.importlinter            @your-user
+/.dependency-cruiser.cjs  @your-user

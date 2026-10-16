@@ -1,0 +1,7 @@
+# Fallback architecture rules for stacks with no real boundary tool.
+# Format:  <path-regex> :: <forbidden-import-regex> :: <message>      (ERE; `|` allowed inside regexes)
+# Flutter/Dart examples (adapt paths):
+^lib/features/[^/]+/domain/ :: package:flutter|/(data|presentation)/ :: domain must not import Flutter, data or presentation
+^lib/features/[^/]+/presentation/ :: /data/ :: presentation must not import the data layer directly
+# Cross-feature deep imports (use the feature's public file instead):
+# ^lib/features/orders/ :: features/billing/(data|domain|presentation)/ :: use billing's public API

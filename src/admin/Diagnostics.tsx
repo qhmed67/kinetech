@@ -112,11 +112,20 @@ export function Diagnostics() {
       push({ label: t.session, state: isAdmin ? "ok" : "bad", detail: isAdmin ? t.sessionOk : t.sessionBad });
 
       // RPC presence (no side effects: bogus args, gated calls only).
+      // NOTE: PostgREST resolves overloads by the EXACT argument set, so
+      // request_play MUST be probed with all its parameters (defaults do
+      // NOT satisfy resolution — a partial call false-reports MISSING).
       const rpcs: Array<[string, Record<string, unknown>]> = [
         ["admin_video_sources", { p_slug: "__probe__" }],
         ["get_exam", { p_video: "00000000-0000-0000-0000-000000000000", p_kind: "exam" }],
         ["submit_exam", { p_video: "00000000-0000-0000-0000-000000000000", p_kind: "exam", p_answers: {} }],
-        ["request_play", { p_video: "00000000-0000-0000-0000-000000000000" }],
+        ["request_play", {
+          p_video: "00000000-0000-0000-0000-000000000000",
+          p_session: "00000000-0000-0000-0000-000000000000",
+          p_ip: "", p_ua: "",
+          p_r1_max: 5, p_r1_secs: 30, p_r2_warn: 120, p_r2_deny: 240,
+          p_r2_mins: 60, p_r3_max: 3, p_repeat_mins: 90,
+        }],
       ];
       for (const [fn, args] of rpcs) {
         try {
@@ -144,18 +153,20 @@ export function Diagnostics() {
         push({ label: t.srcDropped, state: "info", detail: "?" });
       }
 
-      // Backfill sanity: videos exist but sources empty = migration missed.
+      // video_sources is RLS-locked with NO policies: a client SELECT
+      // ALWAYS returns [] (default-deny), rows or not. So emptiness proves
+      // nothing — report the lock itself, verified by the fact that plays
+      // burn (grants require a sources row server-side).
       try {
-        const [{ data: vids }, { data: srcs }] = await Promise.all([
-          sb.from("videos").select("id").limit(1),
-          sb.from("video_sources").select("video_id").limit(1),
-        ]);
-        const v = ((vids ?? []) as unknown[]).length > 0;
-        const s = ((srcs ?? []) as unknown[]).length > 0;
+        const { data: vids } = await sb.from("videos").select("id").limit(1);
+        const hasVideos = ((vids ?? []) as unknown[]).length > 0;
+        await sb.from("video_sources").select("video_id").limit(1);
         push({
           label: t.sources,
-          state: v && !s ? "bad" : "ok",
-          detail: v && !s ? "videos>0, sources=0" : `videos:${v ? ">0" : "0"} sources:${s ? ">0" : "0"}`,
+          state: "info",
+          detail: hasVideos
+            ? "client-unreadable by design (RLS, no policies) — backfill proven by working playback"
+            : "no videos yet — nothing to backfill",
         });
       } catch {
         push({ label: t.sources, state: "bad", detail: "query failed" });

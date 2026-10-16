@@ -1,0 +1,4 @@
+# One stack directory per line (relative to repo root). Delete this file if the repo is a single stack at root.
+# api
+# web
+# mobile
