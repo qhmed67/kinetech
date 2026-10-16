@@ -177,18 +177,51 @@ export function Diagnostics() {
         const { loadStore, listQueuedPushes } = await import("../store");
         const local = loadStore().courses;
         const [{ data: mods }, { data: vids }] = await Promise.all([
-          sb.from("modules").select("course_id"),
-          sb.from("videos").select("course_id"),
+          sb.from("modules").select("course_id,sort_order"),
+          sb.from("videos").select("course_id,sort_order"),
         ]);
         // Match local courses to DB courses by slug -> id.
         const { data: dbCourses } = await sb.from("courses").select("id,slug");
-        const idBySlug = new Map(
-          ((dbCourses ?? []) as Array<{ id: string; slug: string }>).map((c) => [c.slug, c.id]),
-        );
+        const dbList = ((dbCourses ?? []) as Array<{ id: string; slug: string }>);
+        // Duplicate slugs break every .single() lookup (grant/revoke fail
+        // red while saves/upserts keep working) — flag them explicitly.
+        const slugCount = new Map<string, number>();
+        for (const c of dbList) slugCount.set(c.slug, (slugCount.get(c.slug) ?? 0) + 1);
+        for (const [slug, n] of slugCount) {
+          if (n > 1) {
+            push({
+              label: `${t.courses}: ${slug}`,
+              state: "bad",
+              detail: `DUPLICATE slug ×${n} — grant/revoke lookups fail; delete dupes in DB`,
+            });
+          }
+        }
+        // Duplicate positions break positional sync the same way.
+        const posKey = (r: { course_id: string; sort_order: number }) => `${r.course_id}:${r.sort_order}`;
+        const dupPos = (rows: Array<{ course_id: string; sort_order: number }>) => {
+          const seen = new Set<string>();
+          let dups = 0;
+          for (const r of rows) {
+            const k = posKey(r);
+            if (seen.has(k)) dups += 1;
+            else seen.add(k);
+          }
+          return dups;
+        };
+        const modDups = dupPos(((mods ?? []) as Array<{ course_id: string; sort_order: number }>));
+        const vidDups = dupPos(((vids ?? []) as Array<{ course_id: string; sort_order: number }>));
+        if (modDups > 0 || vidDups > 0) {
+          push({
+            label: t.courses,
+            state: "bad",
+            detail: `duplicate positions: modules ×${modDups}, videos ×${vidDups} — run 20261040`,
+          });
+        }
         const modsByCourse = new Map<string, number>();
         for (const r of ((mods ?? []) as Array<{ course_id: string }>)) {
           modsByCourse.set(r.course_id, (modsByCourse.get(r.course_id) ?? 0) + 1);
         }
+        const idBySlug = new Map(dbList.map((c) => [c.slug, c.id]));
         const vidsByCourse = new Map<string, number>();
         for (const r of ((vids ?? []) as Array<{ course_id: string }>)) {
           vidsByCourse.set(r.course_id, (vidsByCourse.get(r.course_id) ?? 0) + 1);
