@@ -696,7 +696,7 @@ export function ProtectedVideoPlayer({
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
-            allow="autoplay; fullscreen"
+            allow="autoplay; fullscreen; encrypted-media"
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
