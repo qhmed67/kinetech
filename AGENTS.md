@@ -18,6 +18,8 @@ Anything marked `TODO` has NOT been verified yet — do not rely on it until it 
 8. **If you broke something:** run `git status` and `git diff`, revert your own changes, then retry with a smaller change. Don't "patch over" a mess.
 9. **Don't trust old context.** If this session has been long or confusing, say so and re-read the relevant files from disk instead of relying on memory of earlier edits.
 10. **Debug with evidence, not by asking me to test.** Follow the protocol in Section 13: reproduce the problem yourself, read the logs, find the earliest failing event, and verify the fix yourself. Only ask me to test when it truly requires something you cannot do (real device, my logged-in browser session, production-only secrets) — and then tell me exactly what to do and which request ID to send back.
+11. **Git authorship — always this identity, never OpenCode.** For whatever you commit/push, use username `qhmed67` and email `ahmedalmslm74@gmail.com`. Never attribute work to OpenCode, never add OpenCode as co-author (`Co-authored-by`), never add generated-by/AI footers. Reason: owner wants sole authorship recorded as himself.
+12. **Push, don't park.** Vercel deploys from GitHub on push — local commits change nothing live. After committing, always push (`git push origin <branch>`) and confirm it landed (`git status` clean, log shows commits on `origin`). Never leave fixes sitting local-only.
 
 ---
 
@@ -104,6 +106,12 @@ TODO: verify from existing code, then list. e.g. naming (components PascalCase, 
 ## 10. Fragile areas / do-not-touch
 
 TODO: list files or flows that are easy to break (auth, payments, DB connection, build config, anything the owner names).
+
+Behavioral contract (loads every session alongside this file):
+`docs/PRODUCT-RULES.md` — student-first invariants (never expose video URLs,
+player only via /api/play, watermark everywhere, notifications and exams
+rules). Violating it broke production before; treat it as blocking as any
+verifier.
 
 ## 11. Stable baseline (reference point)
 

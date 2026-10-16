@@ -9,6 +9,7 @@ import {
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
+import { driveMediaCandidates } from "../lib/drive";
 
 export type PlayDenied = { status: number; code: string; ar: string; en: string };
 
@@ -141,6 +142,12 @@ export function ProtectedVideoPlayer({
   // Preview watchdog/retry + wall-clock completion for API-less frames.
   const [frameFailed, setFrameFailed] = useState(false);
   const [frameRetry, setFrameRetry] = useState(0);
+  // Drive direct-play cursor: native <video> over the ordered media
+  // candidates (uc, then usercontent+confirm) comes FIRST — the center
+  // button calls .play() in the tap gesture, so phones start playback
+  // directly. Only when every candidate errors do we fall back to the
+  // sandboxed preview embed (Drive's own ▶, untriggerable cross-origin).
+  const [driveIdx, setDriveIdx] = useState(0);
   // In-app browsers (WhatsApp/Facebook/Instagram WebViews) size sandboxed
   // iframes unpredictably — the Drive UI can come out huge or shifted.
   // Detect once and suggest Chrome/Safari instead (info only, dismissable).
@@ -202,6 +209,7 @@ export function ProtectedVideoPlayer({
     setStarted(false);
     setMediaStarted(false);
     setFrameFailed(false);
+    setDriveIdx(0);
     gotQualities.current = false;
     setQualities([]);
     setQuality("auto");
@@ -295,6 +303,9 @@ export function ProtectedVideoPlayer({
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
   const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
+  // Direct-play candidates for this Drive file; exhausted => preview embed.
+  const driveCandidates = embedUrl !== null && isDrive ? driveMediaCandidates(embedUrl) : [];
+  const driveDirect = isDrive && driveIdx < driveCandidates.length;
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -475,16 +486,18 @@ export function ProtectedVideoPlayer({
   }, [videoId]);
 
   // Preview watchdog: unresolvable hosts never fire onLoad — show retry.
+  // Iframe-fallback only; direct native playback reports real media events.
   useEffect(() => {
-    if (!grant || !isDrive || !mediaStarted || ready || frameFailed) return;
+    if (!grant || !isDrive || driveDirect || !mediaStarted || ready || frameFailed) return;
     const id = window.setTimeout(() => setFrameFailed(true), 20000);
     return () => window.clearTimeout(id);
-  }, [grant, isDrive, mediaStarted, ready, frameFailed]);
+  }, [grant, isDrive, driveDirect, mediaStarted, ready, frameFailed]);
 
-  // Wall-clock completion for API-less frames (Drive preview offers no play
-  // state; the server already counted the view at grant time).
+  // Wall-clock completion for the preview iframe (it offers no play
+  // state; the server already counted the view at grant time). Direct
+  // native playback reports real progress/ended instead.
   useEffect(() => {
-    if (!grant || !isDrive || !mediaStarted) return;
+    if (!grant || !isDrive || driveDirect || !mediaStarted) return;
     const need = Math.max(60, Math.round((grant.minutes || 10) * 60 * 0.8));
     const id = window.setInterval(() => {
       if (document.hidden) return;
@@ -497,16 +510,18 @@ export function ProtectedVideoPlayer({
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [grant, isDrive, mediaStarted]);
+  }, [grant, isDrive, driveDirect, mediaStarted]);
 
   // Poster click chains into native playback while the tap gesture is fresh.
+  // Backup only — the poster button also calls .play() synchronously in the
+  // tap handler (the path mobile autoplay policies accept).
   useEffect(() => {
-    if (mediaStarted && grant && !isYt && !isDrive && mediaRef.current) {
+    if (mediaStarted && grant && (driveDirect || (!isYt && !isDrive)) && mediaRef.current) {
       mediaRef.current.play().catch(() => {
         /* native controls take over */
       });
     }
-  }, [mediaStarted, grant, isYt, isDrive]);
+  }, [mediaStarted, grant, isYt, isDrive, driveDirect]);
 
   // Session rotation: re-assert isolation without touching playback.
   // sessionToken is a state string, so each rotation re-runs this effect.
@@ -717,22 +732,119 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Drive preview: sandboxed iframe, TALLER on phones so Drive's own
-     controls are thumb-reachable (a short 16:9 box crushes them).
+  /* Drive preview: sandboxed iframe, STRICT 16:9 on all screens. A taller
+     box (min-h on phones) breaks Drive's internal geometry — its player
+     mis-centers the video (video shifted up by its own height, unusable).
      Sandbox = allow-scripts + allow-same-origin ONLY (no downloads/pop-outs/
-     popups, no PiP token). Clicks must reach Drive's own controls — no click
-     shield; right-clicks inside the frame stay Google's, unblockable
-     cross-origin. */
+     popups). Clicks must reach Drive's own controls — no click shield, no
+     covering banners over Drive's top/bottom bars; right-clicks inside the
+     frame stay Google's, unblockable cross-origin. */
+  /* Drive direct-play: native <video> over the ordered media candidates.
+     The center button calls .play() synchronously inside the tap gesture —
+     the path phone autoplay policies accept — so one tap starts the video.
+     Candidates advance on error; the preview embed below stays fallback. */
+  if (isDrive && driveDirect) {
+    const src = driveCandidates[driveIdx];
+    const startDirect = () => {
+      setMediaStarted(true);
+      try {
+        const v = mediaRef.current;
+        if (v) void v.play().catch(() => {
+          /* native controls (now visible) take over */
+        });
+      } catch {
+        /* ignore */
+      }
+    };
+    return (
+      <div className="grid gap-2">
+        {shell(
+          <>
+            <video
+              ref={mediaRef}
+              key={`${embedUrl}:${driveIdx}`}
+              src={src}
+              controls={mediaStarted}
+              controlsList="nodownload nofullscreen noremoteplayback"
+              disablePictureInPicture
+              playsInline
+              preload="metadata"
+              onLoadedMetadata={(e) => {
+                const d = e.currentTarget.duration;
+                if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
+              }}
+              onCanPlay={() => setReady(true)}
+              onTimeUpdate={(e) => cbRef.current.onProgress(e.currentTarget.currentTime)}
+              onSeeked={(e) => cbRef.current.onSeeked(e.currentTarget.currentTime)}
+              onEnded={() => {
+                if (!endedRef.current) {
+                  endedRef.current = true;
+                  cbRef.current.onEnded();
+                }
+              }}
+              onError={() => {
+                setReady(false);
+                setDriveIdx((i) => i + 1);
+              }}
+              className="absolute inset-0 h-full w-full"
+              style={{ background: "#000" }}
+            />
+            {poster(startDirect, !mediaStarted)}
+            {watermark}
+            {mediaStarted && !ready && (
+              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+                <span
+                  aria-hidden="true"
+                  className="h-12 w-12 animate-spin rounded-full"
+                  style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+                />
+              </div>
+            )}
+          </>,
+          idle && mediaStarted ? "cursor-none" : "",
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary"
+            style={{ minHeight: 44 }}
+          >
+            Open in Drive · فتح في درايف
+          </a>
+          <button type="button" onClick={toggleFullscreen} className="btn btn-secondary" style={{ minHeight: 44 }}>
+            Fullscreen · ملء الشاشة
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDriveIdx(driveCandidates.length);
+              setMediaStarted(false);
+              setReady(false);
+            }}
+            className="btn btn-secondary"
+            style={{ minHeight: 44 }}
+          >
+            Preview instead · المعاينة
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isDrive) {
-    return shell(
-      <>
+    return (
+      <div className="grid gap-2">
+        {shell(
+          <>
         {mediaStarted ? (
           <iframe
             key={`${embedUrl}:${frameRetry}`}
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
-            allow="autoplay; fullscreen; encrypted-media"
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
@@ -761,7 +873,7 @@ export function ProtectedVideoPlayer({
           <button
             type="button"
             onClick={dismissDriveHint}
-            className="absolute left-1/2 top-2 z-30 w-max max-w-[90%] -translate-x-1/2 truncate rounded-full px-4 py-2 text-xs font-bold text-white"
+            className="absolute left-1/2 top-14 z-30 w-max max-w-[90%] -translate-x-1/2 truncate rounded-full px-4 py-2 text-xs font-bold text-white"
             style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
           >
             اضغط زر التشغيل داخل الفيديو · Tap ▶ inside the video ✕
@@ -778,14 +890,14 @@ export function ProtectedVideoPlayer({
                 /* ignore */
               }
             }}
-            className="absolute inset-x-3 bottom-3 z-30 rounded-xl px-4 py-2.5 text-center text-xs font-bold text-white"
+            className="absolute inset-x-3 bottom-16 z-30 rounded-xl px-4 py-2.5 text-center text-xs font-bold text-white"
             style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-display)" }}
           >
             للعرض الأفضل افتح في كروم/سفاري · Best in Chrome/Safari ✕
           </button>
         )}
         {mediaStarted && !ready && !frameFailed && (
-          <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+          <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
               aria-hidden="true"
               className="h-12 w-12 animate-spin rounded-full"
@@ -818,7 +930,41 @@ export function ProtectedVideoPlayer({
           </div>
         )}
       </>,
-      `${idle && mediaStarted ? "cursor-none" : ""} min-h-[300px] sm:min-h-0`,
+          idle && mediaStarted ? "cursor-none" : "",
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary"
+            style={{ minHeight: 44 }}
+          >
+            Open in Drive · فتح في درايف
+          </a>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="btn btn-secondary"
+            style={{ minHeight: 44 }}
+          >
+            Fullscreen · ملء الشاشة
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDriveIdx(0);
+              setMediaStarted(false);
+              setReady(false);
+              setFrameFailed(false);
+            }}
+            className="btn btn-secondary"
+            style={{ minHeight: 44 }}
+          >
+            Direct play · تشغيل مباشر
+          </button>
+        </div>
+      </div>
     );
   }
 
