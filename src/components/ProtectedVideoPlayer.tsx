@@ -691,6 +691,13 @@ export function ProtectedVideoPlayer({
     return shell(
       <>
         {mediaStarted ? (
+          /* Drive renders its video at a fixed ~400px-wide layout anchored to
+             the iframe's bottom edge — any iframe narrower than that crops it
+             and shifts both video and its ▶ off-center (seen on phones).
+             Layout the frame at 2x the box and scale(0.5): Drive sees a wide
+             viewport so it centers correctly, and the transform shrinks the
+             result back to exactly our shell. Taps hit-test fine through the
+             transform (verified headless). */
           <iframe
             key={`${embedUrl}:${frameRetry}`}
             src={embedUrl}
@@ -700,8 +707,14 @@ export function ProtectedVideoPlayer({
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
-            className="absolute inset-0 h-full w-full"
-            style={{ border: 0 }}
+            className="absolute left-0 top-0"
+            style={{
+              border: 0,
+              width: "200%",
+              height: "200%",
+              transform: "scale(0.5)",
+              transformOrigin: "0 0",
+            }}
           />
         ) : (
           poster(() => setMediaStarted(true), true)
