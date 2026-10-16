@@ -476,7 +476,29 @@ export function Watch({  slug,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, video, lang, user?.email, refreshKey]);
 
-  if (!user || !enrolled) return null;
+  if (!user) return null;
+
+  // Re-granted mid-session? The App refreshes grants on every navigation,
+  // but a stale list must never blank-screen: say so with a retry.
+  if (!enrolled) {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap">
+          <div className="rounded-[20px] border p-8 text-center" style={{ borderColor: "var(--kt-line)" }}>
+            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>{w.noAccessT}</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{w.noAccessD}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="btn btn-secondary mt-5"
+            >
+              {w.retryBtn}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   // Missing course or zero lessons must NEVER white-screen: friendly panels.
   if (!course) {
