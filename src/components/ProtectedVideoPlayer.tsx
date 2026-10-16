@@ -719,10 +719,10 @@ export function ProtectedVideoPlayer({
         {mediaStarted && frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center" style={{ background: "rgba(0,0,0,0.85)" }} role="alert">
             <div className="grid max-w-md gap-3">
-              <p className="font-bold text-white">Video didn&apos;t load — your network can&apos;t reach Google Drive right now.</p>
-              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — الشبكة عندك مش قادرة توصل لـ Google Drive دلوقتي.</p>
+              <p className="font-bold text-white">Video didn&apos;t load — check your connection and try again.</p>
+              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — اتأكد من النت وحاول تاني.</p>
               <p className="text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>
-                If drive.google.com doesn&apos;t open in your browser either, switch DNS (8.8.8.8 / 1.1.1.1) or pause adblock/VPN — then retry.
+                If nothing loads either, switch network or pause adblock/VPN — then retry.
               </p>
               <div>
                 <button
