@@ -18,6 +18,7 @@ Anything marked `TODO` has NOT been verified yet — do not rely on it until it 
 8. **If you broke something:** run `git status` and `git diff`, revert your own changes, then retry with a smaller change. Don't "patch over" a mess.
 9. **Don't trust old context.** If this session has been long or confusing, say so and re-read the relevant files from disk instead of relying on memory of earlier edits.
 10. **Debug with evidence, not by asking me to test.** Follow the protocol in Section 13: reproduce the problem yourself, read the logs, find the earliest failing event, and verify the fix yourself. Only ask me to test when it truly requires something you cannot do (real device, my logged-in browser session, production-only secrets) — and then tell me exactly what to do and which request ID to send back.
+11. **Git authorship — always this identity, never OpenCode.** For whatever you commit/push, use username `qhmed67` and email `ahmedalmslm74@gmail.com`. Never attribute work to OpenCode, never add OpenCode as co-author (`Co-authored-by`), never add generated-by/AI footers. Reason: owner wants sole authorship recorded as himself.
 
 ---
 
