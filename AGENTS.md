@@ -107,6 +107,12 @@ TODO: verify from existing code, then list. e.g. naming (components PascalCase, 
 
 TODO: list files or flows that are easy to break (auth, payments, DB connection, build config, anything the owner names).
 
+Behavioral contract (loads every session alongside this file):
+`docs/PRODUCT-RULES.md` — student-first invariants (never expose video URLs,
+player only via /api/play, watermark everywhere, notifications and exams
+rules). Violating it broke production before; treat it as blocking as any
+verifier.
+
 ## 11. Stable baseline (reference point)
 
 The owner has marked the best known state of this project. Treat it as ground truth for "what working looks like". The owner fills the fields below; you may verify them (`git tag -l`, `git cat-file -t <sha>`) but must NEVER invent or "correct" them.
