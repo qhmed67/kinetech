@@ -179,7 +179,7 @@ export function CourseForm({ slug }: { slug?: string }) {
   const [cloud, setCloud] = useState<"idle" | "syncing" | "ok" | "fail">("idle");
   const [cloudErr, setCloudErr] = useState("");
   // Students covered by new-lesson notices (sessions widget) for this save.
-  const [notified, setNotified] = useState<number | null>(null);
+  const [notified, setNotified] = useState<{ covered: number; total: number } | null>(null);
   // New-video titles this push detected (novel srcs). Null = not measured.
   const [freshCount, setFreshCount] = useState<number | null>(null);
   // Notice step failed (save itself is green): exact reason, not silence.
@@ -619,7 +619,11 @@ export function CourseForm({ slug }: { slug?: string }) {
       : cloud === "ok"
         ? a.savedCloud
           + (freshCount !== null ? ` · ${a.newN.replace("{n}", String(freshCount))}` : "")
-          + (notified !== null ? ` · ${a.notifiedN.replace("{n}", String(notified))}` : "")
+          + (notified !== null
+            ? notified.total === 0
+              ? ` · ${a.noEnrolled}`
+              : ` · ${a.notifiedNE.replace("{c}", String(notified.covered)).replace("{t}", String(notified.total))}`
+            : "")
         : cloud === "fail"
           ? a.savedLocalOnly
           : a.saved;
