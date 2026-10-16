@@ -531,7 +531,7 @@ export function UsersManager() {
                     revokeLabel={u.revoke}
                     resetLabel={u.resetViews}
                     confirmReset={u.confirmResetViews}
-                    onRevoke={() => void act(() => revokeEnrollment(found.id, slug))}
+                    onRevoke={() => void act(() => revokeEnrollment(found.id, slug), () => setGrantSlug(""))}
                   />
                 ))}
               </ul>
@@ -547,7 +547,7 @@ export function UsersManager() {
               <button
                 type="button"
                 disabled={!grantSlug}
-                onClick={() => grantSlug && void act(() => grantEnrollment(found.id, grantSlug))}
+                onClick={() => grantSlug && void act(() => grantEnrollment(found.id, grantSlug), () => setGrantSlug(""))}
                 className="btn btn-primary disabled:opacity-60"
                 style={{ minHeight: 44 }}
               >
