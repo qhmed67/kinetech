@@ -141,40 +141,6 @@ export function ProtectedVideoPlayer({
   // Preview watchdog/retry + wall-clock completion for API-less frames.
   const [frameFailed, setFrameFailed] = useState(false);
   const [frameRetry, setFrameRetry] = useState(0);
-  // In-app browsers (WhatsApp/Facebook/Instagram WebViews) size sandboxed
-  // iframes unpredictably — the Drive UI can come out huge or shifted.
-  // Detect once and suggest Chrome/Safari instead (info only, dismissable).
-  const [isWebView] = useState<boolean>(() => {
-    try {
-      return /wv;|FBAN|FB_IAB|FBAV|Instagram|Line\/|MicroMessenger/i.test(window.navigator.userAgent);
-    } catch {
-      return false;
-    }
-  });
-  const [showWebViewHint, setShowWebViewHint] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem("kt-webview-hint") !== "1";
-    } catch {
-      return true;
-    }
-  });
-  // One-time guide: Drive's own play button is small on phones and taps
-  // elsewhere do nothing — point thumbs at it once, then never again.
-  const [showDriveHint, setShowDriveHint] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem("kt-drive-hint") !== "1";
-    } catch {
-      return true;
-    }
-  });
-  const dismissDriveHint = useCallback(() => {
-    setShowDriveHint(false);
-    try {
-      window.localStorage.setItem("kt-drive-hint", "1");
-    } catch {
-      /* ignore */
-    }
-  }, []);
   const elapsedRef = useRef(0);
   const mediaRef = useRef<HTMLVideoElement>(null);
 
@@ -717,12 +683,10 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Drive preview: sandboxed iframe, TALLER on phones so Drive's own
-     controls are thumb-reachable (a short 16:9 box crushes them).
-     Sandbox = allow-scripts + allow-same-origin ONLY (no downloads/pop-outs/
-     popups, no PiP token). Clicks must reach Drive's own controls — no click
-     shield; right-clicks inside the frame stay Google's, unblockable
-     cross-origin. */
+  /* Drive preview: sandboxed iframe. Sandbox = allow-scripts +
+     allow-same-origin ONLY (no downloads/pop-outs/popups, no PiP token).
+     Clicks must reach Drive's own controls — no click shield; right-clicks
+     inside the frame stay Google's, unblockable cross-origin. */
   if (isDrive) {
     return shell(
       <>
@@ -732,7 +696,7 @@ export function ProtectedVideoPlayer({
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
-            allow="autoplay; fullscreen; encrypted-media"
+            allow="autoplay; fullscreen"
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
@@ -743,47 +707,6 @@ export function ProtectedVideoPlayer({
           poster(() => setMediaStarted(true), true)
         )}
         {watermark}
-        {/* Our fullscreen over Drive's dead pop-out corner: the ONLY chrome
-            we add here. Fullscreen gives Drive's own bar room to breathe on
-            phones, where the embedded bar is otherwise unusable. */}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          aria-label="Fullscreen"
-          className="absolute end-2 top-2 z-30 grid h-10 w-10 place-items-center rounded-full text-white transition hover:bg-white/15"
-          style={{ background: "rgba(0,0,0,0.45)" }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        {/* One-time guide: only Drive's own ▶ starts playback — taps
-            anywhere else do nothing. Dismisses forever on first tap. */}
-        {mediaStarted && showDriveHint && !frameFailed && (
-          <button
-            type="button"
-            onClick={dismissDriveHint}
-            className="absolute left-1/2 top-2 z-30 w-max max-w-[90%] -translate-x-1/2 truncate rounded-full px-4 py-2 text-xs font-bold text-white"
-            style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
-          >
-            اضغط زر التشغيل داخل الفيديو · Tap ▶ inside the video ✕
-          </button>
-        )}
-        {mediaStarted && isWebView && showWebViewHint && !frameFailed && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowWebViewHint(false);
-              try {
-                window.localStorage.setItem("kt-webview-hint", "1");
-              } catch {
-                /* ignore */
-              }
-            }}
-            className="absolute inset-x-3 bottom-3 z-30 rounded-xl px-4 py-2.5 text-center text-xs font-bold text-white"
-            style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-display)" }}
-          >
-            للعرض الأفضل افتح في كروم/سفاري · Best in Chrome/Safari ✕
-          </button>
-        )}
         {mediaStarted && !ready && !frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
@@ -818,7 +741,7 @@ export function ProtectedVideoPlayer({
           </div>
         )}
       </>,
-      `${idle && mediaStarted ? "cursor-none" : ""} min-h-[300px] sm:min-h-0`,
+      idle && mediaStarted ? "cursor-none" : "",
     );
   }
 
