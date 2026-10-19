@@ -327,13 +327,23 @@ export function setUnlockedFlag(u: KtUser, slug: string, idx: number): void {
   }
 }
 
-/* Sequential unlocking: lesson N opens once lesson N-1 is DONE (a full
-   genuine watch) — OR it was unlocked before (sticky: survives restarts of
-   other parts). Burned views never unlock. */
+/* Sequential unlocking: lesson N opens once lesson N-1 STARTED (owner rule —
+   at least one playback of N-1 began) — OR is DONE (older completions) — OR
+   it was unlocked before (sticky: survives restarts of other parts). Burned
+   views never unlock. */
 export function isUnlocked(u: KtUser, slug: string, idx: number): boolean {
   if (idx <= 0) return true;
   if (isUnlockedFlag(u, slug, idx)) return true;
   return isDone(u, slug, idx - 1);
+}
+
+/* Owner rule (2026-10-17): starting part N's playback opens part N+1.
+   Called from the first onProgress heartbeat of a running video; sticky
+   flag so it survives restarts. The server get_watch_state mirrors the
+   same OR via migration 20261041 (prev-started counts). */
+export function unlockNextOnStart(u: KtUser, slug: string, idx: number): void {
+  setUnlockedFlag(u, slug, idx);
+  setUnlockedFlag(u, slug, idx + 1);
 }
 
 /* ---------------------------------------------------------------

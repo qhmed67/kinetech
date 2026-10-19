@@ -13,7 +13,7 @@ import {
   isUnlocked,
   recordDone,
   replaceProgress,
-  setUnlockedFlag,
+  unlockNextOnStart,
 } from "../watch";
 
 const WA = "https://wa.me/201042031062";
@@ -553,7 +553,9 @@ export function Watch({  slug,
     // instantly, then re-read the authoritative count once per playback.
     if (counted.current || seconds < 3 || left <= 0) return;
     counted.current = true;
-    setUnlockedFlag(user, slug, idx);
+    // Owner rule: starting part N opens part N+1 (sticky; server mirrors
+    // via migration 20261041's prev-started OR).
+    unlockNextOnStart(user, slug, idx);
     refreshServerCounts(idx);
   };
 
