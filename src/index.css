@@ -215,7 +215,7 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
 /* Guarded player frame: force the embed to exactly fill its mount in every
    direction/mode — kills offset/letterbox drift from the iframe defaults. */
-.pvp iframe {
+.pvp iframe:not(.pvp-scale) {
   display: block;
   width: 100% !important;
   height: 100% !important;

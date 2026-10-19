@@ -707,7 +707,7 @@ export function ProtectedVideoPlayer({
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
-            className="absolute left-0 top-0"
+            className="pvp-scale absolute left-0 top-0"
             style={{
               border: 0,
               width: "200%",
