@@ -9,7 +9,6 @@ import {
   useRotatingSession,
   type YtPlayer,
 } from "../lib/videoGuard";
-import { driveMediaCandidates } from "../lib/drive";
 
 export type PlayDenied = { status: number; code: string; ar: string; en: string };
 
@@ -142,46 +141,6 @@ export function ProtectedVideoPlayer({
   // Preview watchdog/retry + wall-clock completion for API-less frames.
   const [frameFailed, setFrameFailed] = useState(false);
   const [frameRetry, setFrameRetry] = useState(0);
-  // Drive direct-play cursor: native <video> over the ordered media
-  // candidates (uc, then usercontent+confirm) comes FIRST — the center
-  // button calls .play() in the tap gesture, so phones start playback
-  // directly. Only when every candidate errors do we fall back to the
-  // sandboxed preview embed (Drive's own ▶, untriggerable cross-origin).
-  const [driveIdx, setDriveIdx] = useState(0);
-  // In-app browsers (WhatsApp/Facebook/Instagram WebViews) size sandboxed
-  // iframes unpredictably — the Drive UI can come out huge or shifted.
-  // Detect once and suggest Chrome/Safari instead (info only, dismissable).
-  const [isWebView] = useState<boolean>(() => {
-    try {
-      return /wv;|FBAN|FB_IAB|FBAV|Instagram|Line\/|MicroMessenger/i.test(window.navigator.userAgent);
-    } catch {
-      return false;
-    }
-  });
-  const [showWebViewHint, setShowWebViewHint] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem("kt-webview-hint") !== "1";
-    } catch {
-      return true;
-    }
-  });
-  // One-time guide: Drive's own play button is small on phones and taps
-  // elsewhere do nothing — point thumbs at it once, then never again.
-  const [showDriveHint, setShowDriveHint] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem("kt-drive-hint") !== "1";
-    } catch {
-      return true;
-    }
-  });
-  const dismissDriveHint = useCallback(() => {
-    setShowDriveHint(false);
-    try {
-      window.localStorage.setItem("kt-drive-hint", "1");
-    } catch {
-      /* ignore */
-    }
-  }, []);
   const elapsedRef = useRef(0);
   const mediaRef = useRef<HTMLVideoElement>(null);
 
@@ -209,7 +168,6 @@ export function ProtectedVideoPlayer({
     setStarted(false);
     setMediaStarted(false);
     setFrameFailed(false);
-    setDriveIdx(0);
     gotQualities.current = false;
     setQualities([]);
     setQuality("auto");
@@ -303,9 +261,6 @@ export function ProtectedVideoPlayer({
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
   const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
-  // Direct-play candidates for this Drive file; exhausted => preview embed.
-  const driveCandidates = embedUrl !== null && isDrive ? driveMediaCandidates(embedUrl) : [];
-  const driveDirect = isDrive && driveIdx < driveCandidates.length;
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -486,18 +441,16 @@ export function ProtectedVideoPlayer({
   }, [videoId]);
 
   // Preview watchdog: unresolvable hosts never fire onLoad — show retry.
-  // Iframe-fallback only; direct native playback reports real media events.
   useEffect(() => {
-    if (!grant || !isDrive || driveDirect || !mediaStarted || ready || frameFailed) return;
+    if (!grant || !isDrive || !mediaStarted || ready || frameFailed) return;
     const id = window.setTimeout(() => setFrameFailed(true), 20000);
     return () => window.clearTimeout(id);
-  }, [grant, isDrive, driveDirect, mediaStarted, ready, frameFailed]);
+  }, [grant, isDrive, mediaStarted, ready, frameFailed]);
 
-  // Wall-clock completion for the preview iframe (it offers no play
-  // state; the server already counted the view at grant time). Direct
-  // native playback reports real progress/ended instead.
+  // Wall-clock completion for API-less frames (Drive preview offers no play
+  // state; the server already counted the view at grant time).
   useEffect(() => {
-    if (!grant || !isDrive || driveDirect || !mediaStarted) return;
+    if (!grant || !isDrive || !mediaStarted) return;
     const need = Math.max(60, Math.round((grant.minutes || 10) * 60 * 0.8));
     const id = window.setInterval(() => {
       if (document.hidden) return;
@@ -510,18 +463,16 @@ export function ProtectedVideoPlayer({
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [grant, isDrive, driveDirect, mediaStarted]);
+  }, [grant, isDrive, mediaStarted]);
 
   // Poster click chains into native playback while the tap gesture is fresh.
-  // Backup only — the poster button also calls .play() synchronously in the
-  // tap handler (the path mobile autoplay policies accept).
   useEffect(() => {
-    if (mediaStarted && grant && (driveDirect || (!isYt && !isDrive)) && mediaRef.current) {
+    if (mediaStarted && grant && !isYt && !isDrive && mediaRef.current) {
       mediaRef.current.play().catch(() => {
         /* native controls take over */
       });
     }
-  }, [mediaStarted, grant, isYt, isDrive, driveDirect]);
+  }, [mediaStarted, grant, isYt, isDrive]);
 
   // Session rotation: re-assert isolation without touching playback.
   // sessionToken is a state string, so each rotation re-runs this effect.
@@ -732,171 +683,47 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Drive preview: sandboxed iframe, STRICT 16:9 on all screens. A taller
-     box (min-h on phones) breaks Drive's internal geometry — its player
-     mis-centers the video (video shifted up by its own height, unusable).
-     Sandbox = allow-scripts + allow-same-origin ONLY (no downloads/pop-outs/
-     popups). Clicks must reach Drive's own controls — no click shield, no
-     covering banners over Drive's top/bottom bars; right-clicks inside the
-     frame stay Google's, unblockable cross-origin. */
-  /* Drive direct-play: native <video> over the ordered media candidates.
-     The center button calls .play() synchronously inside the tap gesture —
-     the path phone autoplay policies accept — so one tap starts the video.
-     Candidates advance on error; the preview embed below stays fallback. */
-  if (isDrive && driveDirect) {
-    const src = driveCandidates[driveIdx];
-    const startDirect = () => {
-      setMediaStarted(true);
-      try {
-        const v = mediaRef.current;
-        if (v) void v.play().catch(() => {
-          /* native controls (now visible) take over */
-        });
-      } catch {
-        /* ignore */
-      }
-    };
-    return (
-      <div className="grid gap-2">
-        {shell(
-          <>
-            <video
-              ref={mediaRef}
-              key={`${embedUrl}:${driveIdx}`}
-              src={src}
-              controls={mediaStarted}
-              controlsList="nodownload nofullscreen noremoteplayback"
-              disablePictureInPicture
-              playsInline
-              preload="metadata"
-              onLoadedMetadata={(e) => {
-                const d = e.currentTarget.duration;
-                if (Number.isFinite(d) && d > 0) cbAllRef.current.onDuration(d);
-              }}
-              onCanPlay={() => setReady(true)}
-              onTimeUpdate={(e) => cbRef.current.onProgress(e.currentTarget.currentTime)}
-              onSeeked={(e) => cbRef.current.onSeeked(e.currentTarget.currentTime)}
-              onEnded={() => {
-                if (!endedRef.current) {
-                  endedRef.current = true;
-                  cbRef.current.onEnded();
-                }
-              }}
-              onError={() => {
-                setReady(false);
-                setDriveIdx((i) => i + 1);
-              }}
-              className="absolute inset-0 h-full w-full"
-              style={{ background: "#000" }}
-            />
-            {poster(startDirect, !mediaStarted)}
-            {watermark}
-            {mediaStarted && !ready && (
-              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
-                <span
-                  aria-hidden="true"
-                  className="h-12 w-12 animate-spin rounded-full"
-                  style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
-                />
-              </div>
-            )}
-          </>,
-          idle && mediaStarted ? "cursor-none" : "",
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={embedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-secondary"
-            style={{ minHeight: 44 }}
-          >
-            Open in Drive · فتح في درايف
-          </a>
-          <button type="button" onClick={toggleFullscreen} className="btn btn-secondary" style={{ minHeight: 44 }}>
-            Fullscreen · ملء الشاشة
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDriveIdx(driveCandidates.length);
-              setMediaStarted(false);
-              setReady(false);
-            }}
-            className="btn btn-secondary"
-            style={{ minHeight: 44 }}
-          >
-            Preview instead · المعاينة
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  /* Drive preview: sandboxed iframe. Sandbox = allow-scripts +
+     allow-same-origin ONLY (no downloads/pop-outs/popups, no PiP token).
+     Clicks must reach Drive's own controls — no click shield; right-clicks
+     inside the frame stay Google's, unblockable cross-origin. */
   if (isDrive) {
-    return (
-      <div className="grid gap-2">
-        {shell(
-          <>
+    return shell(
+      <>
         {mediaStarted ? (
+          /* Drive renders its video at a fixed ~400px-wide layout anchored to
+             the iframe's bottom edge — any iframe narrower than that crops it
+             and shifts both video and its ▶ off-center (seen on phones).
+             Layout the frame at 2x the box and scale(0.5): Drive sees a wide
+             viewport so it centers correctly, and the transform shrinks the
+             result back to exactly our shell. Taps hit-test fine through the
+             transform (verified headless). */
           <iframe
             key={`${embedUrl}:${frameRetry}`}
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            allow="autoplay; fullscreen"
             allowFullScreen
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
-            className="absolute inset-0 h-full w-full"
-            style={{ border: 0 }}
+            className="absolute left-0 top-0"
+            style={{
+              border: 0,
+              width: "200%",
+              height: "200%",
+              transform: "scale(0.5)",
+              transformOrigin: "0 0",
+            }}
           />
         ) : (
           poster(() => setMediaStarted(true), true)
         )}
         {watermark}
-        {/* Our fullscreen over Drive's dead pop-out corner: the ONLY chrome
-            we add here. Fullscreen gives Drive's own bar room to breathe on
-            phones, where the embedded bar is otherwise unusable. */}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          aria-label="Fullscreen"
-          className="absolute end-2 top-2 z-30 grid h-10 w-10 place-items-center rounded-full text-white transition hover:bg-white/15"
-          style={{ background: "rgba(0,0,0,0.45)" }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        {/* One-time guide: only Drive's own ▶ starts playback — taps
-            anywhere else do nothing. Dismisses forever on first tap. */}
-        {mediaStarted && showDriveHint && !frameFailed && (
-          <button
-            type="button"
-            onClick={dismissDriveHint}
-            className="absolute left-1/2 top-14 z-30 w-max max-w-[90%] -translate-x-1/2 truncate rounded-full px-4 py-2 text-xs font-bold text-white"
-            style={{ background: "rgba(0,0,0,0.65)", fontFamily: "var(--font-display)" }}
-          >
-            اضغط زر التشغيل داخل الفيديو · Tap ▶ inside the video ✕
-          </button>
-        )}
-        {mediaStarted && isWebView && showWebViewHint && !frameFailed && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowWebViewHint(false);
-              try {
-                window.localStorage.setItem("kt-webview-hint", "1");
-              } catch {
-                /* ignore */
-              }
-            }}
-            className="absolute inset-x-3 bottom-16 z-30 rounded-xl px-4 py-2.5 text-center text-xs font-bold text-white"
-            style={{ background: "rgba(0,0,0,0.7)", fontFamily: "var(--font-display)" }}
-          >
-            للعرض الأفضل افتح في كروم/سفاري · Best in Chrome/Safari ✕
-          </button>
-        )}
         {mediaStarted && !ready && !frameFailed && (
+          /* Taps pass through: Drive's own ▶ (and our frame) must stay
+             clickable even while the spinner shows — onLoad never forming /
+             arriving late must never freeze the player behind a shield. */
           <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
             <span
               aria-hidden="true"
@@ -908,10 +735,10 @@ export function ProtectedVideoPlayer({
         {mediaStarted && frameFailed && (
           <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center" style={{ background: "rgba(0,0,0,0.85)" }} role="alert">
             <div className="grid max-w-md gap-3">
-              <p className="font-bold text-white">Video didn&apos;t load — your network can&apos;t reach Google Drive right now.</p>
-              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — الشبكة عندك مش قادرة توصل لـ Google Drive دلوقتي.</p>
+              <p className="font-bold text-white">Video didn&apos;t load — check your connection and try again.</p>
+              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — اتأكد من النت وحاول تاني.</p>
               <p className="text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>
-                If drive.google.com doesn&apos;t open in your browser either, switch DNS (8.8.8.8 / 1.1.1.1) or pause adblock/VPN — then retry.
+                If nothing loads either, switch network or pause adblock/VPN — then retry.
               </p>
               <div>
                 <button
@@ -930,41 +757,7 @@ export function ProtectedVideoPlayer({
           </div>
         )}
       </>,
-          idle && mediaStarted ? "cursor-none" : "",
-        )}
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={embedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-secondary"
-            style={{ minHeight: 44 }}
-          >
-            Open in Drive · فتح في درايف
-          </a>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="btn btn-secondary"
-            style={{ minHeight: 44 }}
-          >
-            Fullscreen · ملء الشاشة
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDriveIdx(0);
-              setMediaStarted(false);
-              setReady(false);
-              setFrameFailed(false);
-            }}
-            className="btn btn-secondary"
-            style={{ minHeight: 44 }}
-          >
-            Direct play · تشغيل مباشر
-          </button>
-        </div>
-      </div>
+      idle && mediaStarted ? "cursor-none" : "",
     );
   }
 

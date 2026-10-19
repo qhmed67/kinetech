@@ -1,7 +1,6 @@
 # AGENTS.md — Project Guide for AI Coding Agents
 
-Read this entire file before doing anything else. It is the source of truth for this repo.
-If it conflicts with your assumptions about how a "typical" React / PostgreSQL / Vercel app works, this file wins.
+Read this entire file before doing anything else. It is the source of truth for this repo. Then read `docs/USE-DOCUMENTATION.md` — what the site IS for users; without it you will "fix" things into security holes. If either file conflicts with your assumptions about how a "typical" React / PostgreSQL / Vercel app works, they win.
 Anything marked `TODO` has NOT been verified yet — do not rely on it until it is filled in (see Section 12).
 
 ---
@@ -111,7 +110,9 @@ Behavioral contract (loads every session alongside this file):
 `docs/PRODUCT-RULES.md` — student-first invariants (never expose video URLs,
 player only via /api/play, watermark everywhere, notifications and exams
 rules). Violating it broke production before; treat it as blocking as any
-verifier.
+verifier. `docs/USE-DOCUMENTATION.md` — the same contract in site-flow
+form: pages, student watch pipeline, admin panel, the URL-exposure
+incident. Read both before touching student-facing code.
 
 ## 11. Stable baseline (reference point)
 
