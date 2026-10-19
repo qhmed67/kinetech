@@ -58,8 +58,10 @@ freshness chores (catalog hydrate, grant re-sync) hook the hashchange event.
 
 ## 4. The student watch flow (the heart of the product)
 
-1. Student opens `#/courses/<slug>/watch/<idx>`. Parts unlock **sequentially**
-   (part n+1 unlocks when part n completes; admin can see/adjust).
+1. Student opens `#/courses/<slug>/watch/<idx>`. Parts unlock **on start**
+   (owner rule 2026-10-17: beginning part N's playback opens part N+1,
+   sticky; older completions still unlock; restarts clear views/done but not
+   the sticky flag — admin can see/adjust).
 2. The player widget (`ProtectedVideoPlayer.tsx` — the ONLY player) first
    mints a grant: one `POST /api/play` per mount, with the student's JWT.
    The server (a) verifies the session is the only active one, (b) gates:

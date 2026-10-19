@@ -43,9 +43,13 @@ exists because breaking it once leaked or confused them.
 
 9. Completion = video END, seek-to-end included, by explicit owner decision.
    Do not reintroduce watch-percentage gates.
-10. Progress derives from PARTS (done flags), never view totals. A restart
+10. UNLOCK CHAIN (owner rule 2026-10-17): starting part N (playback begins,
+    ~3s in) opens part N+1 — sticky forever. Older completions still count;
+    the done flag (80%/end watch) no longer gates unlocking, but remains the
+    progress signal (rule 10 second half unchanged).
+11. Progress derives from PARTS (done flags), never view totals. A restart
     clears the part (views + done) so progress follows automatically.
-11. View count: every mount burns one server-side view (3 max); a ~90s
+12. View count: every mount burns one server-side view (3 max); a ~90s
     duplicate guard absorbs double-fires only. Never burn or unburn locally.
 
 ## Notifications
