@@ -118,15 +118,15 @@ incident. Read both before touching student-facing code.
 
 The owner has marked the best known state of this project. Treat it as ground truth for "what working looks like". The owner fills the fields below; you may verify them (`git tag -l`, `git cat-file -t <sha>`) but must NEVER invent or "correct" them.
 
-- **Baseline tag:** `stable-2026-10-16` — **commit:** `4d563a9ce51594061643d42ec7147c81458a994e` (verified: tag + `stable` branch pushed to origin 2026-10-16)
+- **Baseline tag:** `stable-2026-10-19` — **commit:** `91ba6a3fc89eb4b5d8aa9eaf1a9a0e96e00bdf15` (owner declared this push the most stable state 2026-10-19 — merge of `database` + `front-end` landing the unlock-on-start rule and the Drive-player fill-guard fix)
 - **Branch holding it:** `stable`
-- **Vercel deployment of the baseline:** `TODO (owner: paste deployment URL or ID from dashboard)`
-- **Database state at baseline:** migrations confirmed applied up to `20261035`; `20261036`–`20261040` shipped after — UNVERIFIED whether applied; schema snapshot at `TODO (none exists yet)`
+- **Vercel deployment of the baseline:** production deploy Ready 2026-10-19 03:45:35 GMT+3 (dpl from `91ba6a3`, verified via bundled `VITE_VERCEL_GIT_COMMIT_MESSAGE` = "Merge remote-tracking branch 'origin/front-end'")
+- **Database state at baseline:** migrations confirmed applied up to `20261041` (owner ran `20261036`–`20261040` housekeeping + `20261041` unlock-on-start in the Supabase SQL editor 2026-10-19); schema snapshot at `TODO (none exists yet)`
 - **Known issues at baseline (only these; do NOT fix them unless I ask):**
-  1. Viewer-only Drive files fall back to manual minutes when the server probe fails (needs `GOOGLE_API_KEY` + Drive API).
-  2. `notifyNewLessons` export in `src/lib/db/adminUsers.ts` is dead (trigger + ensure replaced it).
-- **Checks that passed at baseline:** typecheck clean (`tsc -b`), build green (`vite build`), 117/117 unit tests green (run 2026-10-16); lint = pre-existing warnings + 4 pre-existing errors (unchanged from before); smoke checks = `TODO (owner: manual pass)`
-- **Changes since baseline / current task:** `TODO (update per task)`
+  1. Phone view: the student still cannot start the Drive video / use the player normally on a phone (owner report 2026-10-19). Desktop behaves.
+  2. Viewer-only Drive files fall back to manual minutes when the server probe fails (needs `GOOGLE_API_KEY` + Drive API).
+- **Checks that passed at baseline:** typecheck clean (`tsc -b`), build green (`vite build`), 119/119 unit tests green (117 prior + 2 new unlock-on-start tests, run 2026-10-19); lint = pre-existing warnings + 4 pre-existing errors (unchanged from before); smoke = production deploy Ready + owner manual smoke pending
+- **Changes since baseline / current task:** none yet — this is a fresh baseline point
 
 How to use the baseline:
 
