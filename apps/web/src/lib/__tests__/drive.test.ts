@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { driveMediaCandidates, extractDriveId, isUsableImageUrl, toDirectImageUrl, toDriveMediaUrl, toDrivePreviewUrl } from "../drive";
+import { driveMediaCandidates, extractDriveId, isUsableImageUrl, toDirectImageUrl, toDriveMediaUrl, toDrivePreviewUrl } from "@kinetech/core";
 
 describe("extractDriveId", () => {
   it("parses file/d links", () => {

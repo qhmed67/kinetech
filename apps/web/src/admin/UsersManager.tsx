@@ -15,7 +15,7 @@ import {
   type Orphan,
   type SearchKind,
 } from "../lib/db/adminUsers";
-import { groupCoursesAlpha } from "../lib/alpha";
+import { groupCoursesAlpha } from "@kinetech/core";
 
 /**
  * Custom course picker: native <select> cannot style group headers, so this

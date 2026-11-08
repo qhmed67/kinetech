@@ -10,7 +10,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { motion } from "motion/react";
-import { cn } from "@/lib/utils";
+import { cn } from "@kinetech/core";
 
 function GooeyFilter({
   filterId,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupCoursesAlpha } from "../alpha";
+import { groupCoursesAlpha } from "@kinetech/core";
 
 const named = (name: string) => ({ name });
 
