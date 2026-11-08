@@ -1,14 +1,15 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseClient } from "@kinetech/core";
 import { getSupabaseEnv, isSupabaseConfigured } from "./env";
 
 export { isSupabaseConfigured };
 
 let client: SupabaseClient | null = null;
 
-/** Singleton. Returns null when .env is incomplete (mock fallback stays active). */
+/** Singleton via core factory. Returns null when .env is incomplete (mock fallback stays active). */
 export function supabase(): SupabaseClient | null {
   const { url, key } = getSupabaseEnv();
   if (!isSupabaseConfigured()) return null;
-  if (!client) client = createClient(url, key);
+  if (!client) client = createSupabaseClient({ url, key }) as SupabaseClient | null;
   return client;
 }

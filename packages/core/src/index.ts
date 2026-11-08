@@ -4,3 +4,5 @@
 export * from "./lib/alpha";
 export * from "./lib/drive";
 export * from "./lib/utils";
+export * from "./supabase";
+export * from "./types";
