@@ -12,13 +12,19 @@ dist
 dist-ssr
 *.local
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 .vercel/
 public/supabase-config.js
 test-results/
 playwright-report/
 playwright/.cache/
+
+# Mobile build artifacts (generic, no private paths)
+.expo/
+*.keystore
+*.p12
+*.mobileprovision
 
 # Editor directories and files
 .vscode/*
