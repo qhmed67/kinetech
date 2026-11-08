@@ -3,7 +3,7 @@ import { replaceStore, type ContentStore, type StoreCourse, type StoreService } 
 import { getUser, setUser, notifyUserChanged } from "../../auth";
 import { purgeProgress, replaceProgress } from "../../watch";
 import { NETWORK_TIMEOUT_MS, withTimeout } from "./throttle";
-import { toDirectImageUrl } from "../drive";
+import { toDirectImageUrl } from "@kinetech/core";
 import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
 
 /* Cloud sync: Supabase is source of truth when configured.

@@ -1,5 +1,5 @@
 "use client";
-import { cn } from "@/lib/utils";
+import { cn } from "@kinetech/core";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, useEffect } from "react";
 

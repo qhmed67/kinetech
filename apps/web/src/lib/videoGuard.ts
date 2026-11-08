@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { extractDriveId } from "./drive";
+import { extractDriveId } from "@kinetech/core";
 
 /* Obfuscation helpers: the raw YouTube ID never sits in props, state, or the
    DOM in plain text. XOR + base64 is deterrence, not encryption — a determined
@@ -272,7 +272,7 @@ export async function probeVideoDurationSecs(
   if (!v) return null;
   const yt = extractYoutubeId(v);
   if (!yt) {
-    const { driveMediaCandidates } = await import("./drive");
+    const { driveMediaCandidates } = await import("@kinetech/core");
     if (driveMediaCandidates(v).length === 0) return null;
   }
   for (let a = 0; a < Math.max(1, attempts); a++) {
@@ -281,7 +281,7 @@ export async function probeVideoDurationSecs(
         const d = await probeYoutubeId(yt, timeoutMs);
         if (d) return d;
       } else {
-        const { driveMediaCandidates } = await import("./drive");
+        const { driveMediaCandidates } = await import("@kinetech/core");
         for (const url of driveMediaCandidates(v)) {
           const d = await probeMediaUrl(url, timeoutMs);
           if (d) return d;

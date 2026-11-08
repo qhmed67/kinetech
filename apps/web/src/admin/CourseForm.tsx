@@ -12,7 +12,7 @@ import {
 import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 import { ExamBuilder } from "./ExamBuilder";
-import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "../lib/drive";
+import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "@kinetech/core";
 import { extractYoutubeId, isDriveSource } from "../lib/videoGuard";
 
 function blank(): StoreCourse {
