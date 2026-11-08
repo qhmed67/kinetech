@@ -9,6 +9,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 - Earlier baselines: `stable-2026-10-19` @ `91ba6a36c0d32c6b2e5890c8bc9229ba456870a8`, `stable-2026-10-16` @ `4d563a9ce51594061643d42ec7147c81458a994e` (branch `stable`).
 - Env var NAMES: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (legacy `VITE_SUPABASE_PUBLISHABLE_KEY`); server `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`.
 - Rollback (web only): Vercel Dashboard → Deployments → promote previous. No git history change. Do not touch `apps/mobile` or `packages/*`.
+- Phase 1 (chore/monorepo-foundation, pending preview/merge): SHA `8a02453a7ccf38f3628b1f78e3e6321c5768379b`, date 2026-11-08, branch `chore/monorepo-foundation`, Node 24 install→lint (4 pre-existing errors, same baseline)→`tsc -b` clean→`test:unit` 119/119→`vite build` green in `apps/web`. Awaiting Vercel preview check.
 
 ## Mobile (Android / iOS)
 
