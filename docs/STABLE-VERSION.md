@@ -10,6 +10,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 - Env var NAMES: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (legacy `VITE_SUPABASE_PUBLISHABLE_KEY`); server `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`.
 - Rollback (web only): Vercel Dashboard → Deployments → promote previous. No git history change. Do not touch `apps/mobile` or `packages/*`.
 - Phase 1 (verified, merged to feat/react-native): SHA `fa43af3b4219e0ca29198a22f079a559e6774f13`, date 2026-11-09, branch `feat/react-native`, preview READY. Node 24 install→lint (4 pre-existing errors, identical baseline)→`tsc -b` clean→`test:unit` 119/119→`vite build` green; e2e 5/5 vs production build.
+- Phase 2 (verified, merged to feat/react-native): SHA `77511c0`, date 2026-11-09, branch `feat/react-native`. Tokens identical (compiled CSS color diff empty); e2e 5/5 before+after; hex grep 147 unchanged.
 
 ## Mobile (Android / iOS)
 
