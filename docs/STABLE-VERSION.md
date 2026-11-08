@@ -9,7 +9,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 - Earlier baselines: `stable-2026-10-19` @ `91ba6a36c0d32c6b2e5890c8bc9229ba456870a8`, `stable-2026-10-16` @ `4d563a9ce51594061643d42ec7147c81458a994e` (branch `stable`).
 - Env var NAMES: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (legacy `VITE_SUPABASE_PUBLISHABLE_KEY`); server `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_API_KEY`.
 - Rollback (web only): Vercel Dashboard → Deployments → promote previous. No git history change. Do not touch `apps/mobile` or `packages/*`.
-- Phase 1 (chore/monorepo-foundation, pending preview/merge): SHA `8a02453a7ccf38f3628b1f78e3e6321c5768379b`, date 2026-11-08, branch `chore/monorepo-foundation`, Node 24 install→lint (4 pre-existing errors, same baseline)→`tsc -b` clean→`test:unit` 119/119→`vite build` green in `apps/web`. Awaiting Vercel preview check.
+- Phase 1 (verified, merged to feat/react-native): SHA `fa43af3b4219e0ca29198a22f079a559e6774f13`, date 2026-11-09, branch `feat/react-native`, preview READY. Node 24 install→lint (4 pre-existing errors, identical baseline)→`tsc -b` clean→`test:unit` 119/119→`vite build` green; e2e 5/5 vs production build.
 
 ## Mobile (Android / iOS)
 
@@ -22,6 +22,13 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 ## Supabase schema
 
 - Compatible through migrations `20261041` (applied 2026-10-19 per owner). New migrations are additive files only.
+
+## Vercel project settings (Web)
+
+- Current: Root Directory `apps/web`; Include source files outside Root Directory enabled; Node.js Version `24.x`; Install Command `cd ../.. && npm ci`; Build Command `npm run build`; Output Directory auto (`dist`).
+- Re-verify: Settings → General shows above; Deployments → latest preview from `feat/react-native` is Ready; `POST /api/play` (no token) returns 401 (function responding).
+- Revert (if preview fails or old layout restored): Root Directory → empty (repo root); Install/Build → defaults (empty); Output → empty; Node.js Version → `24.x` (unchanged); Include outside → enabled (unchanged). Redeploy after.
+- Previous values before Phase 1: Root Directory empty, Install/Build defaults, Node `24.x`, Include outside enabled.
 
 ## History (append-only)
 
