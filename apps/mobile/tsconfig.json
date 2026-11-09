@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@kinetech/*": ["../../packages/*"]
+    }
+  },
+  "include": ["app", "src", "app.json"]
+}
