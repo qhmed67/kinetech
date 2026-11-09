@@ -67,6 +67,10 @@ export const font = {
   accentDesign: '"Pacifico", "Lobster", cursive',
   weightBody: 500,
   weightDisplay: 700,
+  // Mobile font family names (single family, loaded via expo-font/Alexandria)
+  displayMobile: "Alexandria",
+  bodyMobile: "Alexandria",
+  accentMobile: "Alexandria",
 } as const;
 
 export const fontSize = {

@@ -6,7 +6,8 @@
     "apps/web",
     "apps/mobile",
     "packages/core",
-    "packages/tokens"
+    "packages/tokens",
+    "packages/ui-native"
   ],
   "engines": {
     "node": ">=24.0.0",
