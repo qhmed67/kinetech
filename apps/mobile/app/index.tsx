@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
-import { getSupabase } from "../../src/lib/supabase";
+import { getSupabase } from "../src/lib/supabase";
 
 export default function Index() {
   const router = useRouter();
