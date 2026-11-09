@@ -9,11 +9,12 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "start": "expo start",
-    "test:bundle": "node e2e/bundle-check.mjs"
+    "dev": "expo start --lan",
+    "android": "expo start --android --lan",
+    "ios": "expo start --ios --lan",
+    "start": "expo start --lan",
+    "test:bundle": "node e2e/bundle-check.mjs",
+    "test:logs": "node e2e/logs-test.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/alexandria": "^0.2.3",
@@ -21,23 +22,14 @@
     "@kinetech/core": "*",
     "@kinetech/tokens": "*",
     "expo": "~58.0.23",
-    "expo-auth-session": "~58.0.0",
     "expo-font": "~58.0.1",
-    "expo-haptics": "~58.0.0",
-    "expo-image": "~58.0.0",
-    "expo-linking": "~58.0.0",
-    "expo-notifications": "~58.0.0",
     "expo-router": "~58.0.30",
     "expo-secure-store": "~58.0.0",
     "expo-status-bar": "~3.0.0",
-    "lucide-react-native": "^1.70.0",
     "react": "19.3.1",
     "react-native": "0.88.1",
-    "react-native-gesture-handler": "~3.5.0",
-    "react-native-reanimated": "~4.7.0",
     "react-native-safe-area-context": "^5.11.1",
-    "react-native-screens": "~4.30.1",
-    "react-native-worklets": "^0.13.1"
+    "react-native-screens": "~4.30.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
