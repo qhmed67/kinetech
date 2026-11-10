@@ -21,7 +21,8 @@ export default function SignIn() {
     try {
       await signInWithDb(email, password);
       Alert.alert("Success", "Signed in successfully!");
-      // Navigation will happen automatically through the auth check
+      // Navigate to home after successful sign-in
+      router.replace("/(tabs)");
     } catch (error) {
       Alert.alert("Error", "Failed to sign in. Please check your credentials.");
       console.error("Sign in error:", error);
