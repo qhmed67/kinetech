@@ -1,3 +1,4 @@
+import React from "react";
 import {
   TextInput,
   Text,
@@ -29,20 +30,33 @@ export function Input({
   secureTextEntry = false,
   keyboardType,
   autoCapitalize = "sentences",
-  autoCorrect = true,
+  autoCorrect = false,
   disabled = false,
   label,
   error,
   style,
 }: InputProps) {
+  const [internalValue, setInternalValue] = React.useState(value ?? "");
+  
+  React.useEffect(() => {
+    if (value !== undefined) {
+      setInternalValue(value);
+    }
+  }, [value]);
+
+  const handleTextChange = (text: string) => {
+    setInternalValue(text);
+    onChangeText?.(text);
+  };
+
   return (
     <View style={[styles.container, style]}>
       {label && (
         <Text style={styles.label}>{label}</Text>
       )}
       <TextInput
-        value={value ?? ""}
-        onChangeText={onChangeText}
+        value={internalValue}
+        onChangeText={handleTextChange}
         placeholder={placeholder}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
