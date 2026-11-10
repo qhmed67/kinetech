@@ -16,6 +16,7 @@ dist-ssr
 !.env.example
 .vercel/
 public/supabase-config.js
+apps/web/public/supabase-config.js
 test-results/
 playwright-report/
 playwright/.cache/

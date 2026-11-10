@@ -1,0 +1,42 @@
+/* KineTech tokens — web values (identical to apps/web/src/index.css :root before Phase 2).
+ * Every color traces to DESIGN.md (values) or the web's actual rendered values where
+ * DESIGN.md and the web disagreed at Phase 2 time (see docs/mobile/CONFLICTS.md §8).
+ * No new hues. Missing states are derived by opacity/lightness only.
+ * Mobile reads packages/tokens/src/index.ts (same values, TS objects).
+ */
+:root {
+  --bg: #FFFFFF;
+  --surface: #ECEAEF;
+  --fg: #1A1A1A;
+  --muted: #3D3250;
+  --border: #A8A8A8;
+  --accent: #6E4E9C;
+  --kt-mid: #7F639E;
+  --kt-dark: #3A1E6B;
+  --kt-deep: #3D3250;
+  --kt-teal: #3BBCD9;
+  --kt-tint: #927BB3;
+  --kt-shade: #472885;
+  --kt-shade2: #502D93;
+  --kt-line: #ECEAEF;
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+  --teal-soft: color-mix(in oklch, var(--kt-teal) 16%, transparent);
+  --font-display: "Valley Sans", "Alexandria", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Valley Sans", "Alexandria", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-accent: "Pacifico", "Lobster", cursive;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  --fs-h1: clamp(44px, 6vw, 78px);
+  --fs-h2: clamp(30px, 3.8vw, 46px);
+  --fs-body: 16px;
+  --fs-meta: 13px;
+  --gap-md: 20px;
+  --gap-lg: 32px;
+  --gap-xl: 56px;
+  --gap-2xl: 96px;
+  --container: 1160px;
+  --gutter: 32px;
+  --radius-panel: 32px;
+  --radius-badge: 999px;
+  --kt-gradient: linear-gradient(135deg, var(--kt-tint) 0%, var(--kt-mid) 35%, var(--accent) 60%, var(--kt-shade) 85%, var(--kt-dark) 100%);
+  --kt-dark-gradient: linear-gradient(135deg, var(--kt-shade2) 0%, var(--kt-shade) 40%, var(--kt-dark) 78%, var(--kt-deep) 100%);
+}
