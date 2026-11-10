@@ -22,7 +22,7 @@ export default function SignIn() {
       await signInWithDb(email, password);
       Alert.alert("Success", "Signed in successfully!");
       // Navigate to home after successful sign-in
-      router.replace("/(tabs)");
+      router.replace("/");
     } catch (error) {
       Alert.alert("Error", "Failed to sign in. Please check your credentials.");
       console.error("Sign in error:", error);
