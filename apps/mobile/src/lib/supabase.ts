@@ -1,35 +1,89 @@
-import { AppState } from "react-native";
+import { createClient } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
-import { createSupabaseClient, type StorageAdapter } from "@kinetech/core";
+import { ENV } from "./env";
 
-const storage: StorageAdapter = {
-  getItem: (k) => SecureStore.getItemAsync(k),
-  setItem: (k, v) => SecureStore.setItemAsync(k, v),
-  removeItem: (k) => SecureStore.deleteItemAsync(k),
-};
+const supabaseUrl = ENV.SUPABASE_URL;
+const supabaseAnonKey = ENV.SUPABASE_ANON_KEY;
 
-function decodeJwtRole(key: string): string | null {
-  try {
-    const p = key.split(".")[1];
-    if (!p) return null;
-    const b = p.replace(/-/g, "+").replace(/_/g, "/");
-    const txt = atob(b + "=".repeat((4 - (b.length % 4)) % 4));
-    return (JSON.parse(txt) as { role?: string }).role ?? null;
-  } catch { return null; }
-}
-
-export function getSupabase() {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
-  const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !key) return null;
-  const role = decodeJwtRole(key);
-  // Assert: service-role must never reach the mobile bundle (anon/publishable only).
-  if (role && role !== "anon") throw new Error("Supabase key role must be anon; service-role key blocked in mobile bundle.");
-  return createSupabaseClient({ url, key, storage, detectSessionInUrl: false, autoRefreshToken: true });
-}
-
-AppState.addEventListener("change", (state) => {
-  // Token auto-refresh is handled by Supabase with autoRefreshToken:true.
-  // This keeps the listener explicit for later gating if needed.
-  void state;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: SecureStore,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
 });
+
+export interface User {
+  id: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  role: "student" | "admin";
+  enrolled: string[];
+  tracks: string[];
+  banned: boolean;
+}
+
+export interface AuthState {
+  user: User | null;
+  loading: boolean;
+}
+
+export async function signIn(email: string, password: string): Promise<{ user: User; session: any }> {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    user: data.user as User,
+    session: data.session,
+  };
+}
+
+export async function signUp(email: string, password: string, name: string, phone?: string): Promise<{ user: User; session: any }> {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        name,
+        phone,
+      },
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    user: data.user as User,
+    session: data.session,
+  };
+}
+
+export async function signOut(): Promise<void> {
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    throw error;
+  }
+}
+
+export async function refreshSession(): Promise<{ user: User; session: any }> {
+  const { data, error } = await supabase.auth.refreshSession();
+  
+  if (error) {
+    throw error;
+  }
+
+  return {
+    user: data.user as User,
+    session: data.session,
+  };
+}
