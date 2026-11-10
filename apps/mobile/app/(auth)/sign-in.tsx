@@ -1,73 +1,62 @@
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import React from "react";
+import { View, Text, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import { getSupabase } from "../../src/lib/supabase";
-import { color, font } from "@kinetech/tokens";
+import { Card, Button, Input } from "@kinetech/ui-native";
+import { color } from "@kinetech/tokens";
+import { signInWithDb } from "../../src/auth";
 
 export default function SignIn() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
 
-  async function onSignIn() {
-    setError(null);
+  const handleSignIn = async () => {
+    if (!email || !password) {
+      Alert.alert("Error", "Please enter both email and password");
+      return;
+    }
+
     setLoading(true);
     try {
-      const sb = getSupabase();
-      if (!sb) throw new Error("Not configured");
-      const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) throw error;
-      router.replace("/(tabs)");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in failed");
+      await signInWithDb(email, password);
+      Alert.alert("Success", "Signed in successfully!");
+      // Navigation will happen automatically through the auth check
+    } catch (error) {
+      Alert.alert("Error", "Failed to sign in. Please check your credentials.");
+      console.error("Sign in error:", error);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <View style={[styles.container, { backgroundColor: color.bg }]}>
-      <Text style={[styles.title, { color: color.fg, fontFamily: font.body }]}>Sign in</Text>
-      <TextInput
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholder="youremail@yourdomain.com"
-        placeholderTextColor={color.muted}
-        style={[styles.input, { borderColor: color.border, color: color.fg, backgroundColor: color.bg }]}
-        accessibilityLabel="Email"
-      />
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        placeholder="Password"
-        placeholderTextColor={color.muted}
-        style={[styles.input, { borderColor: color.border, color: color.fg, backgroundColor: color.bg }]}
-        accessibilityLabel="Password"
-      />
-      {error ? <Text style={[styles.error, { color: color.accent }]}>{error}</Text> : null}
-      <Pressable
-        onPress={onSignIn}
-        disabled={loading}
-        accessibilityRole="button"
-        accessibilityLabel="Sign in"
-        style={[styles.button, { backgroundColor: color.accent, minHeight: 44 }]}
-      >
-        <Text style={[styles.buttonText, { color: color.bg }]}>{loading ? "…" : "Sign in"}</Text>
-      </Pressable>
+    <View style={{ flex: 1, backgroundColor: color.bg, padding: 20 }}>
+      <Card style={{ marginBottom: 20 }}>
+        <Text style={{ fontSize: 24, marginBottom: 20, fontFamily: "Alexandria", fontWeight: "700" }}>
+          Sign In
+        </Text>
+        <Input 
+          label="Email" 
+          placeholder="Enter your email"
+          value={email}
+          onChangeText={setEmail}
+          style={{ marginBottom: 16 }}
+        />
+        <Input 
+          label="Password" 
+          placeholder="Enter your password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          style={{ marginBottom: 20 }}
+        />
+        <Button 
+          title="Sign In" 
+          onPress={handleSignIn}
+          disabled={loading}
+        />
+      </Card>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, justifyContent: "center", gap: 12 },
-  title: { fontSize: 24, fontWeight: "700", textAlign: "center" },
-  input: { borderWidth: 1, borderRadius: 12, padding: 12, minHeight: 44, fontSize: 16 },
-  error: { textAlign: "center" },
-  button: { borderRadius: 999, alignItems: "center", justifyContent: "center", paddingVertical: 12 },
-  buttonText: { fontWeight: "700", fontSize: 16 },
-});
