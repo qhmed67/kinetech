@@ -48,9 +48,14 @@ describe("i18n completeness", () => {
   it("exposes keys used by restored screens", () => {
     for (const locale of LOCALES) {
       expect(i18n[locale].watch.retryBtn).toBeTruthy();
-      expect(i18n[locale].dashboard.tabs).toHaveLength(5);
+      // Web shape: overview, courses, exams, assignments, profile, settings.
+      expect(i18n[locale].dashboard.tabs).toHaveLength(6);
       expect(i18n[locale].catalog.searchPh).toBeTruthy();
       expect(i18n[locale].offline.banner).toBeTruthy();
+      expect(i18n[locale].bac.faq.length).toBeGreaterThan(0);
+      expect(i18n[locale].auth.inSubmit).toBeTruthy();
+      expect(i18n[locale].contactPage.send).toBeTruthy();
+      expect(i18n[locale].legal.pending).toBeTruthy();
     }
   });
 });

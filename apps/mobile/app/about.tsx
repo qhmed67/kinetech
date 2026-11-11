@@ -1,177 +1,106 @@
-import { RefreshControl, StyleSheet, View } from "react-native";
-import { ScrollView } from "react-native";
-import { palette } from "../src/theme";
-import { Screen } from "../src/components/Screen";
+/* Web About port (apps/web/src/pages/About.tsx): eyebrow + h1, pillars
+ * copy blocks, footer tag, dark aboutBac card with CTA. */
+
+import { ScrollView, StyleSheet, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import { useLang } from "../src/lang";
+import { ktDarkGradient, palette } from "../src/theme";
+import { Footer } from "../src/components/web/Footer";
+import { TopBar } from "../src/components/web/TopBar";
 import { Txt } from "../src/components/Txt";
+import { Button } from "@kinetech/ui-native";
 
-export default function About() {
+export default function AboutPage() {
+  const { t } = useLang();
   return (
-    <Screen
-      refreshControl={
-        <RefreshControl
-          refreshing={false}
-          tintColor={palette.accent}
-        />
-      }
-    >
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Txt variant="h1">KineTech</Txt>
-          <Txt variant="small" style={styles.tagline}>
-            Engineering & Technology Education
+    <View style={styles.root}>
+      <TopBar />
+      <ScrollView contentContainerStyle={{ paddingBottom: 0 }}>
+        <View style={styles.wrap}>
+          <Txt style={styles.eyebrow}>{t.misc.aboutEyebrow}</Txt>
+          <Txt variant="h2">{t.misc.aboutH}</Txt>
+
+          <Txt variant="h2" style={{ fontSize: 24, marginTop: 32 }}>
+            {t.pillars.bigH}
           </Txt>
-        </View>
-
-        <View style={styles.section}>
-          <Txt variant="title">About Us</Txt>
-          <Txt variant="small" style={styles.text}>
-            KineTech is a leading educational platform specializing in engineering and technology courses. 
-            We provide high-quality training in programming, data science, robotics, and CAD/SolidWorks 
-            to help students build successful careers in the tech industry.
+          <Txt variant="lead" style={styles.lead}>
+            {t.pillars.bigP}
           </Txt>
-        </View>
 
-        <View style={styles.section}>
-          <Txt variant="title">Our Mission</Txt>
-          <Txt variant="small" style={styles.text}>
-            To make engineering and technology education accessible to everyone, regardless of their 
-            background or location. We believe that with the right skills and knowledge, anyone can 
-            achieve their dreams in the tech industry.
+          <Txt variant="h2" style={{ fontSize: 24, marginTop: 32 }}>
+            {t.pillars.mindH}
           </Txt>
-        </View>
-
-        <View style={styles.section}>
-          <Txt variant="title">What We Offer</Txt>
-          <View style={styles.list}>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Comprehensive programming courses (Python, JavaScript, etc.)
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Data science and machine learning training
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Robotics and automation courses
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • CAD/SolidWorks certification programs
-              </Txt>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Txt variant="title">Why Choose KineTech?</Txt>
-          <View style={styles.list}>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Industry-exp instructors with real-world experience
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Hands-on projects and practical learning
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Flexible learning schedules to fit your lifestyle
-              </Txt>
-            </View>
-            <View style={styles.listItem}>
-              <Txt variant="small" style={styles.listText}>
-                • Affordable pricing with payment plans available
-              </Txt>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Txt variant="title">Contact Us</Txt>
-          <Txt variant="small" style={styles.text}>
-            For more information about our courses or to speak with an advisor, please contact us:
+          <Txt variant="lead" style={styles.lead}>
+            {t.pillars.mindP}
           </Txt>
-          <View style={styles.contact}>
-            <Txt variant="small" style={styles.contactItem}>
-              📧 Email: info@kinetech.com
+
+          <Txt variant="body" style={styles.tag}>
+            {t.footer.tag}
+          </Txt>
+
+          <LinearGradient
+            colors={ktDarkGradient as unknown as readonly [string, string, ...string[]]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bacCard}
+          >
+            <Txt variant="h2" style={{ fontSize: 24, color: palette.white }}>
+              {t.aboutBac.t}
             </Txt>
-            <Txt variant="small" style={styles.contactItem}>
-              📱 WhatsApp: +20 104 203 1062
+            <Txt variant="body" style={styles.bacD}>
+              {t.aboutBac.d}
             </Txt>
-            <Txt variant="small" style={styles.contactItem}>
-              🌐 Website: www.kinetech.com
-            </Txt>
-          </View>
+            <Button
+              title={t.aboutBac.cta}
+              variant="light"
+              onPress={() => router.push("/baccalaureate" as never)}
+              style={{ marginTop: 20, alignSelf: "flex-start" }}
+            />
+          </LinearGradient>
         </View>
 
-        <View style={styles.footer}>
-          <Txt variant="small" style={styles.copyright}>
-            © 2026 KineTech. All rights reserved.
-          </Txt>
-        </View>
+        <Footer />
       </ScrollView>
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  root: { flex: 1, backgroundColor: palette.white },
+  wrap: {
+    paddingVertical: 48,
+    paddingHorizontal: 16,
+    maxWidth: 820,
+    width: "100%",
+    alignSelf: "center",
   },
-  content: {
-    padding: 22,
-    paddingBottom: 40,
+  eyebrow: {
+    color: palette.accent,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 14,
+    fontFamily: "Valley Sans 700",
   },
-  header: {
-    alignItems: "center",
-    marginTop: 22,
-    marginBottom: 32,
-    gap: 8,
-  },
-  tagline: {
-    color: palette.muted,
-    textAlign: "center",
-  },
-  section: {
-    marginBottom: 28,
-    gap: 12,
-  },
-  text: {
-    lineHeight: 22,
-    color: palette.fg,
-  },
-  list: {
-    gap: 8,
-  },
-  listItem: {
-    paddingLeft: 16,
-    borderLeftWidth: 2,
-    borderLeftColor: palette.accent,
-  },
-  listText: {
-    color: palette.fg,
-  },
-  contact: {
-    gap: 8,
+  lead: {
     marginTop: 12,
   },
-  contactItem: {
-    color: palette.fg,
-  },
-  footer: {
-    alignItems: "center",
+  tag: {
     marginTop: 32,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: palette.line,
+    color: palette.accent,
+    fontWeight: "700",
   },
-  copyright: {
-    color: palette.muted,
+  bacCard: {
+    marginTop: 32,
+    borderRadius: 24,
+    padding: 28,
+    overflow: "hidden",
+  },
+  bacD: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.8)",
+    maxWidth: 480,
   },
 });

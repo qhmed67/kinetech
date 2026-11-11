@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import * as SecureStore from "expo-secure-store";
-import { I18nManager } from "react-native";
 import { i18n } from "./i18n";
 
 type Language = "en" | "ar";
@@ -16,7 +15,8 @@ const LangContext = createContext<LangContextType | null>(null);
 const KEY = "kt-lang";
 
 export function LangProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Language>(I18nManager.isRTL ? "ar" : "en");
+  // Web default: "ar" (getInitialLang falls back to ar unless saved en).
+  const [lang, setLang] = useState<Language>("ar");
 
   useEffect(() => {
     let mounted = true;
