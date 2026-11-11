@@ -18,6 +18,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 - Last stable: tag `mobile-stable-v1.0.0`, SHA `051e06f`, date 2026-11-11, branch `main`. Verified: mobile `tsc --noEmit` clean; mobile jest 9/9; web `tsc -b` clean; `test:unit` 119/119; `vite build` green; hex grep clean outside tokens.
 - Phase 6b–8 (verified, merged to main): SHA `051e06f`, date 2026-11-11, branch `main`. EAS profiles; dashboard/courses/watch screens restored; auth consolidated (authDb.ts + AuthProvider); ErrorBoundary + offline banner; token-only colors; mobile tests 9/9.
+- Phase 10 – Web-parity port (verified, merged to main): SHA `d0df240`, date 2026-11-11, branch `main`, feature `feat/mobile-web-parity`. Landing/courses/course/watch/dashboard/baccalaureate/service/about/contact/legal/not-found + auth screens ported 1:1 from apps/web (web components via react-native-svg; fonts bundled per weight; POST /api/play ProtectedPlayer; server-scored exams; web i18n en+ar default ar; SecureStore caches). Gates: mobile `tsc --noEmit` clean; mobile jest 9/9; e2e bundle-check PASS (dev server :8081, router bundle 200); hex grep clean outside tokens.
 - Phase 5 (verified, merged to main): SHA `e7cf2b6`, date 2026-11-10, branch `main`. Mobile UI components and screens implemented; React Native component library complete; e2e tests pass; 119/119 unit tests pass.
 - Phase 6 (verified, merged to main): SHA `20fec13`, date 2026-11-10, branch `main`. Complete mobile app screens implemented; all core components built; database services complete; internationalization support; theme system; e2e tests pass; 119/119 unit tests pass.
 
@@ -40,6 +41,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 | Date | Deliverable | Tag | SHA |
 |---|---|---|---|
+| 2026-11-11 | Mobile web-parity port (Phase 10) | — | `d0df240` (merge) / `5f73024` |
 | 2026-11-11 | Mobile (Phases 6b–8) | — | `051e06f` |
 | 2026-11-10 | Mobile | `mobile-stable-v1.0.0` | `d1186ff` |
 | 2026-11-10 | Mobile (Phase 6 screens) | — | `20fec13` |
