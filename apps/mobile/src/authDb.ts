@@ -1,75 +1,29 @@
 import { getSupabase } from "./lib/supabase";
+import {
+  notifyUserChanged,
+  subscribeUserChanged,
+  type KtUser,
+  type TrackId,
+} from "./userBus";
 
-export type KtUser = {
-  name: string;
-  email: string;
-  phone: string;
-  enrolled: string[];
-  tracks: string[];
-  role: "student" | "admin";
-  banned: boolean;
-};
+export type { KtUser, TrackId } from "./userBus";
+export { DEFAULT_TRACKS, subscribeUserChanged, notifyUserChanged } from "./userBus";
 
-export type TrackId = "courses" | "marketing" | "programming" | "design";
-
-const KEY = "kt-user";
-
-export const DEFAULT_TRACKS: string[] = ["courses"];
-
+/* The user record (profile + grants + tracks) lives in the DB and is cached
+ * by src/lib/sync.ts (SecureStore) — the web's localStorage cache. Reads go
+ * through the cache; the session restore hydrates it on app mount. */
 export async function getUser(): Promise<KtUser | null> {
-  try {
-    // For mobile, we'll use the Supabase session instead of localStorage
-    const sb = getSupabase();
-    if (!sb) return null;
-    
-    const { data: { user }, error } = await sb.auth.getUser();
-    if (error || !user) return null;
-    
-    // Return a basic user structure - we'll enhance this when we have the full profile
-    return {
-      name: user.user_metadata?.name || "",
-      email: user.email || "",
-      phone: user.user_metadata?.phone || "",
-      enrolled: [],
-      tracks: DEFAULT_TRACKS,
-      role: "student",
-      banned: false,
-    };
-  } catch {
-    return null;
-  }
+  const { ensureUserCache, getUser: cached } = await import("./lib/sync");
+  await ensureUserCache();
+  return cached();
 }
 
 export function setUser(u: KtUser) {
-  try {
-    // For mobile, we don't need to store user data locally since Supabase handles it
-    // We'll just trigger a UI update
-    void notifyUserChanged();
-  } catch {
-    /* ignore */
-  }
-}
-
-/* Same-tab reactivity: App subscribes; cloud sync notifies after adopting
-   the server session (storage events only fire cross-tab). */
-type UserListener = () => void;
-const userListeners = new Set<UserListener>();
-
-export function subscribeUserChanged(fn: UserListener): () => void {
-  userListeners.add(fn);
-  return () => {
-    userListeners.delete(fn);
-  };
-}
-
-export function notifyUserChanged(): void {
-  userListeners.forEach((fn) => {
-    try {
-      fn();
-    } catch {
-      /* ignore */
-    }
-  });
+  void (async () => {
+    const { setUser: cacheSet } = await import("./lib/sync");
+    cacheSet(u);
+  })();
+  notifyUserChanged();
 }
 
 /* Supabase auth path for mobile */
@@ -84,7 +38,7 @@ export async function signUpWithDb(input: {
 }): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("supabase-not-configured");
-  
+
   const { data, error } = await sb.auth.signUp({
     email: input.email,
     password: input.password,
@@ -97,10 +51,10 @@ export async function signUpWithDb(input: {
       },
     },
   });
-  
+
   if (error) throw error;
   if (!data.user) throw new Error("signup failed");
-  
+
   // Insert user profile
   const { error: profileError } = await sb.from("profiles").insert({
     id: data.user.id,
@@ -111,18 +65,19 @@ export async function signUpWithDb(input: {
     grade: input.grade ?? null,
     role: "student",
   });
-  
+
   if (profileError) throw profileError;
-  
+
   // Set user track
   const { error: trackError } = await sb
     .from("user_tracks")
     .insert({ user_id: data.user.id, track: input.track });
-    
+
   if (trackError) throw trackError;
-  
-  // Set the user in local state
-  setUser({
+
+  // Cache the local identity
+  const { setUser: cacheSet } = await import("./lib/sync");
+  cacheSet({
     name: input.name,
     email: input.email,
     phone: input.phone,
@@ -131,61 +86,26 @@ export async function signUpWithDb(input: {
     role: "student",
     banned: false,
   });
-  
+
   notifyUserChanged();
 }
 
 export async function signInWithDb(email: string, password: string): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("supabase-not-configured");
-  
+
   const { data, error } = await sb.auth.signInWithPassword({
     email,
     password,
   });
-  
+
   if (error) throw error;
   if (!data.user) throw new Error("login failed");
-  
-  // Load user profile and tracks
-  const profileResponse = await sb
-    .from("profiles")
-    .select("id, email, name, phone, role, banned")
-    .eq("id", data.user.id)
-    .single();
-    
-  if (profileResponse.error) throw profileResponse.error;
-  
-  const tracksResponse = await sb
-    .from("user_tracks")
-    .select("track")
-    .eq("user_id", data.user.id);
-    
-  if (tracksResponse.error) throw tracksResponse.error;
-  
-  const enrollmentsResponse = await sb
-    .from("enrollments")
-    .select("courses!inner(slug)")
-    .eq("user_id", data.user.id);
-    
-  if (enrollmentsResponse.error) throw enrollmentsResponse.error;
-  
-  const enRows = enrollmentsResponse.data || [];
-  const enrolled = enRows.map((e: any) => e.courses.slug).filter(Boolean) as string[];
-  
-  const user = {
-    id: data.user.id,
-    name: profileResponse.data.name,
-    email: profileResponse.data.email,
-    phone: profileResponse.data.phone || "",
-    role: profileResponse.data.role,
-    tracks: tracksResponse.data?.map((t: any) => t.track) || [DEFAULT_TRACKS[0]],
-    enrolled,
-    banned: profileResponse.data.banned || false,
-  };
-  
-  setUser(user);
-  notifyUserChanged();
+
+  // Hydrate the full profile through the session restore (single source).
+  const { restoreDbSession } = await import("./lib/sync");
+  const restored = await restoreDbSession();
+  if (!restored) throw new Error("login failed");
 }
 
 export async function signOutEverywhere(): Promise<void> {
@@ -197,17 +117,17 @@ export async function signOutEverywhere(): Promise<void> {
   } catch {
     /* no cloud session */
   }
-  clearUser();
+  const { setUser: cacheSet } = await import("./lib/sync");
+  cacheSet(null);
   notifyUserChanged();
 }
 
 export function clearUser() {
-  try {
-    // For mobile, Supabase handles auth state, so we just clear local state
-    void notifyUserChanged();
-  } catch {
-    /* ignore */
-  }
+  void (async () => {
+    const { setUser: cacheSet } = await import("./lib/sync");
+    cacheSet(null);
+    notifyUserChanged();
+  })();
 }
 
 export function initialsOf(name: string) {
