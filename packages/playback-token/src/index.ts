@@ -62,14 +62,27 @@ function base64UrlDecode(value: string): Uint8Array<ArrayBuffer> | null {
   }
 }
 
-async function hmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
+/** Minimal structural view of the WebCrypto key.
+ *
+ *  The DOM lib, the Cloudflare Workers types and @types/node each declare
+ *  `CryptoKey` differently (one of them only has the constructor), so this
+ *  module never names the type — it stays portable across all three. */
+type HmacKey = {
+  type: string;
+  algorithm: { name: string };
+  usages: string[];
+  extractable: boolean;
+};
+
+async function hmacKey(secret: string): Promise<HmacKey> {
+  const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
   );
+  return key as unknown as HmacKey;
 }
 
 /** Sign a playback token. The payload is embedded, never encrypted. */
@@ -80,7 +93,7 @@ export async function signPlaybackToken(
   if (secret === "") throw new Error("playback token: empty secret");
   const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
   const key = await hmacKey(secret);
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+  const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
   return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
@@ -106,7 +119,7 @@ export async function verifyPlaybackToken(
   const key = await hmacKey(secret);
   const ok = await crypto.subtle.verify(
     "HMAC",
-    key,
+    key as never,
     signatureBytes,
     encoder.encode(body),
   );

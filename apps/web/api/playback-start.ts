@@ -19,6 +19,7 @@
 // pipeline has to move to storage/HLS — see docs/mobile/RELEASE.md).
 
 import { createClient } from "@supabase/supabase-js";
+import { kindOf, sourceFor } from "@kinetech/video-source";
 
 // Mirrors api/play.ts — keep in sync.
 const R1_MAX = 5;
@@ -28,9 +29,6 @@ const R2_DENY = 240;
 const R2_MINS = 60;
 const R3_MAX = 3;
 const REPEAT_SECS = 90;
-
-/** Signed URLs live this long. Short: the player starts immediately. */
-const SIGNED_URL_TTL_SECS = 600;
 
 type PlaybackErrorCode =
   | "INVALID_TOKEN"
@@ -175,27 +173,64 @@ function jwtSessionId(jwt: string): string | null {
 
 const UUID_RE = /^[0-9a-fA-F-]{36}$/;
 
-/** Supabase Storage object URL -> { bucket, path }. */
-function storageObject(src: string): { bucket: string; path: string } | null {
-  const m = src.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+)$/);
-  if (!m) return null;
-  const bucket = m[1];
-  const path = decodeURIComponent(m[2]);
-  if (bucket === "" || path === "") return null;
-  return { bucket, path };
-}
-
-const DIRECT_MEDIA = /\.(mp4|m4v|mov|webm|m3u8|mpd)(\?|#|$)/i;
-
-const YOUTUBE = /(youtube\.com|youtu\.be)/i;
-const DRIVE = /drive\.google\.com/i;
-
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
     return null;
   }
+}
+
+type PlayResult = {
+  email: string;
+  phone_last4: string;
+  minutes: number;
+  views_left: number;
+};
+
+/** Playback session audit (device bound). Best-effort: never blocks the grant. */
+async function auditPlayback(
+  admin: { from: (table: string) => { insert: (row: Record<string, unknown>) => unknown } },
+  userId: string,
+  videoId: string,
+  ip: string,
+  ua: string,
+): Promise<void> {
+  try {
+    await admin.from("watch_events").insert({
+      user_id: userId,
+      video_id: videoId,
+      ip,
+      user_agent: ua,
+      denied: false,
+      reason: "native-playback",
+    });
+  } catch {
+    /* audit best-effort */
+  }
+}
+
+/** The grant the native app receives: a short-lived media URL plus the
+ *  watermark identity. The URL never reaches the WebView or a log line. */
+function grantResponse(
+  res: ApiResponse,
+  url: string,
+  expiresAt: string,
+  play: PlayResult,
+  deviceId: string,
+): unknown {
+  return res.status(200).json({
+    ok: true,
+    grant: {
+      url,
+      expiresAt,
+      email: play.email,
+      phoneLast4: play.phone_last4,
+      minutes: play.minutes,
+      viewsLeft: play.views_left,
+      deviceId,
+    },
+  });
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<unknown> {
@@ -280,63 +315,64 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   } | null;
   if (!play || !play.ok) return fail(res, knownCode(play?.code ?? ""), `gate-${play?.code ?? "empty"}`);
 
-  // The real media location (service role only).
+  // The real media location (service role only). The `source` column tells
+  // us which provider owns the lesson; before the migration is applied the
+  // stored marker decides (r2:... vs a Drive link).
   const { data: srcRow, error: srcError } = await admin
     .from("video_sources")
-    .select("src_url")
+    .select("src_url, source")
     .eq("video_id", videoId)
     .maybeSingle();
-  if (srcError) return fail(res, "SERVER_ERROR", "sources-read");
-  const raw = ((srcRow as { src_url?: string } | null)?.src_url ?? "").trim();
+  if (srcError) {
+    // The `source` column may not exist yet (migration not applied) — fall
+    // back to the old shape and infer the provider from the marker.
+    const { data: legacyRow, error: legacyError } = await admin
+      .from("video_sources")
+      .select("src_url")
+      .eq("video_id", videoId)
+      .maybeSingle();
+    if (legacyError) return fail(res, "SERVER_ERROR", "sources-read");
+    const legacySrc = ((legacyRow as { src_url?: string } | null)?.src_url ?? "").trim();
+    if (legacySrc === "") return fail(res, "VIDEO_MISSING");
+    if (kindOf({ srcUrl: legacySrc }) === "r2") {
+      const target = await sourceFor("r2").resolve(
+        { videoId, source: "r2", srcUrl: legacySrc },
+        {
+          secret: getEnvVar("PLAYBACK_GRANT_SECRET"),
+          workerUrl: getEnvVar("VIDEO_WORKER_URL"),
+          userId: authData.user.id,
+          deviceId,
+        },
+      );
+      if (target.kind !== "url") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+      await auditPlayback(admin, authData.user.id, videoId, ip, ua);
+      return grantResponse(res, target.url, target.expiresAt, play, deviceId);
+    }
+    return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+  }
+
+  const record = (srcRow ?? {}) as { src_url?: string; source?: string };
+  const raw = (record.src_url ?? "").trim();
   if (raw === "") return fail(res, "VIDEO_MISSING");
 
-  let mediaUrl = "";
-  let expiresAt = new Date(Date.now() + SIGNED_URL_TTL_SECS * 1000).toISOString();
+  const kind = kindOf(record);
+  const provider = sourceFor(kind);
 
-  const stored = storageObject(raw);
-  if (stored) {
-    const { data: signed, error: signError } = await admin.storage
-      .from(stored.bucket)
-      .createSignedUrl(stored.path, SIGNED_URL_TTL_SECS);
-    if (signError || !signed?.signedUrl) return fail(res, "SERVER_ERROR", "sign-url");
-    mediaUrl = signed.signedUrl;
-  } else if (DIRECT_MEDIA.test(raw) && /^https:\/\//i.test(raw)) {
-    // Direct media file — playable natively. The TTL is a client-side bound
-    // only; a real revocation needs storage/HLS (Phase 4).
-    mediaUrl = raw;
-  } else if (YOUTUBE.test(raw) || DRIVE.test(raw)) {
-    // YouTube/Drive are web embeds — a native player cannot play them.
-    return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
-  } else if (/^https:\/\//i.test(raw)) {
-    return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
-  } else {
-    return fail(res, "VIDEO_MISSING");
+  if (kind === "r2") {
+    const target = await provider.resolve(
+      { videoId, source: kind, srcUrl: raw },
+      {
+        secret: getEnvVar("PLAYBACK_GRANT_SECRET"),
+        workerUrl: getEnvVar("VIDEO_WORKER_URL"),
+        userId: authData.user.id,
+        deviceId,
+      },
+    );
+    if (target.kind !== "url") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+    await auditPlayback(admin, authData.user.id, videoId, ip, ua);
+    return grantResponse(res, target.url, target.expiresAt, play, deviceId);
   }
 
-  // Playback session audit (device bound).
-  try {
-    await admin.from("watch_events").insert({
-      user_id: authData.user.id,
-      video_id: videoId,
-      ip,
-      user_agent: ua,
-      denied: false,
-      reason: "native-playback",
-    });
-  } catch {
-    /* audit best-effort */
-  }
-
-  return res.status(200).json({
-    ok: true,
-    grant: {
-      url: mediaUrl,
-      expiresAt,
-      email: play.email,
-      phoneLast4: play.phone_last4,
-      minutes: play.minutes,
-      viewsLeft: play.views_left,
-      deviceId,
-    },
-  });
+  // Drive (or any other web embed): a native player cannot play it.
+  return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
 }
