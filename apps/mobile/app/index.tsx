@@ -30,8 +30,12 @@ const USER_AGENT =
     ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1 KineTechApp/1.0"
     : "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KineTechApp/1.0";
 
+/** react-native-webview 14 types the component with the platform-agnostic
+ *  stub, so the imperative handle is resolved from the component type. */
+type WebViewHandle = React.ComponentRef<typeof WebView>;
+
 export default function Shell() {
-  const webRef = useRef<WebView>(null);
+  const webRef = useRef<WebViewHandle | null>(null);
   const insets = useSafeAreaInsets();
   const [canGoBack, setCanGoBack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);

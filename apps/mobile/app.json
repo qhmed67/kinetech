@@ -33,7 +33,8 @@
       [
         "expo-dev-client",
         {}
-      ]
+      ],
+      "expo-status-bar"
     ],
     "extra": {
       "router": {
