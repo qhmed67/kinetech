@@ -32,6 +32,24 @@ exists because breaking it once leaked or confused them.
    minutes box appears as fallback — auto-first always.
 7. YouTube links play in the guarded custom player (no native chrome).
    Direct mp4 exists only for bundled seed assets.
+7a. **R2 lessons (new, 2026-11-12).** A lesson may live in the private
+   Cloudflare R2 bucket `kinetech` as AES-128 encrypted HLS. It is served
+   ONLY by the Cloudflare Worker (`backend/video-worker`), and only with a
+   short-lived HMAC token bound to that lesson, that user and that device
+   (`POST /api/playback/start` issues it, `POST /api/playback/refresh` renews
+   it without burning a view). Rules that follow from that:
+     - the bucket stays PRIVATE — no public r2.dev URL, no custom domain, ever;
+     - the media URL lives in the NATIVE app only: it never reaches the
+       WebView, a log line, a student-facing string or the database UI;
+     - the key file (`keys/<lessonId>.key`) is served by ONE route and no
+       other; the playlist is rewritten on the way out so every segment and
+       the key carry the token;
+     - the identity watermark still floats over every playback mode (rule 3),
+       including the native player;
+     - Drive stays the FALLBACK source: rules (5) and (6) are unchanged.
+   Honest scope: AES-128 + a signed URL + a device-bound token raise the
+   cost of copying and make a leak traceable. This is NOT DRM. Never claim
+   the video is "fully protected".
 
 ## Minutes
 

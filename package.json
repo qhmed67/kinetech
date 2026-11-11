@@ -10,7 +10,8 @@
     "packages/bridge",
     "packages/playback-token",
     "packages/video-source",
-    "backend/video-worker"
+    "backend/video-worker",
+    "tools/upload-lesson"
   ],
   "engines": {
     "node": ">=24.0.0",
@@ -21,6 +22,7 @@
     "build": "npm run build --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/web",
     "test:unit": "npm run test:unit --workspace=apps/web && npm run test --workspace=packages/playback-token && npm run test --workspace=packages/video-source && npm run test --workspace=backend/video-worker",
-    "test:e2e": "npm run test:e2e --workspace=apps/web"
+    "test:e2e": "npm run test:e2e --workspace=apps/web",
+    "lesson:upload": "npm run upload --workspace=tools/upload-lesson --"
   }
 }

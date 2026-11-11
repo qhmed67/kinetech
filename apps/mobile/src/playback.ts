@@ -11,18 +11,14 @@ import { ENV } from "./env";
 
 export type { PlaybackResult };
 
-/**
- * Ask the server for a playback grant for one lesson.
- * Returns the parsed result, or null when the server answered something
- * unexpected (the caller then shows an honest "try again" message).
- */
-export async function requestPlayback(
+async function post(
+  path: string,
   videoId: string,
   token: string,
   deviceId: string,
 ): Promise<PlaybackResult | null> {
   try {
-    const response = await fetch(`${ENV.API_BASE_URL}/api/playback/start`, {
+    const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -36,4 +32,28 @@ export async function requestPlayback(
   } catch {
     return null;
   }
+}
+
+/**
+ * Ask the server for a playback grant for one lesson.
+ * This is the path that COUNTS a view (the server runs its normal gate).
+ */
+export function requestPlayback(
+  videoId: string,
+  token: string,
+  deviceId: string,
+): Promise<PlaybackResult | null> {
+  return post("/api/playback/start", videoId, token, deviceId);
+}
+
+/**
+ * Renew an expiring token. The server re-checks the entitlement but does NOT
+ * burn another view — the student must not pay for a technical detail.
+ */
+export function refreshPlayback(
+  videoId: string,
+  token: string,
+  deviceId: string,
+): Promise<PlaybackResult | null> {
+  return post("/api/playback/refresh", videoId, token, deviceId);
 }

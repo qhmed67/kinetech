@@ -15,7 +15,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
-import { requestPlayback } from "../src/playback";
+import { refreshPlayback, requestPlayback } from "../src/playback";
 import { getDeviceId, getSessionToken } from "../src/session";
 import { sendToWeb } from "../src/shellRef";
 
@@ -99,6 +99,50 @@ export default function Player() {
     if (url) p.play();
   });
   const { isPlaying } = useEvent(player, "playingChange", { isPlaying: player.playing });
+  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const refreshed = useRef(false);
+
+  // Token expiry: the grant is short-lived. When the player errors we renew
+  // the token WITHOUT burning another view (the server re-checks the
+  // entitlement) and continue where we stopped.
+  useEffect(() => {
+    if (status !== "error") return;
+    if (refreshed.current) {
+      setPhase("error");
+      setMessage("The lesson could not be loaded. Open it again to continue.");
+      return;
+    }
+    refreshed.current = true;
+    void (async () => {
+      const id = lessonId ?? "";
+      const token = await getSessionToken();
+      const deviceId = await getDeviceId();
+      if (!token) {
+        setPhase("denied");
+        setMessage("Sign in from the app to watch this lesson.");
+        return;
+      }
+      const result = await refreshPlayback(id, token, deviceId);
+      if (!result || !result.ok) {
+        setPhase(result && !result.ok ? "denied" : "error");
+        setMessage(
+          result && !result.ok
+            ? result.ar !== ""
+              ? result.ar
+              : result.en
+            : "Could not reach the server — check your connection and retry.",
+        );
+        return;
+      }
+      try {
+        await player.replaceAsync(result.grant.url);
+        player.play();
+      } catch {
+        setPhase("error");
+        setMessage("The lesson could not be loaded. Open it again to continue.");
+      }
+    })();
+  }, [status, lessonId, player]);
 
   const close = useCallback(() => {
     const progressSec = Math.round((Date.now() - startedAt.current) / 1000);
