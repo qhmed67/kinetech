@@ -1,96 +1,139 @@
-import React from "react";
-import { View, Text, Alert } from "react-native";
-import { Card, Button, Input } from "@kinetech/ui-native";
-import { color } from "@kinetech/tokens";
-import { signInWithDb, signUpWithDb } from "../../src/authDb";
+import { StyleSheet, View } from "react-native";
+import { ActivityIndicator } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { Button } from "@kinetech/ui-native";
+import { useLang } from "../../src/lang";
+import { useAuth } from "../../src/auth";
+import { palette } from "../../src/theme";
+import { Screen } from "../../src/components/Screen";
+import { Txt } from "../../src/components/Txt";
+import { Footer } from "../../src/components/Footer";
+
+type IonName = React.ComponentProps<typeof Ionicons>["name"];
 
 export default function Home() {
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
+  const { t, lang } = useLang();
+  const { user, ready } = useAuth();
+  const router = useRouter();
+  const h = t.home;
 
-  const handleSignIn = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password");
-      return;
-    }
+  if (!ready) {
+    return (
+      <Screen>
+        <View style={styles.loading}>
+          <ActivityIndicator color={palette.accent} />
+        </View>
+      </Screen>
+    );
+  }
 
-    setLoading(true);
-    try {
-      await signInWithDb(email, password);
-      Alert.alert("Success", "Signed in successfully!");
-      // Navigation will happen automatically through the auth check
-    } catch (error) {
-      Alert.alert("Error", "Failed to sign in. Please check your credentials.");
-      console.error("Sign in error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (user) {
+    return (
+      <Screen>
+        <View style={styles.hero}>
+          <Txt variant="meta" tone="accent" center>
+            {h.eyebrow}
+          </Txt>
+          <Txt variant="h2" center>
+            {h.welcome}
+          </Txt>
+          <Txt variant="small" center style={styles.heroSub}>
+            {user.name || user.email}
+          </Txt>
+        </View>
 
-  const handleSignUp = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password");
-      return;
-    }
+        <View style={styles.actions}>
+          <Button
+            title={h.openDashboard}
+            onPress={() => router.push("/(tabs)/dashboard")}
+            style={styles.cta}
+          />
+          <Button
+            title={h.openCourses}
+            variant="secondary"
+            onPress={() => router.push("/(tabs)/courses")}
+          />
+        </View>
 
-    // For simplicity, we'll use the same email for name and track
-    const name = email.split("@")[0];
-    const phone = "";
-    const track = "courses" as const;
-
-    setLoading(true);
-    try {
-      await signUpWithDb({
-        email,
-        password,
-        name,
-        phone,
-        track,
-      });
-      Alert.alert("Success", "Signed up successfully! Please sign in.");
-    } catch (error) {
-      Alert.alert("Error", "Failed to sign up. Please try again.");
-      console.error("Sign up error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+        <Footer />
+      </Screen>
+    );
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: color.bg, padding: 20 }}>
-      <Card style={{ marginBottom: 20 }}>
-        <Text style={{ fontSize: 24, marginBottom: 20, fontFamily: "Alexandria", fontWeight: "700" }}>
-          Welcome to KineTech
-        </Text>
-        <Input 
-          label="Email" 
-          placeholder="Enter your email"
-          value={email}
-          onChangeText={setEmail}
-          style={{ marginBottom: 16 }}
+    <Screen>
+      <View style={styles.hero}>
+        <View style={styles.brandMark}>
+          <Ionicons name="school" size={26} color={palette.white} />
+        </View>
+        <Txt variant="meta" tone="accent" center>
+          {h.eyebrow}
+        </Txt>
+        <Txt variant="h2" center>
+          {h.title}
+        </Txt>
+        <Txt variant="small" center style={styles.heroSub}>
+          {h.sub}
+        </Txt>
+      </View>
+
+      <View style={styles.actions}>
+        <Button
+          title={h.ctaSignIn}
+          onPress={() => router.push("/sign-in")}
+          style={styles.cta}
         />
-        <Input 
-          label="Password" 
-          placeholder="Enter your password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          style={{ marginBottom: 20 }}
-        />
-        <Button 
-          title="Sign In" 
-          onPress={handleSignIn}
-          disabled={loading}
-          style={{ marginBottom: 10 }}
-        />
-        <Button 
-          title="Sign Up" 
+        <Button
+          title={h.ctaSignUp}
           variant="secondary"
-          onPress={handleSignUp}
-          disabled={loading}
+          onPress={() => router.push("/sign-up")}
         />
-      </Card>
-    </View>
+        <Txt
+          variant="small"
+          tone="accent"
+          center
+          onPress={() => router.push("/(tabs)/courses")}
+          accessibilityRole="link"
+          style={styles.browse}
+        >
+          {h.browse}
+        </Txt>
+      </View>
+
+      <Footer />
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  hero: {
+    marginTop: 34,
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+  },
+  brandMark: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: palette.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  heroSub: {
+    color: palette.muted,
+    maxWidth: 300,
+    marginTop: 2,
+  },
+  actions: {
+    marginTop: 30,
+    gap: 12,
+    alignSelf: "stretch",
+    paddingHorizontal: 6,
+  },
+  cta: { alignSelf: "stretch" },
+  browse: { marginTop: 10, paddingVertical: 8 },
+});
