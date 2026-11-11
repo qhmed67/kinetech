@@ -3,7 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "jsx": "react-jsx",
-    "types": ["jest", "node"],
+    "types": ["node"],
     "paths": {
       "@kinetech/*": ["../../packages/*"]
     }
