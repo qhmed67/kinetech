@@ -16,7 +16,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 ## Mobile (Android / iOS)
 
-- Last stable: tag `mobile-stable-v1.0.0`, SHA `20fec13`, date 2026-11-10, branch `main`. Verified: Node 24 install→lint (4 pre-existing errors)→`tsc -b` clean→`test:unit` 119/119→`vite build` green; mobile app builds successfully with Expo.
+- Last stable: tag `mobile-stable-v1.0.0`, SHA `d1186ff`, date 2026-11-10, branch `main`. Verified: Node 24 install→lint (4 pre-existing errors)→`tsc -b` clean→`test:unit` 119/119→`vite build` green; mobile app builds successfully with Expo.
 - Phase 5 (verified, merged to main): SHA `e7cf2b6`, date 2026-11-10, branch `main`. Mobile UI components and screens implemented; React Native component library complete; e2e tests pass; 119/119 unit tests pass.
 - Phase 6 (verified, merged to main): SHA `20fec13`, date 2026-11-10, branch `main`. Complete mobile app screens implemented; all core components built; database services complete; internationalization support; theme system; e2e tests pass; 119/119 unit tests pass.
 
@@ -39,8 +39,9 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 | Date | Deliverable | Tag | SHA |
 |---|---|---|---|
-| 2026-11-10 | Mobile | `mobile-stable-v1.0.0` | `20fec13` |
-| 2026-11-10 | Mobile (Phase 5) | `mobile-stable-v1.0.0` | `e7cf2b6` |
+| 2026-11-10 | Mobile | `mobile-stable-v1.0.0` | `d1186ff` |
+| 2026-11-10 | Mobile (Phase 6 screens) | — | `20fec13` |
+| 2026-11-10 | Mobile (Phase 5 UI-native) | — | `e7cf2b6` |
 | 2026-10-19 | Web | `web-stable-v1.0.0-pre-mobile` | `6e67bf0286bfde937ce85fa88d646679d8eed9b8` |
 | 2026-10-19 | Web (earlier) | `stable-2026-10-19` | `91ba6a36c0d32c6b2e5890c8bc9229ba456870a8` |
 | 2026-10-16 | Web (earlier) | `stable-2026-10-16` | `4d563a9ce51594061643d42ec7147c81458a994e` |
