@@ -18,6 +18,7 @@ export interface InputProps {
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   autoCorrect?: boolean;
   disabled?: boolean;
+  editable?: boolean;
   label?: string;
   error?: string;
   textAlign?: "left" | "center" | "right";
@@ -33,6 +34,7 @@ export function Input({
   autoCapitalize = "sentences",
   autoCorrect = false,
   disabled = false,
+  editable = true,
   label,
   error,
   textAlign,
@@ -64,7 +66,7 @@ export function Input({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
-        editable={!disabled}
+        editable={!disabled && editable}
         textAlign={textAlign}
         style={[
           styles.input,

@@ -1,63 +1,148 @@
-import React from "react";
-import { View, Text, Alert } from "react-native";
+import { useState } from "react";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Card, Button, Input } from "@kinetech/ui-native";
-import { color } from "@kinetech/tokens";
+import { Button, Input } from "@kinetech/ui-native";
+import { useLang } from "../../src/lang";
+import { useAuth } from "../../src/auth";
 import { signInWithDb } from "../../src/authDb";
+import { palette } from "../../src/theme";
+import { Screen } from "../../src/components/Screen";
+import { Txt } from "../../src/components/Txt";
 
 export default function SignIn() {
+  const { t, lang } = useLang();
+  const { refresh } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
+  const a = t.auth;
 
-  const handleSignIn = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both email and password");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const rtl = lang === "ar";
+  const align = rtl ? ("right" as const) : ("left" as const);
+
+  const onSubmit = async () => {
+    if (loading) return;
+    if (!email.trim() || !password) {
+      setError(a.errRequired);
       return;
     }
-
     setLoading(true);
+    setError(null);
     try {
-      await signInWithDb(email, password);
-      Alert.alert("Success", "Signed in successfully!");
-      // Navigate to home after successful sign-in
-      router.replace("/");
-    } catch (error) {
-      Alert.alert("Error", "Failed to sign in. Please check your credentials.");
-      console.error("Sign in error:", error);
+      await signInWithDb(email.trim(), password);
+      // AuthProvider reloaded via notifyUserChanged(); refresh() makes it
+      // deterministic before we leave this screen.
+      await refresh();
+      router.replace("/(tabs)");
+    } catch {
+      // Honest, non-technical message — never echoes server details.
+      setError(a.errInvalid);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: color.bg, padding: 20 }}>
-      <Card style={{ marginBottom: 20 }}>
-        <Text style={{ fontSize: 24, marginBottom: 20, fontFamily: "Alexandria", fontWeight: "700" }}>
-          Sign In
-        </Text>
-        <Input 
-          label="Email" 
-          placeholder="Enter your email"
-          value={email}
-          onChangeText={setEmail}
-          style={{ marginBottom: 16 }}
-        />
-        <Input 
-          label="Password" 
-          placeholder="Enter your password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          style={{ marginBottom: 20 }}
-        />
-        <Button 
-          title="Sign In" 
-          onPress={handleSignIn}
-          disabled={loading}
-        />
-      </Card>
-    </View>
+    <Screen>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Txt
+          variant="small"
+          tone="accent"
+          onPress={() => router.replace("/(tabs)")}
+          accessibilityRole="link"
+          style={styles.back}
+        >
+          {t.nav.home}
+        </Txt>
+
+        <View style={styles.card}>
+          <Txt variant="h2">{a.signInBtn}</Txt>
+          <Txt variant="small" style={styles.sub}>
+            {t.home.sub}
+          </Txt>
+
+          <Input
+            value={email}
+            onChangeText={setEmail}
+            placeholder={a.emailPh}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textAlign={align}
+            editable={!loading}
+            style={styles.input}
+          />
+          <Input
+            value={password}
+            onChangeText={setPassword}
+            placeholder={a.passwordPh}
+            secureTextEntry
+            autoCapitalize="none"
+            textAlign={align}
+            editable={!loading}
+            style={styles.input}
+          />
+
+          {error ? (
+            <Txt variant="small" tone="accent" accessibilityLiveRegion="polite">
+              {error}
+            </Txt>
+          ) : null}
+
+          <Button
+            title={a.signInBtn}
+            onPress={() => void onSubmit()}
+            loading={loading}
+          />
+
+          <Txt variant="small" style={styles.switchLine}>
+            {a.haveAccount}{" "}
+            <Txt
+              variant="small"
+              tone="accent"
+              onPress={() => router.replace("/sign-up")}
+              accessibilityRole="link"
+            >
+              {a.signUpBtn}
+            </Txt>
+          </Txt>
+        </View>
+      </ScrollView>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  scroll: {
+    flexGrow: 1,
+    padding: 22,
+    paddingTop: 18,
+  },
+  back: { marginBottom: 16 },
+  card: {
+    width: "100%",
+    maxWidth: 460,
+    alignSelf: "center",
+    gap: 14,
+    borderWidth: 1,
+    borderColor: palette.line,
+    borderRadius: 22,
+    padding: 22,
+    backgroundColor: palette.bg,
+  },
+  sub: { color: palette.muted, marginTop: -6 },
+  input: {
+    backgroundColor: palette.surface,
+  },
+  switchLine: {
+    textAlign: "center",
+    color: palette.muted,
+    marginTop: 4,
+  },
+});
