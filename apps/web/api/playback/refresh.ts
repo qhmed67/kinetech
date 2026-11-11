@@ -17,7 +17,82 @@
 // SELF-CONTAINED ON PURPOSE: no relative imports of any kind (see api/play.ts).
 
 import { createClient } from "@supabase/supabase-js";
-import { kindOf, sourceFor } from "@kinetech/video-source";
+
+// SELF-CONTAINED: no workspace imports (Vercel's function bundler fails to
+// load them at runtime: FUNCTION_INVOCATION_FAILED). The signing below
+// MIRRORS packages/playback-token/src/index.ts and api/playback/start.ts —
+// the shared TEST_VECTOR asserts all three agree (see
+// apps/web/src/native/__tests__/api-grant.test.ts).
+
+const TOKEN_TTL_SECONDS = 2 * 60 * 60;
+const TOKEN_VERSION = 1;
+
+type GrantPayload = {
+  v: number;
+  lid: string;
+  uid: string;
+  did: string;
+  exp: number;
+};
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Sign a playback token (HMAC-SHA256 over the base64url payload). */
+export async function signPlaybackGrant(
+  payload: GrantPayload,
+  secret: string,
+): Promise<string> {
+  if (secret === "") throw new Error("playback token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
+  return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+/** The Worker playlist URL for a lesson, with the token attached.
+ *  Mirrors R2Source in packages/video-source (keep in sync — the drift guard
+ *  in apps/web/src/native/__tests__/api-grant.test.ts compares the two). */
+export function r2PlaylistUrl(workerUrl: string, lessonId: string, token: string): string {
+  const base = workerUrl.replace(/\/+$/, "");
+  return `${base}/v/${encodeURIComponent(lessonId)}/index.m3u8?t=${encodeURIComponent(token)}`;
+}
+
+/** The Worker playlist URL for a lesson, with a fresh token. */
+async function workerPlaylistUrl(
+  lessonId: string,
+  userId: string,
+  deviceId: string,
+): Promise<string | null> {
+  const secret = getEnvVar("PLAYBACK_GRANT_SECRET");
+  const workerUrl = getEnvVar("VIDEO_WORKER_URL").replace(/\/+$/, "");
+  if (secret === "" || workerUrl === "") return null;
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signPlaybackGrant(
+    { v: TOKEN_VERSION, lid: lessonId, uid: userId, did: deviceId, exp: now + TOKEN_TTL_SECONDS },
+    secret,
+  );
+  return r2PlaylistUrl(workerUrl, lessonId, token);
+}
+
+/** Which provider owns the lesson. */
+function kindOf(record: { source?: string | null; srcUrl?: string | null }): "r2" | "drive" {
+  if (typeof record.source === "string" && record.source !== "") {
+    return record.source === "r2" ? "r2" : "drive";
+  }
+  const marker = (record.srcUrl ?? "").trim().toLowerCase();
+  return marker.startsWith("r2:") ? "r2" : "drive";
+}
 
 type PlaybackErrorCode =
   | "INVALID_TOKEN"
@@ -202,22 +277,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const kind = kindOf(record);
   if (kind !== "r2") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
 
-  const target = await sourceFor(kind).resolve(
-    { videoId, source: kind, srcUrl: record.src_url ?? "" },
-    {
-      secret: getEnvVar("PLAYBACK_GRANT_SECRET"),
-      workerUrl: getEnvVar("VIDEO_WORKER_URL"),
-      userId,
-      deviceId,
-    },
-  );
-  if (target.kind !== "url") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+  const url = await workerPlaylistUrl(videoId, userId, deviceId);
+  if (!url) return fail(res, "SERVER_ERROR", "worker-not-configured");
 
   return res.status(200).json({
     ok: true,
     grant: {
-      url: target.url,
-      expiresAt: target.expiresAt,
+      url,
+      expiresAt: new Date((Date.now() + TOKEN_TTL_SECONDS * 1000)).toISOString(),
       email: typeof profile.email === "string" ? profile.email : "",
       phoneLast4:
         typeof profile.phone === "string" && profile.phone.length > 0

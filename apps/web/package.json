@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@kinetech/bridge": "*",
+    "@kinetech/playback-token": "*",
     "@kinetech/core": "*",
     "@kinetech/tokens": "*",
     "@kinetech/video-source": "*",

@@ -51,6 +51,16 @@ export interface VideoSource {
 
 export const DEFAULT_TOKEN_TTL_SECONDS = 2 * 60 * 60; // 2 hours
 
+/** The Worker playlist URL for a lesson, with the token attached.
+ *  Mirrored (self-contained) in apps/web/api/playback/{start,refresh}.ts
+ *  because Vercel's function bundler cannot load workspace packages — the
+ *  drift guard in apps/web/src/native/__tests__/api-grant.test.ts compares
+ *  this helper with both api copies. */
+export function r2PlaylistUrl(workerUrl: string, lessonId: string, token: string): string {
+  const base = workerUrl.replace(/\/+$/, "");
+  return `${base}/v/${encodeURIComponent(lessonId)}/index.m3u8?t=${encodeURIComponent(token)}`;
+}
+
 /** R2 lessons: the Worker serves the (encrypted) HLS playlist behind a
  *  short-lived, device-bound token. */
 export class R2Source implements VideoSource {
@@ -73,10 +83,9 @@ export class R2Source implements VideoSource {
       },
       context.secret,
     );
-    const base = context.workerUrl.replace(/\/+$/, "");
     return {
       kind: "url",
-      url: `${base}/v/${encodeURIComponent(lesson.videoId)}/index.m3u8?t=${encodeURIComponent(token)}`,
+      url: r2PlaylistUrl(context.workerUrl, lesson.videoId, token),
       expiresAt: new Date((now + ttl) * 1000).toISOString(),
     };
   }

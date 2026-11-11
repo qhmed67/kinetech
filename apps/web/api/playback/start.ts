@@ -8,18 +8,23 @@
 // The grant goes to the native shell ONLY — never to the WebView, never to a
 // log line, never to a student-facing string.
 //
-// SELF-CONTAINED ON PURPOSE: no relative imports of any kind (see api/play.ts).
+// SELF-CONTAINED ON PURPOSE: no relative imports of any kind, and no imports
+// from our workspace packages either (see api/play.ts — Vercel's function
+// bundler fails to load a workspace package at runtime: FUNCTION_INVOCATION_FAILED).
 // The gate is the SAME one the web uses (request_play RPC + the single-session
 // check), so a student without an enrolment is refused here too.
 //
-// Media sources: the native player can only play DIRECT media. A Supabase
-// Storage object is served through a short-lived signed URL; a plain https
-// media file is passed through; YouTube/Drive links are NOT natively
-// playable and are refused with NATIVE_UNSUPPORTED_SOURCE (the content
-// pipeline has to move to storage/HLS — see docs/mobile/RELEASE.md).
+// Media sources: an R2 lesson is served by the Cloudflare Worker behind a
+// short-lived, device-bound token (signed right here). A Drive/YouTube link
+// is a web embed that a native player cannot play, so it is refused with
+// NATIVE_UNSUPPORTED_SOURCE and keeps playing in the browser.
+//
+// The token signing below MIRRORS packages/playback-token/src/index.ts — keep
+// the two in sync. The shared TEST_VECTOR (packages/playback-token) is asserted
+// by apps/web/src/native/__tests__/api-grant.test.ts, so a drift between the
+// two copies fails the build.
 
 import { createClient } from "@supabase/supabase-js";
-import { kindOf, sourceFor } from "@kinetech/video-source";
 
 // Mirrors api/play.ts — keep in sync.
 const R1_MAX = 5;
@@ -29,6 +34,79 @@ const R2_DENY = 240;
 const R2_MINS = 60;
 const R3_MAX = 3;
 const REPEAT_SECS = 90;
+
+/** Playback tokens live this long. */
+const TOKEN_TTL_SECONDS = 2 * 60 * 60;
+
+const TOKEN_VERSION = 1;
+
+type GrantPayload = {
+  v: number;
+  lid: string;
+  uid: string;
+  did: string;
+  exp: number;
+};
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Sign a playback token (HMAC-SHA256 over the base64url payload). */
+export async function signPlaybackGrant(
+  payload: GrantPayload,
+  secret: string,
+): Promise<string> {
+  if (secret === "") throw new Error("playback token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
+  return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+/** The Worker playlist URL for a lesson, with the token attached.
+ *  Mirrors R2Source in packages/video-source (keep in sync — the drift guard
+ *  in apps/web/src/native/__tests__/api-grant.test.ts compares the two). */
+export function r2PlaylistUrl(workerUrl: string, lessonId: string, token: string): string {
+  const base = workerUrl.replace(/\/+$/, "");
+  return `${base}/v/${encodeURIComponent(lessonId)}/index.m3u8?t=${encodeURIComponent(token)}`;
+}
+
+/** The Worker playlist URL for a lesson, with a fresh token. */
+async function workerPlaylistUrl(
+  lessonId: string,
+  userId: string,
+  deviceId: string,
+): Promise<string | null> {
+  const secret = getEnvVar("PLAYBACK_GRANT_SECRET");
+  const workerUrl = getEnvVar("VIDEO_WORKER_URL").replace(/\/+$/, "");
+  if (secret === "" || workerUrl === "") return null;
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signPlaybackGrant(
+    { v: TOKEN_VERSION, lid: lessonId, uid: userId, did: deviceId, exp: now + TOKEN_TTL_SECONDS },
+    secret,
+  );
+  return r2PlaylistUrl(workerUrl, lessonId, token);
+}
+
+/** Which provider owns the lesson. The `source` column wins; before the
+ *  migration is applied the stored marker decides (r2:... vs a Drive link). */
+function kindOf(record: { source?: string | null; srcUrl?: string | null }): "r2" | "drive" {
+  if (typeof record.source === "string" && record.source !== "") {
+    return record.source === "r2" ? "r2" : "drive";
+  }
+  const marker = (record.srcUrl ?? "").trim().toLowerCase();
+  return marker.startsWith("r2:") ? "r2" : "drive";
+}
 
 type PlaybackErrorCode =
   | "INVALID_TOKEN"
@@ -210,6 +288,11 @@ async function auditPlayback(
   }
 }
 
+/** When the playback token stops working. */
+function tokenExpiry(): string {
+  return new Date((Date.now() + TOKEN_TTL_SECONDS * 1000)).toISOString();
+}
+
 /** The grant the native app receives: a short-lived media URL plus the
  *  watermark identity. The URL never reaches the WebView or a log line. */
 function grantResponse(
@@ -335,18 +418,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     const legacySrc = ((legacyRow as { src_url?: string } | null)?.src_url ?? "").trim();
     if (legacySrc === "") return fail(res, "VIDEO_MISSING");
     if (kindOf({ srcUrl: legacySrc }) === "r2") {
-      const target = await sourceFor("r2").resolve(
-        { videoId, source: "r2", srcUrl: legacySrc },
-        {
-          secret: getEnvVar("PLAYBACK_GRANT_SECRET"),
-          workerUrl: getEnvVar("VIDEO_WORKER_URL"),
-          userId: authData.user.id,
-          deviceId,
-        },
-      );
-      if (target.kind !== "url") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+      const url = await workerPlaylistUrl(videoId, authData.user.id, deviceId);
+      if (!url) return fail(res, "SERVER_ERROR", "worker-not-configured");
       await auditPlayback(admin, authData.user.id, videoId, ip, ua);
-      return grantResponse(res, target.url, target.expiresAt, play, deviceId);
+      return grantResponse(res, url, tokenExpiry(), play, deviceId);
     }
     return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
   }
@@ -356,21 +431,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   if (raw === "") return fail(res, "VIDEO_MISSING");
 
   const kind = kindOf(record);
-  const provider = sourceFor(kind);
 
   if (kind === "r2") {
-    const target = await provider.resolve(
-      { videoId, source: kind, srcUrl: raw },
-      {
-        secret: getEnvVar("PLAYBACK_GRANT_SECRET"),
-        workerUrl: getEnvVar("VIDEO_WORKER_URL"),
-        userId: authData.user.id,
-        deviceId,
-      },
-    );
-    if (target.kind !== "url") return fail(res, "NATIVE_UNSUPPORTED_SOURCE");
+    const url = await workerPlaylistUrl(videoId, authData.user.id, deviceId);
+    if (!url) return fail(res, "SERVER_ERROR", "worker-not-configured");
     await auditPlayback(admin, authData.user.id, videoId, ip, ua);
-    return grantResponse(res, target.url, target.expiresAt, play, deviceId);
+    return grantResponse(res, url, tokenExpiry(), play, deviceId);
   }
 
   // Drive (or any other web embed): a native player cannot play it.
