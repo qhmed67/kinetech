@@ -20,6 +20,7 @@ export interface InputProps {
   disabled?: boolean;
   label?: string;
   error?: string;
+  textAlign?: "left" | "center" | "right";
   style?: StyleProp<ViewStyle>;
 }
 
@@ -34,6 +35,7 @@ export function Input({
   disabled = false,
   label,
   error,
+  textAlign,
   style,
 }: InputProps) {
   const [internalValue, setInternalValue] = React.useState(value ?? "");
@@ -63,6 +65,7 @@ export function Input({
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
         editable={!disabled}
+        textAlign={textAlign}
         style={[
           styles.input,
           disabled && styles.disabled,

@@ -13,6 +13,8 @@ export interface ButtonProps {
   onPress?: () => void;
   disabled?: boolean;
   variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md";
+  loading?: boolean;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
 }
@@ -22,6 +24,8 @@ export function Button({
   onPress,
   disabled = false,
   variant = "primary",
+  size = "md",
+  loading = false,
   style,
   textStyle,
 }: ButtonProps) {
@@ -44,19 +48,28 @@ export function Button({
 
   return (
     <Pressable
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
+      onPress={disabled || loading ? undefined : onPress}
+      disabled={disabled || loading}
       style={[
         styles.container,
         variants[variant],
+        size === "sm" && styles.small,
         disabled && styles.disabled,
         style,
       ]}
       accessibilityRole="button"
       accessibilityLabel={title}
+      accessibilityState={{ busy: loading }}
     >
-      <Text style={[styles.text, { color: textColor }, textStyle]}>
-        {title}
+      <Text
+        style={[
+          styles.text,
+          { color: textColor },
+          size === "sm" && styles.smallText,
+          textStyle,
+        ]}
+      >
+        {loading ? "…" : title}
       </Text>
     </Pressable>
   );
@@ -72,10 +85,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  small: {
+    minHeight: 36,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+  },
   text: {
     fontFamily: font.displayMobile,
     fontWeight: font.weightDisplay,
     fontSize: 15,
+  },
+  smallText: {
+    fontSize: 13,
   },
   disabled: {
     opacity: 0.5,

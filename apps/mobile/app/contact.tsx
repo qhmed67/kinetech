@@ -5,8 +5,15 @@ import { palette } from "../src/theme";
 import { Screen } from "../src/components/Screen";
 import { Txt } from "../src/components/Txt";
 
+type IonName = React.ComponentProps<typeof Ionicons>["name"];
+
 export default function Contact() {
-  const contactOptions = [
+  const contactOptions: Array<{
+    icon: IonName;
+    title: string;
+    description: string;
+    action: string;
+  }> = [
     {
       icon: "mail-outline",
       title: "Email Us",

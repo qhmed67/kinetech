@@ -247,7 +247,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: palette.accent,
     borderTopColor: "transparent",
-    animation: "spin 1s linear infinite",
   },
   head: { marginTop: 22, gap: 8 },
   sub: { color: palette.muted },

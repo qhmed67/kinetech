@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getSupabase } from "../supabase";
 
 export interface Course {
   slug: string;
@@ -13,52 +13,56 @@ export interface Course {
 
 export type CatalogFilter = "all" | "bac" | "tech" | "other";
 
-export async function listCourses(lang: "en" | "ar", options?: {
-  limit?: number;
-}): Promise<Course[]> {
-  const { data, error } = await supabase
-    .from("courses")
-    .select("*")
-    .order("sort_order");
-
-  if (error) {
-    console.error("Error fetching courses:", error);
-    return [];
-  }
-
-  // Map the data to match our interface
-  return data.map((course) => ({
-    slug: course.slug,
-    name: course.name[lang] || course.name.en,
-    designation: course.designation[lang] || course.designation.en,
-    description: course.description[lang] || course.description.en,
-    image: course.image_url,
-    isBac: course.category === "bac",
-    cat: course.category,
-    sort_order: course.sort_order,
-  }));
+function l(obj: any, lang: "en" | "ar"): string {
+  if (!obj) return "";
+  return obj[lang] || obj.en || "";
 }
 
-export async function getCourseBySlug(slug: string, lang: "en" | "ar"): Promise<Course | null> {
-  const { data, error } = await supabase
+function mapCourse(raw: any, lang: "en" | "ar"): Course {
+  return {
+    slug: raw.slug,
+    name: l(raw.name, lang),
+    designation: l(raw.designation, lang),
+    description: l(raw.description, lang),
+    image: raw.image_url ?? undefined,
+    isBac: raw.category === "bac",
+    cat: raw.category,
+    sort_order: raw.sort_order ?? 0,
+  };
+}
+
+export async function listCourses(
+  lang: "en" | "ar",
+  options?: { limit?: number },
+): Promise<Course[]> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+
+  let q = sb.from("courses").select("*").order("sort_order");
+  if (options?.limit) q = q.limit(options.limit);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  return (data ?? []).map((raw: any) => mapCourse(raw, lang));
+}
+
+export async function getCourseBySlug(
+  slug: string,
+  lang: "en" | "ar",
+): Promise<Course | null> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+
+  const { data, error } = await sb
     .from("courses")
     .select("*")
     .eq("slug", slug)
     .single();
 
-  if (error) {
-    console.error("Error fetching course:", error);
-    return null;
-  }
-
-  return {
-    slug: data.slug,
-    name: data.name[lang] || data.name.en,
-    designation: data.designation[lang] || data.designation.en,
-    description: data.description[lang] || data.description.en,
-    image: data.image_url,
-    isBac: data.category === "bac",
-    cat: data.category,
-    sort_order: data.sort_order,
-  };
+  if (error || !data) return null;
+  return mapCourse(data, lang);
 }
+
+/** Alias kept for screen imports (`type CourseCard as Course`). */
+export type CourseCard = Course;

@@ -1,13 +1,15 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "expo-router";
 import { palette } from "../theme";
 import { Txt } from "./Txt";
 
+type IonName = React.ComponentProps<typeof Ionicons>["name"];
+
 export function Footer() {
   const navigation = useNavigation();
 
-  const tabs = [
+  const tabs: Array<{ icon: IonName; label: string; route: string }> = [
     {
       icon: "home-outline",
       label: "Home",

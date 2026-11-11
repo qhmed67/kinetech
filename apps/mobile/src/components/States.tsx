@@ -1,16 +1,18 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { palette } from "../theme";
 import { Txt } from "./Txt";
 
+type IonName = React.ComponentProps<typeof Ionicons>["name"];
+
 interface EmptyStateProps {
   title: string;
   note?: string;
-  icon?: string;
+  icon?: IonName;
   actionLabel?: string;
   onAction?: () => void;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function EmptyState({ 

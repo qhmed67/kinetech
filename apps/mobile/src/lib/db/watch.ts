@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getSupabase } from "../supabase";
 
 export interface WatchRow {
   video_id: string;
@@ -10,57 +10,67 @@ export interface WatchRow {
   views_left: number;
   unlocked: boolean;
   done: boolean;
+  assign_url?: string;
+  exam_url?: string;
 }
 
-export async function getWatchState(courseSlug: string, lang: "en" | "ar"): Promise<WatchRow[]> {
-  const { data, error } = await supabase
+function l(obj: any, lang: "en" | "ar"): string {
+  if (!obj) return "";
+  return obj[lang] || obj.en || "";
+}
+
+export async function getWatchState(
+  courseSlug: string,
+  lang: "en" | "ar",
+): Promise<WatchRow[]> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+
+  const { data, error } = await sb
     .from("course_parts")
     .select("*")
     .eq("course_slug", courseSlug)
     .order("sort_order");
 
-  if (error) {
-    console.error("Error fetching watch state:", error);
-    return [];
-  }
+  if (error) throw error;
 
-  return data.map((part) => ({
+  return (data ?? []).map((part: any) => ({
     video_id: part.video_id,
     sort_order: part.sort_order,
-    title: part.title[lang] || part.title.en,
-    description: part.description?.[lang] || part.description?.en,
-    mins: part.duration,
-    views_count: part.views_count || 0,
-    views_left: Math.max(0, 3 - (part.views_count || 0)),
-    unlocked: part.unlocked || false,
-    done: part.completed || false,
+    title: l(part.title, lang),
+    description: l(part.description, lang) || undefined,
+    mins: part.duration ?? part.mins ?? undefined,
+    views_count: part.views_count ?? 0,
+    views_left: Math.max(0, 3 - (part.views_count ?? 0)),
+    unlocked: part.unlocked ?? false,
+    done: part.done ?? false,
+    assign_url: part.assign_url ?? undefined,
+    exam_url: part.exam_url ?? undefined,
   }));
 }
 
+/** Sticky unlock: opening an entitled part keeps it open (no view burned). */
 export async function touchUnlocked(videoId: string): Promise<void> {
-  const { error } = await supabase
-    .rpc("touch_unlocked", { video_id: videoId });
-
-  if (error) {
-    console.error("Error touching unlocked:", error);
-  }
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("touch_unlocked", { p_video_id: videoId });
+  if (error) throw error;
 }
 
+/** Completion = video end. Server RPC re-enforces caps/locks. */
 export async function completeVideo(
   videoId: string,
   watched: number,
   duration: number,
-  notify: boolean = true
+  notify = false,
 ): Promise<void> {
-  const { error } = await supabase
-    .rpc("complete_video", {
-      video_id: videoId,
-      watched: watched,
-      duration: duration,
-      notify: notify,
-    });
-
-  if (error) {
-    console.error("Error completing video:", error);
-  }
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("complete_video", {
+    p_video_id: videoId,
+    p_watched: watched,
+    p_duration: duration,
+    p_notify: notify,
+  });
+  if (error) throw error;
 }
