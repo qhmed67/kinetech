@@ -71,6 +71,21 @@ still records the screen. Real Widevine/FairPlay DRM needs a paid provider
 (VdoCipher / Bunny Stream / Mux) and re-encoded streams; the contract here is
 provider-neutral so that can be swapped in without changing the app.
 
+## One implementation, three copies (and why)
+
+The signing code lives in `packages/playback-token` (canonical — the Worker
+uses it) and is **inlined** in `apps/web/api/playback/{start,refresh}.ts`.
+
+Why the copies: Vercel's serverless bundler cannot load a *workspace* package
+(a symlinked package outside the project root) — the function deploys but every
+invocation fails with `FUNCTION_INVOCATION_FAILED`. `api/play.ts` documents the
+same class of problem. So the api files stay self-contained.
+
+The copies cannot drift silently: `apps/web/src/native/__tests__/api-grant.test.ts`
+asserts all three signers produce the same shared `TEST_VECTOR` (and that the
+Worker accepts it), and `api-url.test.ts` asserts all three URL builders
+agree. A drift fails the build.
+
 ## Local development
 
 ```bash
