@@ -264,7 +264,7 @@ export function TopBar() {
                 <Pressable
                   onPress={() => {
                     setDrawer(false);
-                    void signOut();
+                    void signOut().finally(() => router.replace("/sign-in" as never));
                   }}
                   style={styles.drawerLink}
                 >

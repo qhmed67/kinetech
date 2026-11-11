@@ -488,7 +488,12 @@ export default function DashboardPage() {
               </View>
             )}
           </View>
-          <Pressable onPress={() => void signOut()} style={styles.tabBtn}>
+          <Pressable
+            onPress={() => {
+              void signOut().finally(() => router.replace("/sign-in" as never));
+            }}
+            style={styles.tabBtn}
+          >
             <Txt variant="small" style={{ fontWeight: "700", color: palette.err }}>
               {t.nav.signout}
             </Txt>
@@ -702,7 +707,14 @@ export default function DashboardPage() {
                 </Txt>
                 <Button title={t.toggle} variant="secondary" onPress={toggle} style={{ marginTop: 16, alignSelf: "flex-start" }} />
               </View>
-              <Button title={t.nav.signout} variant="secondary" onPress={() => void signOut()} style={{ alignSelf: "flex-start" }} />
+              <Button
+                title={t.nav.signout}
+                variant="secondary"
+                onPress={() => {
+                  void signOut().finally(() => router.replace("/sign-in" as never));
+                }}
+                style={{ alignSelf: "flex-start" }}
+              />
             </View>
           )}
         </View>
