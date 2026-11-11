@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Alert } from "react-native";
 import { Card, Button, Input } from "@kinetech/ui-native";
 import { color } from "@kinetech/tokens";
-import { signInWithDb, signUpWithDb } from "../../src/auth";
+import { signInWithDb, signUpWithDb } from "../../src/authDb";
 
 export default function Home() {
   const [email, setEmail] = React.useState("");

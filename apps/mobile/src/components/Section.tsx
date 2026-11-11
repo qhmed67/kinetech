@@ -1,31 +1,48 @@
-import { StyleSheet, View } from "react-native";
-import { palette } from "../theme";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { color } from "@kinetech/tokens";
+import { Txt } from "./Txt";
 
 interface SectionProps {
   children: React.ReactNode;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Section({ children, style }: SectionProps) {
+  return <View style={[styles.section, style]}>{children}</View>;
+}
+
+export function Divider({ style }: { style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.divider, style]} />;
+}
+
+export function SectionHeader({
+  eyebrow,
+  title,
+  style,
+}: {
+  eyebrow: string;
+  title: string;
+  style?: StyleProp<ViewStyle>;
+}) {
   return (
-    <View style={[styles.section, style]}>
-      {children}
+    <View style={[styles.header, style]}>
+      <Txt variant="meta" tone="accent">
+        {eyebrow}
+      </Txt>
+      <Txt variant="h2">{title}</Txt>
     </View>
   );
 }
 
-export function Divider() {
-  return <View style={styles.divider} />;
-}
-
 const styles = StyleSheet.create({
   section: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   divider: {
-    height: 1,
-    backgroundColor: palette.line,
-    marginVertical: 16,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.border,
+  },
+  header: {
+    gap: 4,
   },
 });

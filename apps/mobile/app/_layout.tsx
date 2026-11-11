@@ -1,7 +1,12 @@
 import { Stack } from "expo-router";
 import { useFonts } from "@expo-google-fonts/alexandria";
 import { Alexandria_500Medium, Alexandria_700Bold } from "@expo-google-fonts/alexandria";
-import { I18nManager, View, Text } from "react-native";
+import { I18nManager, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import { LangProvider } from "../src/lang";
+import { AuthProvider } from "../src/auth";
+import { ErrorBoundary } from "../src/components/ErrorBoundary";
+import { OfflineBanner } from "../src/components/OfflineBanner";
 
 // Valley Sans (Latin) + Alexandria (Arabic) in web order. OFL allows bundling.
 // Weights web actually uses: Valley Sans variable 100..900 (body 500, display 700 shipped as variable); Alexandria 500/700.
@@ -12,10 +17,16 @@ export default function RootLayout() {
   if (!loaded) return null;
   if (I18nManager.isRTL === false) I18nManager.allowRTL(true);
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </View>
-    </View>
+    <LangProvider>
+      <AuthProvider>
+        <ErrorBoundary>
+          <View style={{ flex: 1 }}>
+            <OfflineBanner />
+            <StatusBar style="dark" />
+            <Stack screenOptions={{ headerShown: false }} />
+          </View>
+        </ErrorBoundary>
+      </AuthProvider>
+    </LangProvider>
   );
 }

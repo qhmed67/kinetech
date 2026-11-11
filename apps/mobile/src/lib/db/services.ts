@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getSupabase } from "../supabase";
 
 export interface Service {
   slug: string;

@@ -7,8 +7,17 @@ import { Screen } from "../../src/components/Screen";
 import { Txt } from "../../src/components/Txt";
 import { Button } from "@kinetech/ui-native";
 
-const services = {
-  marketing: {
+type IonName = React.ComponentProps<typeof Ionicons>["name"];
+
+const services: Array<{
+  slug: string;
+  title: string;
+  description: string;
+  features: string[];
+  icon: IonName;
+}> = [
+  {
+    slug: "marketing",
     title: "Digital Marketing",
     description: "Comprehensive digital marketing solutions to grow your business online",
     features: [
@@ -17,11 +26,12 @@ const services = {
       "Pay-Per-Click Advertising",
       "Content Marketing Strategy",
       "Email Marketing Campaigns",
-      "Analytics & Reporting"
+      "Analytics & Reporting",
     ],
     icon: "megaphone-outline",
   },
-  software: {
+  {
+    slug: "software",
     title: "Software Development",
     description: "Custom software solutions tailored to your business needs",
     features: [
@@ -30,11 +40,12 @@ const services = {
       "E-commerce Solutions",
       "API Development & Integration",
       "Database Design & Management",
-      "Software Maintenance & Support"
+      "Software Maintenance & Support",
     ],
     icon: "code-slash-outline",
   },
-  design: {
+  {
+    slug: "design",
     title: "UI/UX Design",
     description: "Beautiful and intuitive design solutions for your digital products",
     features: [
@@ -43,15 +54,15 @@ const services = {
       "UI Design Systems",
       "User Testing & Optimization",
       "Brand Identity Design",
-      "Responsive Web Design"
+      "Responsive Web Design",
     ],
-    icon: "palette-outline",
-  }
-};
+    icon: "color-palette-outline",
+  },
+];
 
 export default function ServicePage() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
-  const service = services[slug as keyof typeof services];
+  const service = services.find((s) => s.slug === slug);
 
   if (!service) {
     return (
@@ -65,7 +76,7 @@ export default function ServicePage() {
       >
         <View style={styles.container}>
           <Txt variant="h1">Service Not Found</Txt>
-          <Txt variant="small" style={styles.text}>
+          <Txt variant="small" style={styles.description}>
             The requested service could not be found.
           </Txt>
         </View>
@@ -202,7 +213,7 @@ export default function ServicePage() {
                 <Txt variant="meta" style={styles.stepText}>4</Txt>
               </View>
               <View style={styles.stepContent}>
-                <Txt variant="h3" style={styles.stepTitle">Delivery & Support</Txt>
+                <Txt variant="h3" style={styles.stepTitle}>Delivery & Support</Txt>
                 <Txt variant="small" style={styles.stepDesc}>
                   We deliver the final product and provide ongoing support
                 </Txt>

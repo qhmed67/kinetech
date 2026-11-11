@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getSupabase } from "../supabase";
 
 export interface AppNotification {
   id: string;
@@ -15,54 +15,58 @@ export interface UpcomingSession {
   description?: string;
 }
 
-export async function getNotifications(limit: number = 10): Promise<AppNotification[]> {
-  const { data, error } = await supabase
+function l(obj: any): string {
+  if (!obj) return "";
+  return obj.en || "";
+}
+
+export async function getNotifications(limit = 10): Promise<AppNotification[]> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+
+  const { data, error } = await sb
     .from("notifications")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) {
-    console.error("Error fetching notifications:", error);
-    return [];
-  }
+  if (error) throw error;
 
-  return data.map((notification) => ({
-    id: notification.id,
-    title: notification.title.en,
-    message: notification.message?.en,
-    is_read: notification.is_read,
-    created_at: notification.created_at,
+  return (data ?? []).map((n: any) => ({
+    id: n.id,
+    title: l(n.title),
+    message: l(n.message) || undefined,
+    is_read: n.is_read ?? false,
+    created_at: n.created_at,
   }));
 }
 
-export async function getUpcomingSessions(limit: number = 5): Promise<UpcomingSession[]> {
-  const { data, error } = await supabase
+export async function getUpcomingSessions(limit = 5): Promise<UpcomingSession[]> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+
+  const { data, error } = await sb
     .from("sessions")
     .select("*")
     .order("date", { ascending: true })
     .limit(limit);
 
-  if (error) {
-    console.error("Error fetching sessions:", error);
-    return [];
-  }
+  if (error) throw error;
 
-  return data.map((session) => ({
-    id: session.id,
-    title: session.title.en,
-    date: session.date,
-    description: session.description?.en,
+  return (data ?? []).map((s: any) => ({
+    id: s.id,
+    title: l(s.title),
+    date: s.date,
+    description: l(s.description) || undefined,
   }));
 }
 
 export async function markNotificationsRead(): Promise<void> {
-  const { error } = await supabase
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb
     .from("notifications")
     .update({ is_read: true })
     .eq("is_read", false);
-
-  if (error) {
-    console.error("Error marking notifications as read:", error);
-  }
+  if (error) throw error;
 }

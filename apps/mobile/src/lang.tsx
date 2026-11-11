@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import * as SecureStore from "expo-secure-store";
+import { I18nManager } from "react-native";
 import { i18n } from "./i18n";
 
 type Language = "en" | "ar";
@@ -11,25 +13,34 @@ interface LangContextType {
 
 const LangContext = createContext<LangContextType | null>(null);
 
-interface LangProviderProps {
-  children: ReactNode;
-}
+const KEY = "kt-lang";
 
-export function LangProvider({ children }: LangProviderProps) {
-  const [lang, setLang] = useState<Language>("en");
+export function LangProvider({ children }: { children: ReactNode }) {
+  const [lang, setLang] = useState<Language>(I18nManager.isRTL ? "ar" : "en");
 
   useEffect(() => {
-    // Load language preference from storage
-    const savedLang = localStorage.getItem("kt-lang") as Language;
-    if (savedLang && (savedLang === "en" || savedLang === "ar")) {
-      setLang(savedLang);
-    }
+    let mounted = true;
+    (async () => {
+      try {
+        const saved = await SecureStore.getItemAsync(KEY);
+        if (mounted && (saved === "en" || saved === "ar")) {
+          setLang(saved);
+        }
+      } catch {
+        /* first run */
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const toggle = () => {
-    const newLang = lang === "en" ? "ar" : "en";
-    setLang(newLang);
-    localStorage.setItem("kt-lang", newLang);
+    const next: Language = lang === "en" ? "ar" : "en";
+    setLang(next);
+    void SecureStore.setItemAsync(KEY, next).catch(() => {
+      /* persisted best-effort */
+    });
   };
 
   const t = i18n[lang];
@@ -42,9 +53,7 @@ export function LangProvider({ children }: LangProviderProps) {
 }
 
 export function useLang() {
-  const context = useContext(LangContext);
-  if (!context) {
-    throw new Error("useLang must be used within a LangProvider");
-  }
-  return context;
+  const ctx = useContext(LangContext);
+  if (!ctx) throw new Error("useLang must be used within LangProvider");
+  return ctx;
 }

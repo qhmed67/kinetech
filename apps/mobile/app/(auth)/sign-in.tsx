@@ -3,7 +3,7 @@ import { View, Text, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { Card, Button, Input } from "@kinetech/ui-native";
 import { color } from "@kinetech/tokens";
-import { signInWithDb } from "../../src/auth";
+import { signInWithDb } from "../../src/authDb";
 
 export default function SignIn() {
   const router = useRouter();
