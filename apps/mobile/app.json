@@ -34,7 +34,8 @@
         "expo-dev-client",
         {}
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-video"
     ],
     "extra": {
       "router": {

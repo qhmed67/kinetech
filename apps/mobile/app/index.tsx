@@ -23,6 +23,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
 import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
+import { setShellWebView } from "../src/shellRef";
 
 /** Mobile User-Agent with the shell marker appended (a hint for the API). */
 const USER_AGENT =
@@ -58,9 +59,8 @@ export default function Shell() {
     return () => sub.remove();
   }, [canGoBack]);
 
-  // Bridge: the web asks native to play a lesson. The real player (DRM,
-  // watermark, protection) arrives in Phase 3 — for now the native screen
-  // proves the round trip.
+  // Bridge: the web asks native to play a lesson. The player screen requests
+  // the grant from the server itself — the page never sees a media URL.
   useEffect(
     () =>
       onWebMessage((message) => {
@@ -70,6 +70,12 @@ export default function Shell() {
       }),
     [],
   );
+
+  // Let the native screens (the player) talk back to the page.
+  useEffect(() => {
+    setShellWebView(webRef.current);
+    return () => setShellWebView(null);
+  }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

@@ -12,6 +12,7 @@ import {
   type WebToNative,
 } from "@kinetech/bridge";
 import { ALLOWED_ORIGINS } from "./config";
+import { clearSession, setSessionToken } from "./session";
 
 type Handler = (message: WebToNative) => void;
 
@@ -43,6 +44,14 @@ export function handleWebMessage(raw: string, url: string): boolean {
   if (!isAllowedOrigin(url)) return false;
   const message = parseMessage(raw);
   if (!message || !isWebToNative(message)) return false;
+  // The session credential is stored in the device keystore before any
+  // handler sees it — the web never keeps it in the WebView.
+  if (message.type === "authCode") {
+    void setSessionToken(message.code);
+  }
+  if (message.type === "logout") {
+    void clearSession();
+  }
   for (const handler of handlers) {
     try {
       handler(message);

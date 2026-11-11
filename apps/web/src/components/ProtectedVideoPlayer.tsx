@@ -839,7 +839,21 @@ export function ProtectedVideoPlayer({
         <button
           type="button"
           onClick={() => {
-            bridgeSend({ v: 1, type: "playVideo", lessonId: videoId });
+            // The native side owns the playback: hand it the session
+            // credential (stored in the device keystore) and the lesson id.
+            // The page never receives a media URL.
+            void (async () => {
+              try {
+                const { supabase } = await import("../lib/db/client");
+                const sb = supabase();
+                const session = sb ? await sb.auth.getSession() : null;
+                const token = session?.data?.session?.access_token ?? null;
+                if (token) bridgeSend({ v: 1, type: "authCode", code: token });
+              } catch {
+                /* the native side will ask for a session if it has none */
+              }
+              bridgeSend({ v: 1, type: "playVideo", lessonId: videoId });
+            })();
           }}
           className="absolute inset-0 z-20 grid place-items-center"
           style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}

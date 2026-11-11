@@ -105,3 +105,88 @@ export function isNativeToWeb(message: BridgeMessage): message is NativeToWeb {
     message.type === "downloadState"
   );
 }
+
+/* ---------------------------------------------------------------------------
+ * Playback grant (native side only).
+ *
+ * The grant is issued by the server for ONE device and ONE lesson. It carries
+ * a short-lived media URL — it must never travel to the WebView, never be
+ * logged and never be rendered to the student.
+ * ------------------------------------------------------------------------- */
+
+export type PlaybackGrant = {
+  /** Short-lived media URL for the native player. */
+  url: string;
+  /** ISO timestamp when the URL stops working. */
+  expiresAt: string;
+  /** Watermark identity (email + last 4 of the phone). */
+  email: string;
+  phoneLast4: string;
+  /** Lesson length in minutes (server truth). */
+  minutes: number;
+  /** Views left for this lesson (server truth). */
+  viewsLeft: number;
+  /** The device the grant was issued for. */
+  deviceId: string;
+};
+
+/** Codes the server answers with when a native playback cannot start. */
+export type PlaybackDenied =
+  | "INVALID_TOKEN"
+  | "SESSION_MISMATCH"
+  | "BANNED"
+  | "NOT_ENROLLED"
+  | "VIEW_CAP"
+  | "RATE_LIMITED"
+  | "SUSPICIOUS_DENY"
+  | "NOT_FOUND"
+  | "VIDEO_MISSING"
+  | "NO_PROFILE"
+  | "NATIVE_UNSUPPORTED_SOURCE"
+  | "SERVER_ERROR";
+
+export type PlaybackResult =
+  | { ok: true; grant: PlaybackGrant }
+  | { ok: false; code: PlaybackDenied; ar: string; en: string };
+
+/** Validate the server answer before it reaches the player. */
+export function parsePlaybackResult(raw: unknown): PlaybackResult | null {
+  let data: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(data)) return null;
+  if (data.ok === false) {
+    const code = typeof data.code === "string" ? data.code : "SERVER_ERROR";
+    return {
+      ok: false,
+      code: code as PlaybackDenied,
+      ar: typeof data.ar === "string" ? data.ar : "",
+      en: typeof data.en === "string" ? data.en : "",
+    };
+  }
+  if (data.ok !== true) return null;
+  if (!isRecord(data.grant)) return null;
+  const g = data.grant;
+  if (!isNonEmptyString(g.url)) return null;
+  if (typeof g.expiresAt !== "string") return null;
+  if (typeof g.email !== "string" || typeof g.phoneLast4 !== "string") return null;
+  if (typeof g.minutes !== "number" || typeof g.viewsLeft !== "number") return null;
+  if (typeof g.deviceId !== "string") return null;
+  return {
+    ok: true,
+    grant: {
+      url: g.url,
+      expiresAt: g.expiresAt,
+      email: g.email,
+      phoneLast4: g.phoneLast4,
+      minutes: g.minutes,
+      viewsLeft: g.viewsLeft,
+      deviceId: g.deviceId,
+    },
+  };
+}
