@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { bridgeSend, isNativeApp } from "../native";
+import { useLang } from "./lang";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -89,6 +91,11 @@ export function ProtectedVideoPlayer({
   const boxRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
+  // Inside the native shell the page never plays protected media itself: it
+  // asks native to play the lesson (the native side owns the grant, the DRM
+  // licence and the watermark). In a browser nothing changes.
+  const native = isNativeApp();
+  const { t } = useLang();
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
@@ -160,6 +167,9 @@ export function ProtectedVideoPlayer({
   useEffect(() => {
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     let alive = true;
+    // In the native shell the grant is requested by the native side, not by
+    // the page (one grant per playback, counted server-side).
+    if (native) return;
     setGrant(null);
     setOver(false);
     setReady(false);
@@ -814,6 +824,43 @@ export function ProtectedVideoPlayer({
         </div>
       </>,
       idle && mediaStarted ? "cursor-none" : "",
+    );
+  }
+
+  // Inside the native shell the lesson is played by the native player: the
+  // page only asks native to start it (no media element, no embed URL).
+  if (native) {
+    return (
+      <div
+        className="pvp relative aspect-video w-full overflow-hidden rounded-[20px]"
+        style={{ background: "#000" }}
+        aria-label={t.watch.nativePlay}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            bridgeSend({ v: 1, type: "playVideo", lessonId: videoId });
+          }}
+          className="absolute inset-0 z-20 grid place-items-center"
+          style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
+        >
+          <span className="flex flex-col items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="grid h-20 w-20 place-items-center rounded-full"
+              style={{ background: "#3BBCD9" }}
+            >
+              <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true">
+                <path d="M8 5.5v13l11-6.5z" />
+              </svg>
+            </span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{t.watch.nativePlay}</span>
+            <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, maxWidth: 320, textAlign: "center" }}>
+              {t.watch.nativePlayD}
+            </span>
+          </span>
+        </button>
+      </div>
     );
   }
 

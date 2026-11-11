@@ -374,6 +374,8 @@ const en = {
     noCourseD: "This course is gone or hasn't loaded yet. Go back and reopen it.",
     emptyT: "No lessons yet",
     emptyD: "The instructor hasn't added any parts to this course.",
+    nativePlay: "Play in the app",
+    nativePlayD: "This lesson plays in the KineTech app, where it is protected.",
   },
   dashboard: {
     title: "My courses",
@@ -1162,6 +1164,8 @@ const ar: Strings = {
     noCourseD: "الكورس ده اتمسح أو متحملش. ارجع وافتحه تاني.",
     emptyT: "مفيش دروس لسه",
     emptyD: "المدرس مضافش أي أجزاء للكورس ده.",
+    nativePlay: "شغّل في التطبيق",
+    nativePlayD: "الدرس ده بيشتغل في تطبيق KineTech، عشان يكون محمي.",
   },
   dashboard: {
     title: "كورساتي",
