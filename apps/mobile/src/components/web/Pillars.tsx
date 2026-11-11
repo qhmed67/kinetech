@@ -75,7 +75,7 @@ export function Pillars() {
           <View key={c.n} style={[styles.card, { backgroundColor: c.bg }]}>
             <View style={styles.cardTop}>
               <Txt style={[styles.num, { color: c.fg }]}>{c.n}</Txt>
-              <Art kind={c.art} size={56} color={c.fg} />
+              <Art kind={c.art} size={40} color={c.fg} />
             </View>
             <View style={styles.cardBody}>
               <Txt variant="h3" style={{ color: c.fg }}>
@@ -91,7 +91,7 @@ export function Pillars() {
         <View style={[styles.card, styles.cardWide, { backgroundColor: palette.deep }]}>
           <View style={styles.cardTop}>
             <Txt style={[styles.num, { color: palette.teal }]}>5</Txt>
-            <Art kind={4} size={56} color={palette.white} />
+            <Art kind={4} size={40} color={palette.white} />
           </View>
           <View style={styles.cardBody}>
             <Txt variant="h3" style={{ color: palette.white }}>
@@ -118,7 +118,8 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: palette.white,
     paddingVertical: 28,
-    paddingHorizontal: 16,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingHorizontal: 32,
   },
   eyebrow: {
     color: palette.accent,
@@ -127,7 +128,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1.68, // .14em
     textTransform: "uppercase",
   },
-  h2: { marginTop: 12, maxWidth: "88%" },
+  // Web: mt-3 max-w-[16ch] text-4xl.
+  h2: { marginTop: 12, maxWidth: "94%", fontSize: 34, lineHeight: 40 },
   grid: {
     marginTop: 40,
     flexDirection: "row",
@@ -151,9 +153,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   num: {
-    fontSize: 34,
+    // Web: text-3xl (30px).
+    fontSize: 30,
     fontWeight: "700",
-    lineHeight: 36,
+    lineHeight: 32,
     fontFamily: ktFont(700),
   },
   cardBody: { marginTop: 16 },

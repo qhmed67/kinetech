@@ -62,6 +62,18 @@ export function Academy() {
       <Txt variant="h2" style={{ maxWidth: "80%" }}>
         {a.h2}
       </Txt>
+      {/* Web: "mt-3 inline-block text-[15px] font-bold" link to #/baccalaureate */}
+      <Pressable
+        onPress={() => {
+          import("expo-router").then(({ router }) => router.push("/baccalaureate" as never));
+        }}
+        style={{ marginTop: 12 }}
+        accessibilityRole="link"
+      >
+        <Txt variant="body" style={{ color: palette.accent, fontWeight: "700" }}>
+          {a.bacLink}
+        </Txt>
+      </Pressable>
 
       {error ? (
         <View style={styles.stateBox}>
@@ -120,8 +132,10 @@ export function Academy() {
 const styles = StyleSheet.create({
   section: {
     backgroundColor: palette.white,
-    paddingVertical: 72,
-    paddingLeft: 16,
+    // Web .section padding-block: clamp(48px, 7vw, ...) -> 48px on phones.
+    paddingVertical: 48,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingLeft: 32,
   },
   lead: { marginTop: 14, maxWidth: 480 },
   rail: { marginTop: 32, flexGrow: 0 },

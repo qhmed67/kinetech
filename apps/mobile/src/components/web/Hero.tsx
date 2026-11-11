@@ -4,7 +4,7 @@
  * same WAVE_COLORS at the same opacity. */
 
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Easing, Linking, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useLang } from "../../lang";
 import { ktFont, palette } from "../../theme";
@@ -59,10 +59,14 @@ function Word({
   word,
   delay,
   accent,
+  rtl,
+  size,
 }: {
   word: string;
   delay: number;
   accent: boolean;
+  rtl: boolean;
+  size: number;
 }) {
   const a = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -78,19 +82,34 @@ function Word({
     <Animated.Text
       style={[
         styles.h1Word,
-        { opacity: a, color: accent ? "#6E4E9C" : "#1A1A1A", transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] },
+        {
+          fontSize: size,
+          lineHeight: Math.round(size * 1.18),
+          // Web zeroes tracking on Arabic headings (html[dir=rtl] h1).
+          letterSpacing: rtl ? 0 : -0.5,
+          // Web spaces the words with `me-2` (inline-end margin).
+          marginLeft: rtl ? 8 : 0,
+          marginRight: rtl ? 0 : 8,
+          opacity: a,
+          color: accent ? "#6E4E9C" : "#1A1A1A",
+          transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+        },
       ]}
     >
-      {word}{" "}
+      {word}
     </Animated.Text>
   );
 }
 
 export function Hero() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const h = t.hero;
   const lead = useRef(new Animated.Value(0)).current;
   const ctas = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
+  const rtl = lang === "ar";
+  // Web hero type scale: text-2xl (24) -> md:text-4xl (36) -> lg:text-6xl (60).
+  const h1Size = width >= 1024 ? 60 : width >= 768 ? 36 : 24;
 
   useEffect(() => {
     Animated.sequence([
@@ -108,10 +127,10 @@ export function Hero() {
       <View style={styles.inner}>
         <View style={styles.h1}>
           {words1.map((word, i) => (
-            <Word key={`a-${i}`} word={word} delay={i * 100} accent={false} />
+            <Word key={`a-${i}`} word={word} delay={i * 100} accent={false} rtl={rtl} size={h1Size} />
           ))}
           {words2.map((word, i) => (
-            <Word key={`b-${i}`} word={word} delay={(words1.length + i) * 100} accent />
+            <Word key={`b-${i}`} word={word} delay={(words1.length + i) * 100} accent rtl={rtl} size={h1Size} />
           ))}
         </View>
         <Animated.View style={{ opacity: lead }}>
@@ -147,8 +166,9 @@ const styles = StyleSheet.create({
   },
   inner: {
     alignItems: "center",
-    paddingTop: 40,
-    paddingBottom: 32,
+    // Web: px-4 pt-8 pb-3 (md:pt-12 md:pb-5).
+    paddingTop: 32,
+    paddingBottom: 12,
     paddingHorizontal: 16,
   },
   h1: {
@@ -158,16 +178,17 @@ const styles = StyleSheet.create({
     maxWidth: 640,
   },
   h1Word: {
-    fontSize: 34,
     fontWeight: "700",
     fontFamily: ktFont(700),
-    letterSpacing: -0.7,
+    letterSpacing: -0.5,
     textTransform: "uppercase",
   },
   lead: {
     color: palette.deep,
     textAlign: "center",
     maxWidth: 520,
+    fontSize: 18,
+    lineHeight: 28,
     marginTop: 32,
     marginBottom: 16,
   },

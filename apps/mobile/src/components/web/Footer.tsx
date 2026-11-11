@@ -129,12 +129,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: palette.line,
     backgroundColor: palette.white,
-    paddingVertical: 40,
+    // Web footer: py-5 (20px).
+    paddingVertical: 20,
   },
   inner: {
     alignItems: "center",
     gap: 16,
-    paddingHorizontal: 16,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingHorizontal: 32,
   },
   rowWrap: {
     flexDirection: "row",

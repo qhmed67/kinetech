@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -67,7 +68,13 @@ export function TopBar() {
   const [notifs, setNotifs] = useState<Notification[] | null>(null);
   const [unread, setUnread] = useState(0);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const rtl = lang === "ar";
+  // Web breakpoints (index.css / tailwind): the wordmark disappears below
+  // 420px and the bell + sign-in link only exist from 640px up. Without this
+  // the header overflows on phones and pushes the burger off-screen.
+  const showWordmark = width >= 420;
+  const showWideLinks = width >= 640;
 
   useEffect(() => {
     Animated.timing(shown, {
@@ -129,10 +136,10 @@ export function TopBar() {
   return (
     <View>
       <View style={[styles.topnav, { paddingTop: insets.top > 0 ? 0 : 8 }]}>
-        <View style={styles.inner}>
+        <View style={[styles.inner, rtl && styles.innerLTR]}>
           <Pressable onPress={() => go("/")} style={styles.brandlock} accessibilityRole="link">
             <Image source={LOGO} style={styles.logo} />
-            <Wordmark />
+            {showWordmark ? <Wordmark /> : null}
           </Pressable>
           <View style={styles.row}>
             <Pressable
@@ -147,19 +154,21 @@ export function TopBar() {
             </Pressable>
             {user ? (
               <>
-                <Pressable
-                  onPress={() => setNotifOpen((v) => !v)}
-                  style={[styles.bellBtn, unread > 0 && styles.bellRing]}
-                  accessibilityRole="button"
-                  accessibilityLabel={t.dashboard.notifT}
-                >
-                  <BellIcon color={palette.accent} />
-                  {unread > 0 && (
-                    <View style={styles.bellBadge}>
-                      <Text style={styles.bellBadgeText}>{unread}</Text>
-                    </View>
-                  )}
-                </Pressable>
+                {showWideLinks ? (
+                  <Pressable
+                    onPress={() => setNotifOpen((v) => !v)}
+                    style={[styles.bellBtn, unread > 0 && styles.bellRing]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t.dashboard.notifT}
+                  >
+                    <BellIcon color={palette.accent} />
+                    {unread > 0 && (
+                      <View style={styles.bellBadge}>
+                        <Text style={styles.bellBadgeText}>{unread}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => go("/dashboard")}
                   style={styles.avatarBtn}
@@ -169,13 +178,13 @@ export function TopBar() {
                   <Text style={styles.avatarText}>{initialsOf(user.name)}</Text>
                 </Pressable>
               </>
-            ) : (
+            ) : showWideLinks ? (
               <Pressable onPress={() => go("/sign-in")} accessibilityRole="link">
                 <Txt variant="small" style={styles.navSignin}>
                   {t.nav.signin}
                 </Txt>
               </Pressable>
-            )}
+            ) : null}
             <Pressable
               onPress={() => setDrawer(true)}
               style={styles.burgerBtn}
@@ -190,7 +199,7 @@ export function TopBar() {
 
       {/* bell dropdown */}
       {notifOpen && (
-        <View style={[styles.notifPanel, { top: 60 + insets.top }]}>
+        <View style={[styles.notifPanel, rtl ? styles.notifPanelRtl : styles.notifPanelLtr, { top: 60 + insets.top }]}>
           {notifs === null ? (
             <View style={styles.notifLoading} />
           ) : notifs.length === 0 ? (
@@ -233,7 +242,14 @@ export function TopBar() {
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setDrawer(false)} accessibilityLabel={t.menu} />
           </Animated.View>
           <Animated.View
-            style={[styles.drawer, drawerTranslate, { paddingTop: 20 + insets.top }]}
+            style={[
+              styles.drawer,
+              // Web: `inset-y-0 end-0` — the drawer sits on the inline end
+              // (left in Arabic, right in English).
+              rtl ? styles.drawerRtl : styles.drawerLtr,
+              drawerTranslate,
+              { paddingTop: 20 + insets.top },
+            ]}
             accessibilityRole="dialog"
           >
             <View style={styles.drawerHead}>
@@ -300,6 +316,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 16,
+  },
+  // Web keeps the header bar LTR (index.css .topnav-inner{direction:ltr}) so
+  // the brand stays on the left in both languages.
+  innerLTR: {
+    flexDirection: "row-reverse",
   },
   brandlock: {
     flexDirection: "row",
@@ -391,7 +412,6 @@ const styles = StyleSheet.create({
   },
   notifPanel: {
     position: "absolute",
-    right: 12,
     width: 288,
     maxHeight: 320,
     borderRadius: 16,
@@ -406,6 +426,9 @@ const styles = StyleSheet.create({
     elevation: 8,
     zIndex: 120,
   },
+  // Web: `absolute end-0` — the panel hugs the inline end of the header.
+  notifPanelLtr: { right: 12 },
+  notifPanelRtl: { left: 12 },
   notifLoading: {
     height: 72,
     margin: 12,
@@ -439,15 +462,22 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    right: 0,
     width: "86%",
     maxWidth: 320,
     backgroundColor: palette.white,
     paddingHorizontal: 20,
     paddingBottom: 20,
     gap: 4,
+  },
+  drawerLtr: {
+    right: 0,
     borderLeftWidth: 1,
     borderLeftColor: palette.line,
+  },
+  drawerRtl: {
+    left: 0,
+    borderRightWidth: 1,
+    borderRightColor: palette.line,
   },
   drawerHead: {
     flexDirection: "row",

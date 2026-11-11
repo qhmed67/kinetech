@@ -17,6 +17,15 @@ import { OfflineBanner } from "../src/components/OfflineBanner";
 
 // Web font stack bundled (OFL/Google Fonts allow it): Valley Sans (Latin,
 // body 500 / display 700) + Alexandria (Arabic 500/700) + Pacifico (script).
+// The app direction follows the web's document dir (ar => RTL); the actual
+// switch happens in src/lang.tsx (applyDirection) because React Native needs a
+// restart for I18nManager.forceRTL to take effect.
+I18nManager.allowRTL(true);
+// left/right stay physical (the web positions the drawer/badge with logical
+// `end`/`right` rules we mirror per language instead of relying on the
+// platform-specific swap).
+I18nManager.swapLeftAndRightInRTL(false);
+
 export default function RootLayout() {
   const [loaded] = useFonts({
     "Valley Sans 400": ValleySans_400Regular,
@@ -28,7 +37,6 @@ export default function RootLayout() {
     Pacifico: Pacifico_400Regular,
   });
   if (!loaded) return null;
-  if (I18nManager.isRTL === false) I18nManager.allowRTL(true);
   return (
     <LangProvider>
       <AuthProvider>

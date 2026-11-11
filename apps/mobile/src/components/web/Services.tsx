@@ -201,8 +201,10 @@ const styles = StyleSheet.create({
     borderTopColor: palette.line,
     borderBottomWidth: 1,
     borderBottomColor: palette.line,
-    paddingVertical: 72,
-    paddingHorizontal: 16,
+    // Web .section padding-block: clamp(48px, 7vw, ...) -> 48px on phones.
+    paddingVertical: 48,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingHorizontal: 32,
   },
   grid: { marginTop: 24 },
   info: { minHeight: 220 },

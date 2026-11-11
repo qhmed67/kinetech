@@ -52,8 +52,10 @@ export function Contact() {
 
 const styles = StyleSheet.create({
   section: {
-    paddingVertical: 72,
-    paddingHorizontal: 16,
+    // Web .section padding-block: clamp(48px, 7vw, ...) -> 48px on phones.
+    paddingVertical: 48,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingHorizontal: 32,
     backgroundColor: palette.white,
   },
   ctaDark: {

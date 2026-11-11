@@ -102,8 +102,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: palette.line,
     backgroundColor: palette.surface,
-    paddingVertical: 72,
-    paddingHorizontal: 16,
+    // Web .section padding-block: clamp(48px, 7vw, ...) -> 48px on phones.
+    paddingVertical: 48,
+    // Web .kt-wrap gutter (index.css --gutter: 32px).
+    paddingHorizontal: 32,
   },
   marquee: {
     flexDirection: "row",
