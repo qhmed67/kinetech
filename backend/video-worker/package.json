@@ -1,0 +1,23 @@
+{
+  "name": "@kinetech/video-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "secret": "wrangler secret put",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kinetech/playback-token": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251231.0",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.160.1"
+  }
+}

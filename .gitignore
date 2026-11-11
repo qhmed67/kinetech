@@ -37,3 +37,13 @@ playwright/.cache/
 *.njsproj
 *.sln
 *.sw?
+
+# Cloudflare Worker: local secrets for `wrangler dev` (never commit)
+backend/video-worker/.dev.vars
+backend/video-worker/.wrangler/
+
+# Lesson media pipeline: generated segments, playlists and AES keys
+# (never commit generated media or keys)
+tools/upload-lesson/work/
+*.key
+*.m3u8

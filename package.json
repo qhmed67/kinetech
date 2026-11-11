@@ -7,7 +7,9 @@
     "apps/mobile",
     "packages/core",
     "packages/tokens",
-    "packages/bridge"
+    "packages/bridge",
+    "packages/playback-token",
+    "backend/video-worker"
   ],
   "engines": {
     "node": ">=24.0.0",
@@ -17,7 +19,7 @@
     "dev": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/web",
-    "test:unit": "npm run test:unit --workspace=apps/web",
+    "test:unit": "npm run test:unit --workspace=apps/web && npm run test --workspace=packages/playback-token && npm run test --workspace=backend/video-worker",
     "test:e2e": "npm run test:e2e --workspace=apps/web"
   }
 }

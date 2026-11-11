@@ -1,0 +1,25 @@
+name = "kinetech-video"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# The R2 bucket holds the encrypted HLS lessons. It is PRIVATE: the only way
+# in is through this Worker, and only with a valid playback token.
+[[r2_buckets]]
+binding = "VIDEOS"
+bucket_name = "kinetech"
+
+# Secrets are NOT in this file. Set them with:
+#   npx wrangler secret put GRANT_SECRET
+# The same value must exist in the app server (Vercel) as
+# PLAYBACK_GRANT_SECRET, because the server signs the tokens this Worker
+# verifies.
+#
+# Optional: keep the previous secret for a while so tokens issued before a
+# rotation still work.
+# GRANT_SECRET_PREV is optional.
+
+[observability]
+enabled = true
+
+# Free tier: 100k requests/day. Keep the segment length at 10s and watch the
+# usage notifications in the Cloudflare dashboard.
