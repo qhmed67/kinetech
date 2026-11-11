@@ -29,7 +29,11 @@
         "expo-secure-store",
         {}
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-dev-client",
+        {}
+      ]
     ]
   }
 }

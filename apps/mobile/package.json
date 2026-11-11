@@ -9,10 +9,11 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "expo start --lan",
-    "android": "expo start --android --lan",
-    "ios": "expo start --ios --lan",
-    "start": "expo start --lan",
+    "dev": "expo start --lan --dev-client",
+    "dev:client": "expo start --lan --dev-client",
+    "android": "expo start --android --lan --dev-client",
+    "ios": "expo start --ios --lan --dev-client",
+    "start": "expo start --lan --dev-client",
     "test:unit": "jest --runInBand",
     "typecheck": "tsc --noEmit",
     "test:bundle": "node e2e/bundle-check.mjs",
