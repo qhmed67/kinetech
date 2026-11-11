@@ -12,7 +12,8 @@ export interface ButtonProps {
   title: string;
   onPress?: () => void;
   disabled?: boolean;
-  variant?: "primary" | "secondary" | "ghost";
+  /** Web .btn-* classes: primary/secondary/ghost/light/outline-light/ink (auth pages' #232323). */
+  variant?: "primary" | "secondary" | "ghost" | "light" | "outline-light" | "ink";
   size?: "sm" | "md";
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -42,9 +43,33 @@ export function Button({
       backgroundColor: "transparent",
       borderColor: "transparent",
     },
+    light: {
+      backgroundColor: color.bg,
+      borderColor: color.bg,
+    },
+    "outline-light": {
+      backgroundColor: "transparent",
+      borderColor: "rgba(255,255,255,0.55)",
+    },
+    ink: {
+      backgroundColor: "#232323",
+      borderColor: "#232323",
+    },
   };
 
-  const textColor = variant === "primary" ? color.bg : color.fg;
+  const textColor =
+    variant === "primary" || variant === "light" || variant === "ink"
+      ? color.bg
+      : variant === "outline-light"
+        ? color.bg
+        : color.fg;
+  // Web buttons use font-display: Valley Sans (latin) / Alexandria (arabic).
+  const isAr = /[\u0600-\u06FF]/.test(title);
+  // Bundled per-weight families (mobile app registers them): Valley Sans 700
+  // for Latin, Alexandria 700 for Arabic — the web's --font-display at 700.
+  const family = isAr ? "Alexandria 700" : "Valley Sans 700";
+  const weight = "700" as const;
+  const tracking = isAr ? 0 : -0.3;
 
   return (
     <Pressable
@@ -64,7 +89,7 @@ export function Button({
       <Text
         style={[
           styles.text,
-          { color: textColor },
+          { color: textColor, fontFamily: family, fontWeight: weight, letterSpacing: tracking },
           size === "sm" && styles.smallText,
           textStyle,
         ]}

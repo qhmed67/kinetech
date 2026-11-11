@@ -1,76 +1,102 @@
+/* Web watchDb port (apps/web/src/lib/db/watchDb.ts).
+ * Single RPC: videos + per-user views + sequential unlock — no N+1.
+ * NOTE: no src_url anywhere — playable URLs come only from POST /api/play
+ * (PRODUCT-RULES: gated URLs are never exposed student-side). */
+
 import { getSupabase } from "../supabase";
 
-export interface WatchRow {
+export type WatchRow = {
   video_id: string;
   sort_order: number;
   title: string;
-  description?: string;
-  mins?: number;
+  description: string;
+  mins: number;
+  assign_url: string | null;
+  exam_url: string | null;
   views_count: number;
-  views_left: number;
-  unlocked: boolean;
   done: boolean;
-  assign_url?: string;
-  exam_url?: string;
-}
+  unlocked: boolean;
+  views_left: number;
+};
 
-function l(obj: any, lang: "en" | "ar"): string {
-  if (!obj) return "";
-  return obj[lang] || obj.en || "";
-}
+export type Lang = "en" | "ar";
 
-export async function getWatchState(
-  courseSlug: string,
-  lang: "en" | "ar",
-): Promise<WatchRow[]> {
+/** Single RPC: videos + per-user views + sequential unlock. No N+1. */
+export async function getWatchState(slug: string, lang: Lang): Promise<WatchRow[]> {
   const sb = getSupabase();
   if (!sb) throw new Error("supabase-not-configured");
-
-  const { data, error } = await sb
-    .from("course_parts")
-    .select("*")
-    .eq("course_slug", courseSlug)
-    .order("sort_order");
-
+  const { data, error } = await sb.rpc("get_watch_state", { p_slug: slug, p_lang: lang });
   if (error) throw error;
-
-  return (data ?? []).map((part: any) => ({
-    video_id: part.video_id,
-    sort_order: part.sort_order,
-    title: l(part.title, lang),
-    description: l(part.description, lang) || undefined,
-    mins: part.duration ?? part.mins ?? undefined,
-    views_count: part.views_count ?? 0,
-    views_left: Math.max(0, 3 - (part.views_count ?? 0)),
-    unlocked: part.unlocked ?? false,
-    done: part.done ?? false,
-    assign_url: part.assign_url ?? undefined,
-    exam_url: part.exam_url ?? undefined,
-  }));
+  return ((data ?? []) as unknown) as WatchRow[];
 }
 
-/** Sticky unlock: opening an entitled part keeps it open (no view burned). */
+/** Increments capped at 3, enforces N-1 unlock server-side. */
+export async function recordPlay(videoId: string): Promise<{ views_count: number; views_left: number }> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { data, error } = await sb.rpc("record_play", { p_video: videoId });
+  if (error) throw error;
+  const row = ((data ?? []) as Array<{ views_count: number; views_left: number }>)[0];
+  return row ?? { views_count: 0, views_left: 0 };
+}
+
+/**
+ * Persist "this part was opened while entitled" without burning a view.
+ * The server re-checks the sequential rule — skipping ahead stays locked.
+ */
 export async function touchUnlocked(videoId: string): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const { error } = await sb.rpc("touch_unlocked", { p_video_id: videoId });
+  const { error } = await sb.rpc("touch_unlocked", { p_video: videoId });
   if (error) throw error;
 }
 
-/** Completion = video end. Server RPC re-enforces caps/locks. */
+/**
+ * Version-tolerant completion: tries the 4-param shape (p_video,
+ * p_watched_secs, p_duration_secs, p_ended) first, then the 3-param, then
+ * the legacy 2-param. A 42883 (unknown shape) falls through instead of
+ * silently dropping the completion.
+ */
 export async function completeVideo(
   videoId: string,
-  watched: number,
-  duration: number,
-  notify = false,
+  watchedSecs = 0,
+  durationSecs = 0,
+  ended = false,
 ): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error("supabase-not-configured");
-  const { error } = await sb.rpc("complete_video", {
-    p_video_id: videoId,
-    p_watched: watched,
-    p_duration: duration,
-    p_notify: notify,
-  });
-  if (error) throw error;
+  const shapes: Array<Record<string, unknown>> = [
+    { p_video: videoId, p_watched_secs: watchedSecs, p_duration_secs: durationSecs, p_ended: ended },
+    { p_video: videoId, p_watched_secs: watchedSecs, p_duration_secs: durationSecs },
+    { p_video: videoId, p_watched_secs: watchedSecs },
+  ];
+  let firstErr: { code?: string } | null = null;
+  for (const shape of shapes) {
+    const r = await sb.rpc("complete_video", shape);
+    if (!r.error) return;
+    if ((r.error as { code?: string }).code !== "42883") throw r.error;
+    firstErr = r.error as { code?: string };
+  }
+  throw firstErr ?? new Error("complete_video failed");
+}
+
+/** Self-heal: first real playback reports the media's true duration and the
+    server stores it on videos.mins. Best-effort — a DB without the
+    report_video_mins migration (42883) simply keeps the admin/default value. */
+export async function reportVideoMins(videoId: string, mins: number): Promise<void> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { error } = await sb.rpc("report_video_mins", { p_video: videoId, p_mins: mins });
+  if (error && (error as { code?: string }).code !== "42883") throw error;
+}
+
+/** Watermark identity: lean profile read for overlay (email/phone). */
+export async function watermarkIdentity(): Promise<{ email: string; phone: string }> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("supabase-not-configured");
+  const { data: u } = await sb.auth.getUser();
+  if (!u.user) return { email: "", phone: "" };
+  const { data } = await sb.from("profiles").select("email,phone").eq("id", u.user.id).single();
+  const p = data as { email: string; phone: string | null } | null;
+  return { email: p?.email ?? u.user.email ?? "", phone: p?.phone ?? "" };
 }

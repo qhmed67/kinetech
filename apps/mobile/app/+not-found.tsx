@@ -1,49 +1,76 @@
-import { StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { palette } from "../src/theme";
-import { Screen } from "../src/components/Screen";
+/* Web NotFound port (apps/web/src/pages/NotFound.tsx): gradient "?" medallion,
+ * heading, lead, primary "back home" button. */
+
+import { ScrollView, StyleSheet, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import { useLang } from "../src/lang";
+import { ktGradient, palette } from "../src/theme";
+import { Footer } from "../src/components/web/Footer";
+import { TopBar } from "../src/components/web/TopBar";
 import { Txt } from "../src/components/Txt";
 import { Button } from "@kinetech/ui-native";
 
-export default function NotFound() {
+export default function NotFoundScreen() {
+  const { t } = useLang();
   return (
-    <Screen>
-      <View style={styles.container}>
-        <View style={styles.icon}>
-          <Ionicons
-            name="help-circle-outline"
-            size={80}
-            color={palette.accent}
+    <View style={styles.root}>
+      <TopBar />
+      <ScrollView contentContainerStyle={{ paddingBottom: 0 }}>
+        <View style={styles.wrap}>
+          <LinearGradient
+            colors={ktGradient as unknown as readonly [string, string, ...string[]]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.medallion}
+          >
+            <Txt style={styles.mark}>?</Txt>
+          </LinearGradient>
+          <Txt variant="h2" style={{ marginTop: 24, textAlign: "center" }}>
+            {t.misc.notfoundT}
+          </Txt>
+          <Txt variant="lead" style={styles.lead}>
+            {t.misc.notfoundD}
+          </Txt>
+          <Button
+            title={t.misc.home}
+            variant="primary"
+            onPress={() => router.replace("/" as never)}
+            style={{ marginTop: 24, alignSelf: "center", paddingHorizontal: 32 }}
           />
         </View>
-        <Txt variant="h1">404 - Page Not Found</Txt>
-        <Txt variant="small" style={styles.text}>
-          The page you're looking for doesn't exist or has been moved.
-        </Txt>
-        <Button
-          title="Go Home"
-          onPress={() => {
-            // TODO: Navigate to home screen
-          }}
-        />
-      </View>
-    </Screen>
+
+        <Footer />
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  root: { flex: 1, backgroundColor: palette.white },
+  wrap: {
+    paddingVertical: 72,
+    paddingHorizontal: 16,
+    maxWidth: 640,
+    width: "100%",
+    alignSelf: "center",
+    alignItems: "center",
+  },
+  medallion: {
+    width: 80,
+    height: 80,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    padding: 22,
   },
-  icon: {
-    marginBottom: 24,
+  mark: {
+    color: "#fff",
+    fontSize: 30,
+    fontWeight: "700",
+    fontFamily: "Valley Sans 700",
   },
-  text: {
+  lead: {
+    marginTop: 12,
     textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 32,
   },
 });

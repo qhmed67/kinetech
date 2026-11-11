@@ -1,242 +1,175 @@
-import { RefreshControl, StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { ScrollView, TouchableOpacity } from "react-native";
-import { palette } from "../src/theme";
-import { Screen } from "../src/components/Screen";
+/* Web ContactPage port (apps/web/src/pages/ContactPage.tsx): eyebrow + h1 +
+ * lead, bordered form card (name/email grid, message, send, sent note),
+ * WhatsApp foot note. The web form is demo-only (no backend submit) — same
+ * honest behavior here. */
+
+import { useState } from "react";
+import { KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { useLang } from "../src/lang";
+import { ktFont, palette } from "../src/theme";
+import { Footer } from "../src/components/web/Footer";
+import { TopBar } from "../src/components/web/TopBar";
 import { Txt } from "../src/components/Txt";
+import { Button } from "@kinetech/ui-native";
 
-type IonName = React.ComponentProps<typeof Ionicons>["name"];
+const WA = "https://wa.me/201042031062";
 
-export default function Contact() {
-  const contactOptions: Array<{
-    icon: IonName;
-    title: string;
-    description: string;
-    action: string;
-  }> = [
-    {
-      icon: "mail-outline",
-      title: "Email Us",
-      description: "Send us an email with your questions",
-      action: "mailto:info@kinetech.com",
-    },
-    {
-      icon: "call-outline",
-      title: "Call Us",
-      description: "Give us a call during business hours",
-      action: "tel:+201042031062",
-    },
-    {
-      icon: "chatbubble-ellipses-outline",
-      title: "WhatsApp",
-      description: "Chat with us on WhatsApp",
-      action: "https://wa.me/201042031062",
-    },
-    {
-      icon: "location-outline",
-      title: "Visit Us",
-      description: "Our office location and directions",
-      action: "maps://?q=KineTech+Office",
-    },
-  ];
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  multiline,
+  keyboardType,
+  style,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+  keyboardType?: "default" | "email-address" | "phone-pad";
+  style?: object;
+}) {
+  return (
+    <View style={[{ gap: 7 }, style]}>
+      <Txt variant="small" style={{ fontWeight: "700" }}>
+        {label}
+      </Txt>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        multiline={multiline}
+        keyboardType={keyboardType}
+        style={[styles.input, multiline && styles.textarea]}
+        placeholderTextColor="#9aa0aa"
+      />
+    </View>
+  );
+}
 
-  const openContact = (action: string) => {
-    // TODO: Implement contact action handling
-    console.log("Contact action:", action);
-  };
+export default function ContactPageScreen() {
+  const { t } = useLang();
+  const c = t.contactPage;
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [msg, setMsg] = useState("");
+  const [sent, setSent] = useState(false);
 
   return (
-    <Screen
-      refreshControl={
-        <RefreshControl
-          refreshing={false}
-          tintColor={palette.accent}
-        />
-      }
-    >
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Txt variant="h1">Contact Us</Txt>
-          <Txt variant="small" style={styles.subtitle}>
-            We're here to help! Choose your preferred way to get in touch.
-          </Txt>
-        </View>
+    <View style={styles.root}>
+      <TopBar />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 0 }} keyboardShouldPersistTaps="handled">
+          <View style={styles.wrap}>
+            <Txt style={styles.eyebrow}>{c.eyebrow}</Txt>
+            <Txt variant="h2">{c.h2}</Txt>
+            <Txt variant="lead" style={{ marginTop: 12 }}>
+              {c.sub}
+            </Txt>
 
-        <View style={styles.section}>
-          <Txt variant="title">Get in Touch</Txt>
-          <View style={styles.options}>
-            {contactOptions.map((option, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.option}
-                onPress={() => openContact(option.action)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.icon}>
-                  <Ionicons
-                    name={option.icon}
-                    size={24}
-                    color={palette.accent}
-                  />
-                </View>
-                <View style={styles.optionContent}>
-                  <Txt variant="h3">{option.title}</Txt>
-                  <Txt variant="small" style={styles.optionDescription}>
-                    {option.description}
-                  </Txt>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={20}
-                  color={palette.muted}
+            <View style={styles.form}>
+              <View style={styles.frow}>
+                <Field label={c.nameL} value={name} onChangeText={setName} />
+                <Field
+                  label={c.emailL}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
                 />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+              </View>
+              <Field label={c.msgL} value={msg} onChangeText={setMsg} multiline />
+              <Button
+                title={c.send}
+                variant="primary"
+                onPress={() => setSent(true)}
+                style={styles.sendBtn}
+              />
+              {sent && (
+                <Txt variant="small" style={styles.sent} accessibilityRole="alert">
+                  {c.sent}
+                </Txt>
+              )}
+            </View>
 
-        <View style={styles.section}>
-          <Txt variant="title">Business Hours</Txt>
-          <View style={styles.hours}>
-            <View style={styles.day}>
-              <Txt variant="small" style={styles.dayName}>Sunday - Thursday</Txt>
-              <Txt variant="small" style={styles.dayTime}>9:00 AM - 6:00 PM</Txt>
-            </View>
-            <View style={styles.day}>
-              <Txt variant="small" style={styles.dayName}>Friday</Txt>
-              <Txt variant="small" style={styles.dayTime}>9:00 AM - 4:00 PM</Txt>
-            </View>
-            <View style={styles.day}>
-              <Txt variant="small" style={styles.dayName}>Saturday</Txt>
-              <Txt variant="small" style={styles.dayTime}>Closed</Txt>
-            </View>
+            <Txt variant="small" tone="muted" style={styles.waT}>
+              {c.waT}{" "}
+              <Txt
+                variant="small"
+                tone="accent"
+                style={{ fontWeight: "700" }}
+                onPress={() => void Linking.openURL(WA).catch(() => {})}
+              >
+                WhatsApp
+              </Txt>
+            </Txt>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Txt variant="title">Frequently Asked Questions</Txt>
-          <View style={styles.faq}>
-            <View style={styles.question}>
-              <Txt variant="h3">What courses do you offer?</Txt>
-              <Txt variant="small" style={styles.answer}>
-                We offer a wide range of courses including programming (Python, JavaScript), 
-                data science, robotics, and CAD/SolidWorks. Check our courses page for a 
-                complete list.
-              </Txt>
-            </View>
-            <View style={styles.question}>
-              <Txt variant="h3">How do I enroll in a course?</Txt>
-              <Txt variant="small" style={styles.answer}>
-                Simply browse our courses, select the one you're interested in, and click 
-                the "Enroll Now" button. You'll need to create an account if you don't 
-                already have one.
-              </Txt>
-            </View>
-            <View style={styles.question}>
-              <Txt variant="h3">What payment methods do you accept?</Txt>
-              <Txt variant="small" style={styles.answer}>
-                We accept various payment methods including credit cards, PayPal, and bank 
-                transfers. We also offer installment payment plans for selected courses.
-              </Txt>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.footer}>
-          <Txt variant="small" style={styles.note}>
-            We typically respond to emails within 24 business hours. For urgent matters, 
-            please call us during business hours.
-          </Txt>
-        </View>
-      </ScrollView>
-    </Screen>
+          <Footer />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  root: { flex: 1, backgroundColor: palette.white },
+  wrap: {
+    paddingVertical: 48,
+    paddingHorizontal: 16,
+    maxWidth: 720,
+    width: "100%",
+    alignSelf: "center",
   },
-  content: {
-    padding: 22,
-    paddingBottom: 40,
+  eyebrow: {
+    color: palette.accent,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 14,
+    fontFamily: ktFont(700),
   },
-  header: {
-    marginTop: 22,
-    marginBottom: 32,
-    gap: 8,
-  },
-  subtitle: {
-    color: palette.muted,
-    textAlign: "center",
-  },
-  section: {
-    marginBottom: 28,
-    gap: 16,
-  },
-  options: {
-    gap: 12,
-  },
-  option: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    padding: 16,
-    backgroundColor: palette.surface,
-    borderRadius: 12,
+  form: {
+    marginTop: 32,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.line,
+    backgroundColor: palette.white,
+    padding: 24,
+    gap: 16,
   },
-  icon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: palette.bg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionContent: {
-    flex: 1,
-    gap: 4,
-  },
-  optionDescription: {
-    color: palette.muted,
-  },
-  hours: {
-    gap: 12,
-  },
-  day: {
+  frow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
+    flexWrap: "wrap",
+    gap: 16,
   },
-  dayName: {
-    color: palette.fg,
+  input: {
+    borderWidth: 1,
+    borderColor: "#e2e4e9",
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: ktFont(500),
+    color: "#111",
+    minHeight: 44,
   },
-  dayTime: {
-    color: palette.muted,
+  textarea: {
+    minHeight: 110,
+    textAlignVertical: "top",
   },
-  faq: {
-    gap: 20,
+  sendBtn: {
+    alignSelf: "flex-start",
   },
-  question: {
-    gap: 8,
+  sent: {
+    color: palette.accent,
+    fontWeight: "700",
   },
-  answer: {
-    color: palette.fg,
-    lineHeight: 20,
-  },
-  footer: {
-    alignItems: "center",
-    marginTop: 32,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: palette.line,
-  },
-  note: {
-    color: palette.muted,
+  waT: {
+    marginTop: 24,
     textAlign: "center",
-    maxWidth: 300,
   },
 });
