@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
 import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
 import { setShellWebView } from "../src/shellRef";
+import { WatermarkOverlay } from "../src/watermark";
 
 /** Mobile User-Agent with the shell marker appended (a hint for the API). */
 const USER_AGENT =
@@ -40,6 +41,7 @@ export default function Shell() {
   const insets = useSafeAreaInsets();
   const [canGoBack, setCanGoBack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [identity, setIdentity] = useState("");
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     const data = event.nativeEvent.data;
@@ -66,6 +68,12 @@ export default function Shell() {
       onWebMessage((message) => {
         if (message.type === "playVideo") {
           router.push(`/player?lessonId=${encodeURIComponent(message.lessonId)}` as never);
+        }
+        if (message.type === "watermark") {
+          // The identity the native layer floats over the playback.
+          setIdentity(
+            message.email + (message.phoneLast4 ? ` · ${message.phoneLast4}` : ""),
+          );
         }
       }),
     [],
@@ -128,6 +136,9 @@ export default function Shell() {
         setSupportMultipleWindows={false}
         style={styles.web}
       />
+      {/* The identity floats over whatever the page plays (including a
+          third-party frame) — drawn by the native layer, not the page. */}
+      <WatermarkOverlay identity={identity} />
       {refreshing ? (
         <View style={styles.loader} pointerEvents="none">
           <ActivityIndicator size="small" color="#6E4E9C" />

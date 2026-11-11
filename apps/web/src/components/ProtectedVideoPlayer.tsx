@@ -167,9 +167,6 @@ export function ProtectedVideoPlayer({
   useEffect(() => {
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     let alive = true;
-    // In the native shell the grant is requested by the native side, not by
-    // the page (one grant per playback, counted server-side).
-    if (native) return;
     setGrant(null);
     setOver(false);
     setReady(false);
@@ -271,6 +268,28 @@ export function ProtectedVideoPlayer({
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
   const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
+  // A source the native player can play directly (mp4 / HLS). Drive and
+  // YouTube are web embeds — Google's own frame is the only place they may
+  // play (PRODUCT-RULES), so they stay in the page and the native layer
+  // protects the window around them instead.
+  const nativelyPlayable = embedUrl !== null && !isYt && !isDrive;
+
+  // The native shell floats the student's identity over the playback. The
+  // page already knows it from the server grant, so it hands it over — the
+  // native side never asks for a second grant (that would burn a view).
+  useEffect(() => {
+    if (!native || !grant) return;
+    bridgeSend({
+      v: 1,
+      type: "watermark",
+      email: grant.email,
+      phoneLast4: grant.phoneLast4,
+    });
+    // When the player goes away the native layer drops the overlay again.
+    return () => {
+      bridgeSend({ v: 1, type: "watermark", email: "", phoneLast4: "" });
+    };
+  }, [native, grant]);
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -827,9 +846,13 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  // Inside the native shell the lesson is played by the native player: the
-  // page only asks native to start it (no media element, no embed URL).
-  if (native) {
+  // Inside the native shell:
+  //  - a source the native player understands (mp4 / HLS) is played by the
+  //    native player — the page never sees a media URL;
+  //  - Drive / YouTube keep playing inside Google's own frame (the rules
+  //    forbid touching it), and the native layer protects the window around
+  //    it (FLAG_SECURE, watermark) instead of replacing the player.
+  if (native && nativelyPlayable) {
     return (
       <div
         className="pvp relative aspect-video w-full overflow-hidden rounded-[20px]"

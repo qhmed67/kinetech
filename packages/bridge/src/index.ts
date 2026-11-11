@@ -14,7 +14,13 @@ export type WebToNative =
   | { v: 1; type: "playVideo"; lessonId: string }
   | { v: 1; type: "authCode"; code: string }
   | { v: 1; type: "logout" }
-  | { v: 1; type: "downloadLesson"; lessonId: string };
+  | { v: 1; type: "downloadLesson"; lessonId: string }
+  /**
+   * The identity the native layer floats over the playback (the page got it
+   * from the server grant — the native side never asks for it again, so no
+   * extra view is burned).
+   */
+  | { v: 1; type: "watermark"; email: string; phoneLast4: string };
 
 export type NativeToWeb =
   | { v: 1; type: "playerClosed"; lessonId: string; progressSec: number }
@@ -63,6 +69,10 @@ export function parseMessage(raw: unknown): BridgeMessage | null {
         : null;
     case "authCode":
       return isNonEmptyString(data.code) ? { v: 1, type, code: data.code } : null;
+    case "watermark":
+      return typeof data.email === "string" && typeof data.phoneLast4 === "string"
+        ? { v: 1, type, email: data.email, phoneLast4: data.phoneLast4 }
+        : null;
     case "logout":
       return { v: 1, type };
     case "playerClosed":
@@ -94,7 +104,8 @@ export function isWebToNative(message: BridgeMessage): message is WebToNative {
     message.type === "playVideo" ||
     message.type === "authCode" ||
     message.type === "logout" ||
-    message.type === "downloadLesson"
+    message.type === "downloadLesson" ||
+    message.type === "watermark"
   );
 }
 
