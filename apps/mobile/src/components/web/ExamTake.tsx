@@ -82,7 +82,9 @@ export function ExamTake({
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
-      <View style={styles.overlay} accessibilityRole="dialog">
+      {/* RN has no "dialog" accessibility role (Android throws "Invalid
+          accessibility role value") — the modal is announced via its label. */}
+      <View style={styles.overlay} accessibilityViewIsModal>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={styles.panel}>
           <View style={styles.head}>

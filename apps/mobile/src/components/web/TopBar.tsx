@@ -135,7 +135,10 @@ export function TopBar() {
 
   return (
     <View>
-      <View style={[styles.topnav, { paddingTop: insets.top > 0 ? 0 : 8 }]}>
+      {/* Web .topnav-inner padding-block: 12px — the phone needs the status
+          bar inset on top of that, otherwise the logo/EN/burger sit glued
+          to the system bar. */}
+      <View style={[styles.topnav, { paddingTop: insets.top + 12 }]}>
         <View style={[styles.inner, rtl && styles.innerLTR]}>
           <Pressable onPress={() => go("/")} style={styles.brandlock} accessibilityRole="link">
             <Image source={LOGO} style={styles.logo} />
@@ -250,7 +253,10 @@ export function TopBar() {
               drawerTranslate,
               { paddingTop: 20 + insets.top },
             ]}
-            accessibilityRole="dialog"
+            // RN has no "dialog" accessibility role (Android throws
+            // "Invalid accessibility role value") — the drawer is announced
+            // through its label + view semantics instead.
+            accessibilityViewIsModal
           >
             <View style={styles.drawerHead}>
               <Wordmark size={17} />
