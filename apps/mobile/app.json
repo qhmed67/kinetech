@@ -34,6 +34,17 @@
         "expo-dev-client",
         {}
       ]
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "3d9573b0-bdc0-4f3a-bfa6-8829c092707f"
+      }
+    },
+    "owner": "qhmed67"
   }
 }
