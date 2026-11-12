@@ -16,6 +16,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 ## Mobile (Android / iOS)
 
+- **Owner task list:** `docs/mobile/OWNER-TASKS.md` (private, untracked) — every step that needs the owner, in order, with the exact commands.
 - **Architecture (2026-11-11):** hybrid shell — the web app is the only UI (WebView), native owns the player/protection/storage. Plan: `2027-architecture.md`. The React Native UI rewrite is CANCELLED; the port is archived under tag `mobile-rn-ui-port` / branch `backup/mobile-rn-ui-port` (SHA `785d081`). `apps/mobile` is now the empty shell scaffold (EAS project `3d9573b0-bdc0-4f3a-bfa6-8829c092707f`).
 - Last stable: tag `mobile-stable-v1.0.0`, SHA `051e06f`, date 2026-11-11, branch `main`. Verified: mobile `tsc --noEmit` clean; mobile jest 9/9; web `tsc -b` clean; `test:unit` 119/119; `vite build` green; hex grep clean outside tokens.
 - Phase 6b–8 (verified, merged to main): SHA `051e06f`, date 2026-11-11, branch `main`. EAS profiles; dashboard/courses/watch screens restored; auth consolidated (authDb.ts + AuthProvider); ErrorBoundary + offline banner; token-only colors; mobile tests 9/9.
