@@ -117,6 +117,17 @@ describe("video worker", () => {
     expect(await res.text()).toBe("0123456789abcdef");
   });
 
+  it("refuses the key route without a valid token", async () => {
+    const res = await handleRequest(
+      new Request(`https://worker.test/v/${LESSON}/key`),
+      env(),
+    );
+    expect(res.status).toBe(403);
+    const forged = await tokenFor(LESSON);
+    const tampered = `${forged.slice(0, -3)}AAA`;
+    expect((await get(`/v/${LESSON}/key`, tampered)).status).toBe(403);
+  });
+
   it("refuses a token issued for another lesson", async () => {
     const token = await tokenFor(OTHER_LESSON);
     const res = await get(`/v/${LESSON}/index.m3u8`, token);

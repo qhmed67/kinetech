@@ -87,8 +87,8 @@ async function workerPlaylistUrl(
   userId: string,
   deviceId: string,
 ): Promise<string | null> {
-  const secret = getEnvVar("PLAYBACK_GRANT_SECRET");
-  const workerUrl = getEnvVar("VIDEO_WORKER_URL").replace(/\/+$/, "");
+  const secret = getEnvVar("GRANT_SECRET");
+  const workerUrl = getEnvVar("VIDEO_WORKER_BASE_URL").replace(/\/+$/, "");
   if (secret === "" || workerUrl === "") return null;
   const now = Math.floor(Date.now() / 1000);
   const token = await signPlaybackGrant(
@@ -106,6 +106,16 @@ function kindOf(record: { source?: string | null; srcUrl?: string | null }): "r2
   }
   const marker = (record.srcUrl ?? "").trim().toLowerCase();
   return marker.startsWith("r2:") ? "r2" : "drive";
+}
+
+/** The media id inside the R2 bucket. The marker 'r2:<mediaId>' names it
+ *  (the video row id is a uuid, the media path may be any id — e.g. a test
+ *  lesson uploaded as 'test-001'). The token and the URL both use it. */
+function mediaIdOf(record: { src_url?: string | null }, fallback: string): string {
+  const marker = (record.src_url ?? "").trim();
+  const match = /^r2:(.+)$/i.exec(marker);
+  const id = match ? match[1].trim() : "";
+  return id !== "" ? id : fallback;
 }
 
 type PlaybackErrorCode =
@@ -174,6 +184,21 @@ function readEnv(): Env | null {
   if (url === "" || anonKey === "" || serviceKey === "") return null;
   return { url, anonKey, serviceKey };
 }
+
+/* Fail loudly at start-up when the playback delivery is not configured: a
+ * missing secret or base URL must not look like "the student has no access". */
+function assertVideoConfig(): void {
+  const missing: string[] = [];
+  if (getEnvVar("GRANT_SECRET") === "") missing.push("GRANT_SECRET");
+  if (getEnvVar("VIDEO_WORKER_BASE_URL") === "") missing.push("VIDEO_WORKER_BASE_URL");
+  if (missing.length > 0) {
+    logError(
+      `[api/playback] FATAL: missing server env ${missing.join(", ")} — ` +
+        "R2 playback is disabled until they are set (see .env.example)",
+    );
+  }
+}
+assertVideoConfig();
 
 function logError(tag: string): void {
   try {
@@ -433,7 +458,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const kind = kindOf(record);
 
   if (kind === "r2") {
-    const url = await workerPlaylistUrl(videoId, authData.user.id, deviceId);
+    // The media id comes from the 'r2:<mediaId>' marker (the R2 path is
+    // keyed by it; the video row id stays the uuid the DB uses).
+    const url = await workerPlaylistUrl(
+      mediaIdOf(record, videoId),
+      authData.user.id,
+      deviceId,
+    );
     if (!url) return fail(res, "SERVER_ERROR", "worker-not-configured");
     await auditPlayback(admin, authData.user.id, videoId, ip, ua);
     return grantResponse(res, url, tokenExpiry(), play, deviceId);

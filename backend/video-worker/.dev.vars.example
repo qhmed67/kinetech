@@ -1,0 +1,13 @@
+# Local secrets for `wrangler dev` / `wrangler pages dev`.
+# Copy to `.dev.vars` (git-ignored) and fill in the real values.
+#
+#   cp .dev.vars.example .dev.vars
+#
+# GRANT_SECRET must be the SAME value the server uses to sign the playback
+# tokens (Vercel env: GRANT_SECRET). Generate one with:
+#
+#   openssl rand -hex 32
+#
+# Never commit .dev.vars.
+
+GRANT_SECRET="paste_a_local_secret_here"

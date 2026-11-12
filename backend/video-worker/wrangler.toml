@@ -2,6 +2,12 @@ name = "kinetech-video"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
 
+# The Worker is published on the workers.dev domain (the R2 bucket itself
+# stays PRIVATE — this is the Worker's own address, not a public bucket URL).
+workers_dev = true
+# Preview URLs are off: every request must carry a playback token.
+preview_urls = false
+
 # The R2 bucket holds the encrypted HLS lessons. It is PRIVATE: the only way
 # in is through this Worker, and only with a valid playback token.
 [[r2_buckets]]
@@ -10,9 +16,8 @@ bucket_name = "kinetech"
 
 # Secrets are NOT in this file. Set them with:
 #   npx wrangler secret put GRANT_SECRET
-# The same value must exist in the app server (Vercel) as
-# PLAYBACK_GRANT_SECRET, because the server signs the tokens this Worker
-# verifies.
+# The same value must exist on the app server (Vercel) as GRANT_SECRET,
+# because the server signs the tokens this Worker verifies.
 #
 # Optional: keep the previous secret for a while so tokens issued before a
 # rotation still work.

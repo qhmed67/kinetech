@@ -35,13 +35,15 @@ const FREE_TIER_GB = 10;
 const WARN_AT_GB = 8;
 
 function parseArgs(argv) {
-  const args = { bucket: "kinetech", currentGb: 0 };
+  const args = { bucket: "kinetech", currentGb: 0, local: false, persistTo: "" };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--lesson") args.lesson = argv[++i];
     else if (arg === "--input") args.input = argv[++i];
     else if (arg === "--bucket") args.bucket = argv[++i];
     else if (arg === "--current-gb") args.currentGb = Number(argv[++i]);
+    else if (arg === "--local") args.local = true;
+    else if (arg === "--persist-to") args.persistTo = argv[++i];
     else if (arg === "--help" || arg === "-h") args.help = true;
     else {
       console.error(`Unknown argument: ${arg}`);
@@ -60,6 +62,10 @@ Options:
   --input <file.mp4>   the source video
   --bucket <name>      R2 bucket (default: kinetech)
   --current-gb <n>     current bucket usage in GB (optional, for the warning)
+  --local              upload to the LOCAL R2 simulation (wrangler dev), not the
+                       real bucket
+  --persist-to <dir>   the local store directory (must match the one your
+                       'wrangler dev --persist-to <dir>' uses)
 `);
 }
 
@@ -106,7 +112,11 @@ if (!existsSync(input)) fail(`input file not found: ${input}`);
 // ffmpeg is required.
 const ffmpeg = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" });
 if (ffmpeg.error || ffmpeg.status !== 0) {
-  fail("ffmpeg is required (install it, then run this script again)");
+  fail(
+    "ffmpeg is required but was not found.\n" +
+      "  Ubuntu/Debian: sudo apt update && sudo apt install -y ffmpeg\n" +
+      "  macOS: brew install ffmpeg",
+  );
 }
 
 const lessonDir = join(WORK_ROOT, lessonId);
@@ -143,6 +153,7 @@ const segmentPattern = join(segDir, "seg%05d.ts");
 console.log(`\n▸ Encoding ${lessonId}`);
 console.log(`  source   ${input}`);
 console.log(`  720p H.264/AAC · ~1.5 Mbps · 10s segments · AES-128 (fresh key)`);
+console.log(`  (HLS output: no 'faststart' atom needed — the playlist starts the first segment immediately)`);
 
 run("ffmpeg", [
   "-y",
@@ -175,6 +186,15 @@ if (!existsSync(playlistPath)) fail("ffmpeg produced no playlist");
 // Upload: playlist, segments, then the key into the private prefix.
 function put(objectPath, file, contentType) {
   console.log(`  → ${objectPath}`);
+  const target = args.local
+    ? ["--local"]
+    : [
+        // --remote is required: without it wrangler writes to its LOCAL store.
+        "--remote",
+      ];
+  // The local store must be the SAME one `wrangler dev` uses, otherwise the
+  // running Worker cannot see the objects.
+  const persist = args.persistTo ? ["--persist-to", args.persistTo] : [];
   run("npx", [
     "wrangler",
     "r2",
@@ -183,8 +203,8 @@ function put(objectPath, file, contentType) {
     `${args.bucket}/${objectPath}`,
     "--file",
     file,
-    // --remote is required: without it wrangler writes to its LOCAL store.
-    "--remote",
+    ...target,
+    ...persist,
     "--content-type",
     contentType,
   ]);
