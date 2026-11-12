@@ -38,6 +38,10 @@ playwright/.cache/
 *.sln
 *.sw?
 
+# Generated native projects (Continuous Native Generation — never committed)
+apps/mobile/android/
+apps/mobile/ios/
+
 # Cloudflare Worker: local secrets for `wrangler dev` (never commit)
 backend/video-worker/.dev.vars
 backend/video-worker/.wrangler/

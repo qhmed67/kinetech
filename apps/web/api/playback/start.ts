@@ -130,6 +130,7 @@ type PlaybackErrorCode =
   | "VIDEO_MISSING"
   | "NO_PROFILE"
   | "NATIVE_UNSUPPORTED_SOURCE"
+  | "DEVICE_LIMIT"
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
   | "BAD_REQUEST";
@@ -146,6 +147,7 @@ const PLAYBACK_ERRORS: Record<PlaybackErrorCode, { status: number; ar: string; e
   VIDEO_MISSING: { status: 404, ar: "ملف الفيديو غير مرفق بعد.", en: "Video file not attached yet." },
   NO_PROFILE: { status: 403, ar: "الحساب غير مكتمل. تواصل مع الدعم.", en: "Account incomplete. Contact support." },
   NATIVE_UNSUPPORTED_SOURCE: { status: 415, ar: "الدرس ده مش متاح في التطبيق بعد. تابعه من الموقع.", en: "This lesson isn't available in the app yet — watch it on the website." },
+  DEVICE_LIMIT: { status: 403, ar: "الحساب ده مسجل على أجهزة كتير. سجّل الخروج من جهاز قديم وحاول تاني.", en: "This account is active on too many devices. Sign out on an old device and try again." },
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
   BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
@@ -284,6 +286,63 @@ function safeJson(text: string): unknown {
   }
 }
 
+/** How many devices may play for one account at the same time. */
+const MAX_DEVICES = 2;
+/** A device that has not played for this long is forgotten. */
+const DEVICE_WINDOW_DAYS = 30;
+
+/** Minimal view of the two queries the device limit needs. */
+type DeviceLimitDb = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        gte: (
+          column: string,
+          value: string,
+        ) => PromiseLike<{ data?: unknown; error?: unknown }>;
+      };
+    };
+    upsert: (
+      row: Record<string, unknown>,
+      options: { onConflict: string },
+    ) => PromiseLike<{ error?: { message?: string } | null }>;
+  };
+};
+
+/**
+ * Record the device and refuse when the account is spread too wide.
+ * The table is optional: before the migration is applied the limit is simply
+ * skipped (the lesson still plays) — the server logs that once.
+ */
+async function checkDeviceLimit(
+  admin: DeviceLimitDb,
+  userId: string,
+  deviceId: string,
+): Promise<boolean> {
+  try {
+    const { error: upsertError } = await admin.from("playback_devices").upsert(
+      { user_id: userId, device_id: deviceId, last_seen: new Date().toISOString() },
+      { onConflict: "user_id,device_id" },
+    );
+    if (upsertError) {
+      // The table does not exist yet (migration not applied) -> no limit.
+      logError("[api/playback] device limit skipped (playback_devices missing)");
+      return true;
+    }
+    const since = new Date(Date.now() - DEVICE_WINDOW_DAYS * 24 * 3600 * 1000).toISOString();
+    const result = (await admin
+      .from("playback_devices")
+      .select("device_id")
+      .eq("user_id", userId)
+      .gte("last_seen", since)) as { data?: unknown; error?: unknown };
+    if (result.error) return true;
+    const devices = (Array.isArray(result.data) ? result.data : []) as { device_id?: string }[];
+    return devices.length <= MAX_DEVICES;
+  } catch {
+    return true;
+  }
+}
+
 type PlayResult = {
   email: string;
   phone_last4: string;
@@ -396,6 +455,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     }
     return fail(res, "SESSION_MISMATCH");
   }
+
+  // Device limit — checked BEFORE the gate so a refused device does not burn a view.
+  const deviceAllowed = await checkDeviceLimit(
+    admin as unknown as DeviceLimitDb,
+    authData.user.id,
+    deviceId,
+  );
+  if (!deviceAllowed) return fail(res, "DEVICE_LIMIT");
 
   // The gate: entitlement, view cap, rate limits, watermark identity.
   const { data: playRows, error: rpcError } = await userClient.rpc("request_play", {

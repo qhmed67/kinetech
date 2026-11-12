@@ -110,6 +110,7 @@ type PlaybackErrorCode =
   | "NOT_FOUND"
   | "VIDEO_MISSING"
   | "NATIVE_UNSUPPORTED_SOURCE"
+  | "DEVICE_LIMIT"
   | "NO_GRANT"
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
@@ -123,6 +124,7 @@ const PLAYBACK_ERRORS: Record<PlaybackErrorCode, { status: number; ar: string; e
   NOT_FOUND: { status: 404, ar: "الفيديو غير موجود.", en: "Video not found." },
   VIDEO_MISSING: { status: 404, ar: "ملف الفيديو غير مرفق بعد.", en: "Video file not attached yet." },
   NATIVE_UNSUPPORTED_SOURCE: { status: 415, ar: "الدرس ده مش متاح في التطبيق بعد. تابعه من الموقع.", en: "This lesson isn't available in the app yet — watch it on the website." },
+  DEVICE_LIMIT: { status: 403, ar: "الحساب ده مسجل على أجهزة كتير. سجّل الخروج من جهاز قديم وحاول تاني.", en: "This account is active on too many devices. Sign out on an old device and try again." },
   NO_GRANT: { status: 403, ar: "ابدأ الدرس من جديد.", en: "Start the lesson again." },
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },

@@ -35,7 +35,8 @@
         {}
       ],
       "expo-status-bar",
-      "expo-video"
+      "expo-video",
+      "./plugins/withSecureScreen"
     ],
     "extra": {
       "router": {
