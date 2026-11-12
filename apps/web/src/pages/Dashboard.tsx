@@ -358,25 +358,11 @@ export function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, hasCourses]);
 
-  if (!user) return null;
-
-  if (user.banned) {
-    return (
-      <main id="content" className="section">
-        <div className="kt-wrap" style={{ maxWidth: 560 }}>
-          <div className="rounded-[20px] border bg-white p-8 text-center" style={{ borderColor: "#B3261E" }}>
-            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)", color: "#B3261E" }}>{d.bannedT}</p>
-            <p className="mx-auto mt-1 max-w-md text-sm" style={{ color: "var(--muted)" }}>{d.bannedD}</p>
-            <a href={WA} className="btn btn-primary mt-5">WhatsApp</a>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   // Admin-granted enrollments only (WhatsApp payment verified by staff).
   const enrolledSlugs = (user?.enrolled ?? []).filter(courseExists);
-  const work = courseWork({ ...user, enrolled: enrolledSlugs }, lang);
+  // `user` can still be null on the first render (the hook must stay
+  // unconditional), so the coursework map is built only when we have a user.
+  const work = user ? courseWork({ ...user, enrolled: enrolledSlugs }, lang) : null;
   // Structured lesson work (real exams/assignments): todo → solve in the
   // lesson, pending → waiting for review, graded → open the review.
   const [lessonWork, setLessonWork] = useState<Record<string, LessonWork[]>>({});
@@ -453,6 +439,23 @@ export function Dashboard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, enrolledSlugs.join(","), lang]);
+
+  if (!user) return null;
+
+  if (user.banned) {
+    return (
+      <main id="content" className="section">
+        <div className="kt-wrap" style={{ maxWidth: 560 }}>
+          <div className="rounded-[20px] border bg-white p-8 text-center" style={{ borderColor: "#B3261E" }}>
+            <p className="text-lg font-bold" style={{ fontFamily: "var(--font-display)", color: "#B3261E" }}>{d.bannedT}</p>
+            <p className="mx-auto mt-1 max-w-md text-sm" style={{ color: "var(--muted)" }}>{d.bannedD}</p>
+            <a href={WA} className="btn btn-primary mt-5">WhatsApp</a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const progBySlug = new Map(
     enrolledSlugs.map((s) => [s, serverProg[s] ?? courseProgress(user, s)]),
   );
@@ -749,7 +752,7 @@ export function Dashboard({
                   lessonWork={lessonWork}
                   emptyTitle={d.examsT}
                   emptyDesc={d.emptyWork}
-                  legacy={work.exams.map((ex) => ({ key: ex.key, title: ex.title, sub: ex.course, href: ex.href, external: true }))}
+                  legacy={(work?.exams ?? []).map((ex) => ({ key: ex.key, title: ex.title, sub: ex.course, href: ex.href, external: true }))}
                 />
               )
             )}
@@ -764,7 +767,7 @@ export function Dashboard({
                   lessonWork={lessonWork}
                   emptyTitle={d.assignT}
                   emptyDesc={d.emptyWork}
-                  legacy={work.assignments.map((a) => {
+                  legacy={(work?.assignments ?? []).map((a) => {
                     const external = /^(https?:|data:|blob:)/.test(a.href);
                     return { key: a.key, title: a.title, sub: a.course, href: a.href, external };
                   })}
