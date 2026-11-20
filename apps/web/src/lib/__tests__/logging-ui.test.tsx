@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Component, type ReactNode } from "react";
 
-import { log, newCorrelationId, withCorrelation } from "../logger";
+import { flushLogs, log, newCorrelationId, resetLogShipping, withCorrelation } from "../logger";
 import { apiFetch } from "../http";
 import { installGlobalErrorHandlers } from "../globalErrors";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  resetLogShipping();
 });
 
 describe("client logging context (13.6.4)", () => {
@@ -156,6 +157,45 @@ describe("global errors and boundary (13.6.4)", () => {
     } finally {
       restore();
       reactError.mockRestore();
+    }
+  });
+});
+
+describe("error shipping (13.6.5)", () => {
+  function mockBeacon() {
+    const beacon = vi.fn().mockReturnValue(true);
+    Object.defineProperty(globalThis.navigator, "sendBeacon", { value: beacon, configurable: true });
+    return beacon;
+  }
+
+  it("batches warn/error lines to /api/log and rate limits", async () => {
+    const beacon = mockBeacon();
+    const info = vi.spyOn(globalThis.console, "info").mockImplementation(() => {});
+    try {
+      log("error", "ui.request.end", "POST /api/play: HTTP 500", {
+        module: "ui.http",
+        ctx: { route: "/api/play", token: "secret" },
+        error: { code: "SYS_001", type: "Error", message: "boom" },
+      });
+      log("info", "ui.request.start", "not shipped", { module: "ui.http" });
+      await Promise.resolve(); // microtask batching
+
+      expect(beacon).toHaveBeenCalledTimes(1);
+      const [path, blob] = beacon.mock.calls[0] as [string, Blob];
+      expect(path).toBe("/api/log");
+      expect(blob.type).toBe("application/json");
+      const payload = JSON.parse(await blob.text()) as { logs: Array<Record<string, unknown>> };
+      expect(payload.logs).toHaveLength(1);
+      expect(payload.logs[0].event).toBe("ui.request.end");
+      expect(JSON.stringify(payload)).not.toContain("secret");
+
+      log("warn", "ui.request.end", "again", { module: "ui.http" });
+      await Promise.resolve();
+      expect(beacon).toHaveBeenCalledTimes(1); // throttled
+      expect(flushLogs()).toBe(0);
+      expect(info).toHaveBeenCalled();
+    } finally {
+      info.mockRestore();
     }
   });
 });

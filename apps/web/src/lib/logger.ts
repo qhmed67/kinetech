@@ -1,6 +1,6 @@
-// Client logger — step 13.6.3. Emits the docs/LOGGING.md JSONL schema.
-// Step 4 extends this module with request-id context and batch shipping;
-// for now the sink is stdout only. Never throws, never logs row data.
+// Client logger — emits the docs/LOGGING.md JSONL schema.
+// stdout is the local sink; warn/error lines are also batched to POST /api/log
+// with navigator.sendBeacon. Never throws, never logs row data.
 
 export type Level = "debug" | "info" | "warn" | "error" | "fatal";
 export type LogError = { code: string; type: string; message: string };
@@ -32,6 +32,60 @@ export async function withCorrelation<T>(id: string, fn: () => T | Promise<T>): 
     return await fn();
   } finally {
     currentId = previous;
+  }
+}
+
+// --- error shipping (warn + error + fatal only) ----------------------------
+const SHIP_PATH = "/api/log";
+const SHIP_INTERVAL_MS = 5000;
+const SHIP_BATCH = 20;
+const SHIP_BUFFER_MAX = 100;
+const SHIP_LEVELS = new Set<Level>(["warn", "error", "fatal"]);
+let pending: string[] = [];
+let lastShip = 0;
+let shipScheduled = false;
+
+function scheduleShip(): void {
+  if (shipScheduled) return;
+  shipScheduled = true;
+  queueMicrotask(() => {
+    shipScheduled = false;
+    flushLogs();
+  });
+}
+
+/** Ships at most one batch per interval. Returns lines sent. Never throws. */
+export function flushLogs(): number {
+  if (pending.length === 0) return 0;
+  const now = Date.now();
+  if (now - lastShip < SHIP_INTERVAL_MS) return 0;
+  const batch = pending.splice(0, SHIP_BATCH);
+  lastShip = now;
+  try {
+    const nav = globalThis.navigator as { sendBeacon?: (url: string, data: Blob) => boolean } | undefined;
+    if (typeof nav?.sendBeacon === "function") {
+      const payload = JSON.stringify({ logs: batch.map((line) => JSON.parse(line) as unknown) });
+      nav.sendBeacon(SHIP_PATH, new Blob([payload], { type: "application/json" }));
+    }
+  } catch {
+    /* shipping must never break the app */
+  }
+  return batch.length;
+}
+
+/** Test/session hook: drops buffered lines and the rate-limit clock. */
+export function resetLogShipping(): void {
+  pending = [];
+  lastShip = 0;
+}
+
+if (typeof window !== "undefined") {
+  try {
+    window.addEventListener("pagehide", () => {
+      void flushLogs();
+    });
+  } catch {
+    /* no window APIs — skip */
   }
 }
 
@@ -96,6 +150,11 @@ export function log(
     if (options.error) record.error = { ...options.error, message: scrub(options.error.message) };
     const line = JSON.stringify(record);
     (globalThis as unknown as { console?: { info?: (text: string) => void } }).console?.info?.(line); // allow-print
+    if (SHIP_LEVELS.has(level)) {
+      pending.push(line);
+      if (pending.length > SHIP_BUFFER_MAX) pending.splice(0, pending.length - SHIP_BUFFER_MAX);
+      scheduleShip();
+    }
   } catch {
     /* logging must never break the app */
   }
