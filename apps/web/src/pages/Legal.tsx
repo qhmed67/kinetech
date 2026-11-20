@@ -1,6 +1,14 @@
 import { useLang } from "../components/lang";
 
-function Shell({ title, paragraphs }: { title: string; paragraphs: string[] }) {
+function Shell({
+  title,
+  paragraphs,
+  pending = true,
+}: {
+  title: string;
+  paragraphs: string[];
+  pending?: boolean;
+}) {
   const { t } = useLang();
   return (
     <main id="content" className="section">
@@ -14,7 +22,7 @@ function Shell({ title, paragraphs }: { title: string; paragraphs: string[] }) {
             fontFamily: "var(--font-display)",
           }}
         >
-          {t.legal.pending}
+          {pending ? t.legal.pending : t.legal.updated}
         </p>
         {paragraphs.map((p) => (
           <p key={p.slice(0, 24)} className="lead mt-5">
@@ -37,7 +45,7 @@ function Shell({ title, paragraphs }: { title: string; paragraphs: string[] }) {
 
 export function Privacy() {
   const { t } = useLang();
-  return <Shell title={t.legal.privacyT} paragraphs={t.legal.pP} />;
+  return <Shell title={t.legal.privacyT} paragraphs={t.legal.pP} pending={false} />;
 }
 
 export function Terms() {

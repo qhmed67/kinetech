@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { courseExists, getCourse, getVideos, useContent } from "../store";
 import type { ExamKind, LessonWork, WorkItemState } from "../lib/db/examsDb";
 import { ExamTake } from "../components/ExamTake";
@@ -228,6 +228,10 @@ export function Dashboard({
   useContent();
   const [tracks, setTracks] = useState<string[]>(user?.tracks ?? ["courses"]);
   const [modal, setModal] = useState<Track | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   // Spaces can change under us (bootstrap adopting server tracks after the
   // first paint) — resync instead of freezing the first snapshot.
@@ -439,6 +443,40 @@ export function Dashboard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, enrolledSlugs.join(","), lang]);
+
+  const confirmDelete = useCallback(async () => {
+    if (deleteBusy || deleteText !== "DELETE") return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      const { supabase } = await import("../lib/db/client");
+      const sb = supabase();
+      const session = sb ? await sb.auth.getSession() : null;
+      const token = session?.data?.session?.access_token ?? "";
+      if (token === "") throw new Error("session");
+      const response = await fetch("/api/account-delete", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ confirm: "DELETE" }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        en?: string;
+      } | null;
+      if (!response.ok || data?.ok !== true) {
+        setDeleteError(data?.en ?? d.deleteError);
+        return;
+      }
+      onSignout();
+    } catch {
+      setDeleteError(d.deleteError);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [deleteBusy, deleteText, d.deleteError, onSignout]);
 
   if (!user) return null;
 
@@ -814,6 +852,21 @@ export function Dashboard({
                   <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{d.langL}</h3>
                   <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>{d.settingsNote}</p>
                 </div>
+                <div className="rounded-[20px] border bg-white p-6" style={{ borderColor: "var(--kt-line)" }}>
+                  <h3 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>{d.deleteAccount}</h3>
+                  <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>{d.deleteAccountD}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteText("");
+                      setDeleteError("");
+                      setDeleteOpen(true);
+                    }}
+                    className="btn btn-secondary mt-4 self-start"
+                  >
+                    {d.deleteAccount}
+                  </button>
+                </div>
                 <button type="button" onClick={onSignout} className="btn btn-secondary self-start">
                   {t.nav.signout}
                 </button>
@@ -840,6 +893,43 @@ export function Dashboard({
               </button>
               <button type="button" onClick={() => setModal(null)} className="btn btn-secondary flex-1">
                 {d.activateNo}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteOpen && (
+        <div className="fixed inset-0 z-[110] grid place-items-center p-4" role="dialog" aria-modal="true" aria-label={d.deleteAccount}>
+          <div className="absolute inset-0 bg-black/25 backdrop-blur-[6px]" onClick={() => setDeleteOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-[24px] bg-white p-7">
+            <h3 className="text-lg font-bold" style={{ fontFamily: "var(--font-display)" }}>
+              {d.deleteAccount}
+            </h3>
+            <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>{d.deleteConfirm}</p>
+            <input
+              type="text"
+              value={deleteText}
+              onChange={(e) => setDeleteText(e.target.value)}
+              placeholder="DELETE"
+              aria-label={d.deleteType}
+              className="mt-4 w-full rounded-xl border px-3 py-2 text-sm"
+              style={{ borderColor: "var(--kt-line)" }}
+            />
+            {deleteError !== "" && (
+              <p role="alert" className="mt-3 text-sm" style={{ color: "#B42318" }}>{deleteError}</p>
+            )}
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                disabled={deleteBusy || deleteText !== "DELETE"}
+                onClick={() => void confirmDelete()}
+                className="btn btn-primary flex-1 disabled:opacity-60"
+              >
+                {d.deleteYes}
+              </button>
+              <button type="button" onClick={() => setDeleteOpen(false)} className="btn btn-secondary flex-1">
+                {d.cancelDelete}
               </button>
             </div>
           </div>
