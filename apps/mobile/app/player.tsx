@@ -15,6 +15,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
+import { offlineIdentity, offlinePlaylistUri } from "../src/downloads";
+import {
+  getEnvironmentRisk,
+  isScreenCaptured,
+  onCaptureChange,
+  riskReasons,
+} from "../src/environment";
 import { refreshPlayback, requestPlayback } from "../src/playback";
 import { getDeviceId, getSessionToken } from "../src/session";
 import { sendToWeb } from "../src/shellRef";
@@ -29,12 +36,16 @@ const WATERMARK_SPOTS = [
 ] as const;
 
 export default function Player() {
-  const { lessonId } = useLocalSearchParams<{ lessonId?: string }>();
+  const { lessonId, offline } = useLocalSearchParams<{
+    lessonId?: string;
+    offline?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("loading");
   const [message, setMessage] = useState("");
   const [watermark, setWatermark] = useState("");
   const [spot, setSpot] = useState(0);
+  const [captured, setCaptured] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const startedAt = useRef(Date.now());
 
@@ -47,6 +58,36 @@ export default function Player() {
         if (alive) {
           setPhase("error");
           setMessage("Lesson not found.");
+        }
+        return;
+      }
+      // Preflight: an obviously unsafe device never gets a media grant.
+      // A missed check cannot grant access — the server still gates playback.
+      const risk = await getEnvironmentRisk();
+      if (alive && risk.screenCapture) setCaptured(true);
+      const reasons = riskReasons(risk);
+      if (reasons.length > 0) {
+        if (alive) {
+          router.replace(
+            `/blocked?reason=${encodeURIComponent(reasons.join(","))}` as never,
+          );
+        }
+        return;
+      }
+      if (offline === "1") {
+        // Offline copy: no server call, no new view, no URL outside native.
+        const localUri = offlinePlaylistUri(id);
+        if (!localUri) {
+          if (alive) {
+            setPhase("error");
+            setMessage("This lesson is no longer available offline.");
+          }
+          return;
+        }
+        if (alive) {
+          setWatermark(offlineIdentity(id));
+          setUrl(localUri);
+          setPhase("playing");
         }
         return;
       }
@@ -95,6 +136,13 @@ export default function Player() {
     return () => clearInterval(id);
   }, []);
 
+  // iOS: pause and hide the frame whenever a recording / mirroring starts.
+  // Android has no event here: FLAG_SECURE blocks capture at the window level.
+  useEffect(() => {
+    void isScreenCaptured().then((value) => setCaptured(value));
+    return onCaptureChange(setCaptured);
+  }, []);
+
   const player = useVideoPlayer(url, (p) => {
     if (url) p.play();
   });
@@ -102,11 +150,22 @@ export default function Player() {
   const { status } = useEvent(player, "statusChange", { status: player.status });
   const refreshed = useRef(false);
 
+  useEffect(() => {
+    if (captured) player.pause();
+    else if (phase === "playing") player.play();
+  }, [captured, phase, player]);
+
   // Token expiry: the grant is short-lived. When the player errors we renew
   // the token WITHOUT burning another view (the server re-checks the
   // entitlement) and continue where we stopped.
   useEffect(() => {
     if (status !== "error") return;
+    if (offline === "1") {
+      // No server to refresh from while offline — never leak a local path.
+      setPhase("error");
+      setMessage("The saved copy could not be played. Delete and save it again.");
+      return;
+    }
     if (refreshed.current) {
       setPhase("error");
       setMessage("The lesson could not be loaded. Open it again to continue.");
@@ -142,7 +201,7 @@ export default function Player() {
         setMessage("The lesson could not be loaded. Open it again to continue.");
       }
     })();
-  }, [status, lessonId, player]);
+  }, [status, lessonId, offline, player]);
 
   const close = useCallback(() => {
     const progressSec = Math.round((Date.now() - startedAt.current) / 1000);
@@ -179,14 +238,20 @@ export default function Player() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <VideoView
-        player={player}
-        style={styles.video}
-        nativeControls
-        contentFit="contain"
-        fullscreenOptions={{ enable: true }}
-        allowsPictureInPicture={false}
-      />
+      {captured ? (
+        <View style={[styles.video, styles.captureFrame]}>
+          <Text style={styles.captureNote}>Screen recording detected. Playback paused.</Text>
+        </View>
+      ) : (
+        <VideoView
+          player={player}
+          style={styles.video}
+          nativeControls
+          contentFit="contain"
+          fullscreenOptions={{ enable: true }}
+          allowsPictureInPicture={false}
+        />
+      )}
 
       {/* Floating identity watermark — drifts, never shows a URL. */}
       {watermark !== "" ? (
@@ -208,6 +273,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000000" },
   center: { alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   video: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000000" },
+  captureFrame: { alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  captureNote: { color: "#FFFFFF", fontSize: 15, textAlign: "center" },
   watermark: {
     position: "absolute",
     maxWidth: "70%",

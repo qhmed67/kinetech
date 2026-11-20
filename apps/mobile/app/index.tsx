@@ -15,7 +15,9 @@ import {
   BackHandler,
   Linking,
   Platform,
+  Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -23,7 +25,14 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
 import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
-import { setShellWebView } from "../src/shellRef";
+import { downloadLesson } from "../src/downloads";
+import {
+  getEnvironmentRisk,
+  isScreenCaptured,
+  onCaptureChange,
+  riskReasons,
+} from "../src/environment";
+import { sendToWeb, setShellWebView } from "../src/shellRef";
 import { WatermarkOverlay } from "../src/watermark";
 
 /** Mobile User-Agent with the shell marker appended (a hint for the API). */
@@ -42,6 +51,7 @@ export default function Shell() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [identity, setIdentity] = useState("");
+  const [captured, setCaptured] = useState(false);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     const data = event.nativeEvent.data;
@@ -75,6 +85,9 @@ export default function Shell() {
             message.email + (message.phoneLast4 ? ` · ${message.phoneLast4}` : ""),
           );
         }
+        if (message.type === "downloadLesson") {
+          void downloadLesson(message.lessonId);
+        }
       }),
     [],
   );
@@ -83,6 +96,31 @@ export default function Shell() {
   useEffect(() => {
     setShellWebView(webRef.current);
     return () => setShellWebView(null);
+  }, []);
+
+  // One device check per shell load, reported to the page over the bridge.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const reasons = riskReasons(await getEnvironmentRisk());
+      if (!alive) return;
+      sendToWeb({
+        v: 1,
+        type: "deviceStatus",
+        ok: reasons.length === 0,
+        reason: reasons.length > 0 ? reasons.join(",") : undefined,
+      });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // iOS recording / mirroring: cover the WebView so the page cannot render
+  // a lesson while the screen is being captured.
+  useEffect(() => {
+    void isScreenCaptured().then((value) => setCaptured(value));
+    return onCaptureChange(setCaptured);
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -144,6 +182,19 @@ export default function Shell() {
           <ActivityIndicator size="small" color="#6E4E9C" />
         </View>
       ) : null}
+      <Pressable
+        onPress={() => router.push("/downloads" as never)}
+        style={styles.downloadsButton}
+        accessibilityRole="button"
+        accessibilityLabel="Offline downloads"
+      >
+        <Text style={styles.downloadsText}>↓ Offline</Text>
+      </Pressable>
+      {captured ? (
+        <View style={styles.captureOverlay}>
+          <Text style={styles.captureNote}>Screen recording detected. Playback paused.</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -160,4 +211,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  captureOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  captureNote: { color: "#FFFFFF", fontSize: 15, textAlign: "center" },
+  downloadsButton: {
+    position: "absolute",
+    bottom: 12,
+    alignSelf: "center",
+    borderRadius: 999,
+    backgroundColor: "rgba(26,26,26,0.86)",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  downloadsText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
 });

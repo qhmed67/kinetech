@@ -376,6 +376,10 @@ const en = {
     emptyD: "The instructor hasn't added any parts to this course.",
     nativePlay: "Play in the app",
     nativePlayD: "This lesson plays in the KineTech app, where it is protected.",
+    download: "Save offline",
+    downloading: "Saving…",
+    downloaded: "Saved offline",
+    downloadFailed: "Save failed — retry",
   },
   dashboard: {
     title: "My courses",
@@ -1166,6 +1170,10 @@ const ar: Strings = {
     emptyD: "المدرس مضافش أي أجزاء للكورس ده.",
     nativePlay: "شغّل في التطبيق",
     nativePlayD: "الدرس ده بيشتغل في تطبيق KineTech، عشان يكون محمي.",
+    download: "احفظه بدون نت",
+    downloading: "جاري الحفظ…",
+    downloaded: "محفوظ بدون نت",
+    downloadFailed: "الحفظ فشل — جرب تاني",
   },
   dashboard: {
     title: "كورساتي",

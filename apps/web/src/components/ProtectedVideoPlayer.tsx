@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { bridgeSend, isNativeApp } from "../native";
+import { bridgeOn, bridgeSend, isNativeApp } from "../native";
 import { useLang } from "./lang";
 import {
   YT_STATE,
@@ -96,6 +96,17 @@ export function ProtectedVideoPlayer({
   // licence and the watermark). In a browser nothing changes.
   const native = isNativeApp();
   const { t } = useLang();
+  // Offline state comes from the native downloader (ids only — no path/URL).
+  const [downloadState, setDownloadState] = useState<
+    "queued" | "done" | "failed" | null
+  >(null);
+  useEffect(
+    () =>
+      bridgeOn("downloadState", (message) => {
+        if (message.lessonId === videoId) setDownloadState(message.state);
+      }),
+    [videoId],
+  );
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
@@ -896,6 +907,21 @@ export function ProtectedVideoPlayer({
               {t.watch.nativePlayD}
             </span>
           </span>
+        </button>
+        <button
+          type="button"
+          disabled={downloadState === "queued"}
+          onClick={() => bridgeSend({ v: 1, type: "downloadLesson", lessonId: videoId })}
+          className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2"
+          style={{ background: "rgba(26,26,26,0.86)", color: "#fff", fontSize: 12, fontWeight: 700 }}
+        >
+          {downloadState === "queued"
+            ? t.watch.downloading
+            : downloadState === "done"
+              ? t.watch.downloaded
+              : downloadState === "failed"
+                ? t.watch.downloadFailed
+                : t.watch.download}
         </button>
       </div>
     );
