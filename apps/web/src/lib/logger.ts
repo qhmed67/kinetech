@@ -8,6 +8,33 @@ export type LogError = { code: string; type: string; message: string };
 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40, fatal: 50 };
 const SECRET = /(password|token|authorization|cookie|secret|api[-_]?key|email|phone|grant|embedurl|srcurl|playlist|url)/i;
 
+let currentId: string | undefined;
+
+export function newCorrelationId(): string {
+  try {
+    const uuid = globalThis.crypto?.randomUUID?.();
+    if (uuid) return `req_${uuid}`;
+  } catch {
+    /* fall through */
+  }
+  return `req_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function getCorrelationId(): string | undefined {
+  return currentId;
+}
+
+/** Scoped id for the duration of one async action; restores the parent id. */
+export async function withCorrelation<T>(id: string, fn: () => T | Promise<T>): Promise<T> {
+  const previous = currentId;
+  currentId = id;
+  try {
+    return await fn();
+  } finally {
+    currentId = previous;
+  }
+}
+
 function env(name: string): string {
   try {
     const g = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
@@ -63,7 +90,7 @@ export function log(
       module: options.module,
       event,
       msg: scrub(msg),
-      ...(options.correlationId ? { correlation_id: options.correlationId } : {}),
+      ...((options.correlationId ?? currentId) ? { correlation_id: options.correlationId ?? currentId } : {}),
     };
     if (options.ctx) record.ctx = redact(options.ctx);
     if (options.error) record.error = { ...options.error, message: scrub(options.error.message) };

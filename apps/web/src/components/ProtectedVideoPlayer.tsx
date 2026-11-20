@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { bridgeOn, bridgeSend, isNativeApp } from "../native";
 import { useLang } from "./lang";
+import { apiFetch } from "../lib/http";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -215,7 +216,7 @@ export function ProtectedVideoPlayer({
           cbRef.current.onSessionDead();
           return;
         }
-        const r = await fetch("/api/play", {
+        const r = await apiFetch("/api/play", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ video_id: videoId }),

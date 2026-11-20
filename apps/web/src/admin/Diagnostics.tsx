@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLang } from "../components/lang";
 import { BUILD_HASH } from "../build";
 import { isSupabaseConfigured } from "../lib/db/env";
+import { apiFetch } from "../lib/http";
 
 /* One-click system diagnostics: every layer that can silently break a save
    or a play, checked live and reported in plain rows. The admin runs it,
@@ -249,7 +250,7 @@ export function Diagnostics() {
 
       // /api reachability: garbage token must still yield JSON (function alive).
       try {
-        const r = await fetch("/api/session-register", {
+        const r = await apiFetch("/api/session-register", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: "Bearer __probe__" },
           body: "{}",

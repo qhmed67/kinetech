@@ -14,6 +14,7 @@ import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 import { ExamBuilder } from "./ExamBuilder";
 import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "@kinetech/core";
 import { extractYoutubeId, isDriveSource } from "../lib/videoGuard";
+import { apiFetch } from "../lib/http";
 
 function blank(): StoreCourse {
   const lt = { en: "", ar: "" };
@@ -367,7 +368,7 @@ export function CourseForm({ slug }: { slug?: string }) {
       const token = data.session?.access_token;
       if (!token) return null;
       const r = await Promise.race([
-        fetch("/api/drive-minutes", {
+        apiFetch("/api/drive-minutes", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ fileId: id }),

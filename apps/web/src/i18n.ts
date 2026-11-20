@@ -1,6 +1,9 @@
 export type Lang = "en" | "ar";
 
 const en = {
+  errorTitle: "Something went wrong",
+  errorBody: "The page hit an unexpected error. Reload to try again.",
+  reload: "Reload",
   toggle: "عربي",
   menu: "Open menu",
   nav: {
@@ -815,6 +818,9 @@ const en = {
 export type Strings = typeof en;
 
 const ar: Strings = {
+  errorTitle: "حصل خطأ غير متوقع",
+  errorBody: "الصفحة واجهت مشكلة. أعد التحميل وجرب تاني.",
+  reload: "إعادة التحميل",
   toggle: "EN",
   menu: "افتح القائمة",
   nav: {

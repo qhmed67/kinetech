@@ -7,6 +7,7 @@ import { getViews, isDone, replaceProgress } from "../watch";
 import { SafeImg } from "../components/SafeImg";
 import { isSupabaseConfigured } from "../lib/db/env";
 import { useLang } from "../components/lang";
+import { apiFetch } from "../lib/http";
 
 const WA = "https://wa.me/201042031062";
 const TRACKS = ["courses", "marketing", "programming", "design"] as const;
@@ -454,7 +455,7 @@ export function Dashboard({
       const session = sb ? await sb.auth.getSession() : null;
       const token = session?.data?.session?.access_token ?? "";
       if (token === "") throw new Error("session");
-      const response = await fetch("/api/account-delete", {
+      const response = await apiFetch("/api/account-delete", {
         method: "POST",
         headers: {
           "content-type": "application/json",
