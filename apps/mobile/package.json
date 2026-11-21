@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "expo start --lan --dev-client",
+    "dev:go": "expo start --lan --go",
     "dev:client": "expo start --lan --dev-client",
     "android": "expo start --android --lan --dev-client",
     "ios": "expo start --ios --lan --dev-client",

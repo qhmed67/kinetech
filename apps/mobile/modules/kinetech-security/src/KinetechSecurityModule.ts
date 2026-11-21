@@ -1,4 +1,4 @@
-import { NativeModule, requireNativeModule } from 'expo';
+import { NativeModule, requireOptionalNativeModule } from 'expo';
 
 import {
   EnvironmentRisk,
@@ -12,4 +12,30 @@ declare class KinetechSecurityModule extends NativeModule<KinetechSecurityModule
   isScreenCaptured(): Promise<boolean>;
 }
 
-export default requireNativeModule<KinetechSecurityModule>('KinetechSecurity');
+const SAFE_RISK: EnvironmentRisk = {
+  root: false,
+  emulator: false,
+  adb: false,
+  jailbreak: false,
+  simulator: false,
+  screenCapture: false,
+  externalDisplay: false,
+};
+
+/** Expo Go and builds without the native binary: checks are unavailable, so
+ *  report safe defaults. Playback is still gated by the server. */
+const fallback = {
+  async getEnvironmentRisk(): Promise<EnvironmentRisk> {
+    return { ...SAFE_RISK };
+  },
+  async isScreenCaptured(): Promise<boolean> {
+    return false;
+  },
+  addListener(): { remove(): void } {
+    return { remove() {} };
+  },
+};
+
+export default (requireOptionalNativeModule<KinetechSecurityModule>(
+  'KinetechSecurity',
+) ?? (fallback as unknown as KinetechSecurityModule));

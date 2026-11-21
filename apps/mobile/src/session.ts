@@ -8,10 +8,28 @@
  */
 
 import * as SecureStore from "expo-secure-store";
-import * as Crypto from "expo-crypto";
 
 const TOKEN_KEY = "kt-session-token";
 const DEVICE_KEY = "kt-device-id";
+
+/** A v4-shaped uuid. The device id only needs to be unique, not secret. */
+function fallbackUuid(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    return (char === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
+/** expo-crypto is native and not guaranteed at runtime (some Expo Go builds
+ *  ship without the ExpoCrypto module), so require it lazily and fall back. */
+function randomUUID(): string {
+  try {
+    const Crypto = require("expo-crypto") as typeof import("expo-crypto");
+    return Crypto.randomUUID();
+  } catch {
+    return fallbackUuid();
+  }
+}
 
 /** The device id (uuid v4). Generated once, then reused. */
 export async function getDeviceId(): Promise<string> {
@@ -21,7 +39,7 @@ export async function getDeviceId(): Promise<string> {
   } catch {
     /* first run */
   }
-  const id = Crypto.randomUUID();
+  const id = randomUUID();
   try {
     await SecureStore.setItemAsync(DEVICE_KEY, id);
   } catch {
