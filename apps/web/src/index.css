@@ -235,3 +235,22 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
   aspect-ratio: auto;
   border-radius: 0;
 }
+
+/* Drive preview promoted to fullscreen by its own button. In that mode the
+   iframe is the fullscreen element, so the page's 2x-layout + scale(0.5) trick
+   is not carried into the native fullscreen surface: Drive keeps laying out
+   for the wider virtual viewport and its right-hand controls fall off-screen.
+   In fullscreen the frame must be exactly the viewport (shrunk to fit) and
+   centred — never wider than the screen. */
+.pvp iframe.pvp-scale:fullscreen,
+.pvp iframe.pvp-scale:-webkit-full-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw;
+  max-height: 100vh;
+  margin: 0 !important;
+  transform: none !important;
+  transform-origin: center center;
+}
