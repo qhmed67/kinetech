@@ -46,6 +46,13 @@ const USER_AGENT =
  *  stub, so the imperative handle is resolved from the component type. */
 type WebViewHandle = React.ComponentRef<typeof WebView>;
 
+/** URL the WebView loads: the production app plus a per-launch cache buster.
+ *  Deploys ship new hashed assets, but the WebView can keep serving the
+ *  document it fetched last time, which makes a fixed UI look unfixed on a
+ *  phone until the app data is cleared. A unique query per launch forces the
+ *  HTML to be refetched while the hashed JS/CSS stay cached. */
+const LAUNCH_URL = `${WEB_URL}${WEB_URL.includes("?") ? "&" : "?"}v=${Date.now()}`;
+
 export default function Shell() {
   const webRef = useRef<WebViewHandle | null>(null);
   const insets = useSafeAreaInsets();
@@ -180,7 +187,7 @@ export default function Shell() {
         <>
           <WebView
             ref={webRef}
-            source={{ uri: WEB_URL }}
+            source={{ uri: LAUNCH_URL }}
             originWhitelist={ALLOWED_ORIGINS}
             userAgent={USER_AGENT}
             javaScriptEnabled

@@ -90,6 +90,7 @@ export function ProtectedVideoPlayer({
   const cbRef = useRef({ onProgress, onSeeked, onEnded, onDenied, onSessionDead });
   cbRef.current = { onProgress, onSeeked, onEnded, onDenied, onSessionDead };
   const boxRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
   // Inside the native shell the page never plays protected media itself: it
@@ -291,6 +292,56 @@ export function ProtectedVideoPlayer({
       bridgeSend({ v: 1, type: "watermark", email: "", phoneLast4: "" });
     };
   }, [native, grant]);
+
+  // Drive frame promoted to fullscreen: measured box, not a guessed one.
+  // Drive's own button fullscreens the <iframe> itself, and on a phone the
+  // surface it gets is not always the box the CSS :fullscreen rule describes
+  // (Android WebView promotes it inside a native custom view, so 100vw/100vh
+  // can be larger than what is actually visible). The frame is therefore
+  // measured against the visible viewport and shrunk + centred to fit.
+  const [frameFit, setFrameFit] = useState<{ w: number; h: number; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!isDrive) {
+      setFrameFit(null);
+      return;
+    }
+    const measure = () => {
+      const el = frameRef.current;
+      if (!el) return;
+      const doc = document as Document & { webkitFullscreenElement?: Element | null };
+      const fsEl = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+      // Only act once the frame (or our own shell) is the fullscreen element:
+      // the inline 2x/scale(0.5) layout stays exactly as it is.
+      if (fsEl !== el && fsEl !== boxRef.current) {
+        setFrameFit(null);
+        return;
+      }
+      const vv = typeof window.visualViewport === "object" ? window.visualViewport : null;
+      const w = Math.min(window.innerWidth, vv ? vv.width : Number.POSITIVE_INFINITY);
+      const h = Math.min(window.innerHeight, vv ? vv.height : Number.POSITIVE_INFINITY);
+      setFrameFit({
+        w: Math.round(w),
+        h: Math.round(h),
+        x: Math.round(Math.max(0, (window.innerWidth - w) / 2)),
+        y: Math.round(Math.max(0, (window.innerHeight - h) / 2)),
+      });
+    };
+    measure();
+    document.addEventListener("fullscreenchange", measure);
+    document.addEventListener("webkitfullscreenchange", measure);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    const vv = typeof window.visualViewport === "object" ? window.visualViewport : null;
+    vv?.addEventListener("resize", measure);
+    return () => {
+      document.removeEventListener("fullscreenchange", measure);
+      document.removeEventListener("webkitfullscreenchange", measure);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+      vv?.removeEventListener("resize", measure);
+    };
+  }, [isDrive]);
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -730,6 +781,7 @@ export function ProtectedVideoPlayer({
              transform (verified headless). */
           <iframe
             key={`${embedUrl}:${frameRetry}`}
+            ref={frameRef}
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
@@ -738,13 +790,29 @@ export function ProtectedVideoPlayer({
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
             className="pvp-scale absolute left-0 top-0"
-            style={{
-              border: 0,
-              width: "200%",
-              height: "200%",
-              transform: "scale(0.5)",
-              transformOrigin: "0 0",
-            }}
+            style={
+              frameFit
+                ? /* Promoted to fullscreen: measured pixels, centred, no scale. */
+                  {
+                    border: 0,
+                    position: "fixed",
+                    left: frameFit.x,
+                    top: frameFit.y,
+                    width: frameFit.w,
+                    height: frameFit.h,
+                    maxWidth: "100vw",
+                    maxHeight: "100vh",
+                    margin: 0,
+                    transform: "none",
+                  }
+                : {
+                    border: 0,
+                    width: "200%",
+                    height: "200%",
+                    transform: "scale(0.5)",
+                    transformOrigin: "0 0",
+                  }
+            }
           />
         ) : (
           poster(() => setMediaStarted(true), true)
