@@ -60,6 +60,9 @@ export default function Shell() {
   const [refreshing, setRefreshing] = useState(false);
   const [identity, setIdentity] = useState("");
   const [captured, setCaptured] = useState(false);
+  // The page announces the expanded Drive overlay so the hardware back button
+  // can collapse it first (bridge message `playerExpanded`).
+  const [playerExpanded, setPlayerExpanded] = useState(false);
   // Online gate: the shell refuses to show the web app until the server is
   // reachable. `null` = checking, `true` = allowed, `false` = blocked.
   const [online, setOnline] = useState<boolean | null>(null);
@@ -104,9 +107,20 @@ export default function Shell() {
     handleWebMessage(data, url);
   }, []);
 
-  // Android back button: walk the web history first, then leave the app.
+  // The page reports expanded/collapsed state over the bridge so the hardware
+  // back button can first collapse the expanded Drive overlay.
+  useEffect(() => onWebMessage((message) => {
+    if (message.type === "playerExpanded") setPlayerExpanded(message.expanded);
+  }), []);
+
+  // Android back button: collapse the expanded overlay, then walk the web
+  // history, then leave the app.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (playerExpanded) {
+        sendToWeb({ v: 1, type: "closeExpand" });
+        return true;
+      }
       if (canGoBack) {
         webRef.current?.goBack();
         return true;
@@ -114,7 +128,7 @@ export default function Shell() {
       return false;
     });
     return () => sub.remove();
-  }, [canGoBack]);
+  }, [canGoBack, playerExpanded]);
 
   // Bridge: the web asks native to play a lesson. The player screen requests
   // the grant from the server itself — the page never sees a media URL.
@@ -193,7 +207,11 @@ export default function Shell() {
             javaScriptEnabled
             domStorageEnabled
             thirdPartyCookiesEnabled
-            allowsFullscreenVideo
+            // Drive's own fullscreen button would promote the preview iframe
+            // into the Android WebView custom view, where it is invisible to
+            // the page and overflows the screen. Without it the page offers
+            // its own expanded-player buttons (see ProtectedVideoPlayer).
+            allowsFullscreenVideo={false}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT}

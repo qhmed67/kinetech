@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { bridgeSend, isNativeApp } from "../native";
+import { bridgeOn, bridgeSend, isNativeApp } from "../native";
 import { useLang } from "./lang";
 import { apiFetch } from "../lib/http";
 import {
@@ -51,6 +51,9 @@ const QUALITY_LABEL: Record<string, string> = {
 
 /** Quality rung order, low → high. Used to always keep the better segment. */
 const QUALITY_RANK = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
+
+/** Drive's preview lays out at a ~400 CSS-px minimum; stay above it. */
+const DRIVE_MIN_W = 420;
 
 function qualityRank(q: string): number {
   const i = QUALITY_RANK.indexOf(q);
@@ -293,55 +296,72 @@ export function ProtectedVideoPlayer({
     };
   }, [native, grant]);
 
-  // Drive frame promoted to fullscreen: measured box, not a guessed one.
-  // Drive's own button fullscreens the <iframe> itself, and on a phone the
-  // surface it gets is not always the box the CSS :fullscreen rule describes
-  // (Android WebView promotes it inside a native custom view, so 100vw/100vh
-  // can be larger than what is actually visible). The frame is therefore
-  // measured against the visible viewport and shrunk + centred to fit.
-  const [frameFit, setFrameFit] = useState<{ w: number; h: number; x: number; y: number } | null>(null);
+  // Native shell (Expo Go): Drive's own fullscreen button would be promoted
+  // into the Android WebView's native custom view, where it is invisible to
+  // the page and its layout overflows the screen. Instead of native
+  // fullscreen, the page expands itself — see the Drive branch below.
+  const [expanded, setExpanded] = useState(false);
+  const [driveFit, setDriveFit] = useState<{ W: number; H: number; s: number } | null>(null);
+
+  // The shell consults the page for back-button handling (see apps/mobile).
+  useEffect(() => {
+    if (!native) return;
+    bridgeSend({ v: 1, type: "playerExpanded", expanded });
+  }, [native, expanded]);
 
   useEffect(() => {
-    if (!isDrive) {
-      setFrameFit(null);
+    return bridgeOn("closeExpand", () => setExpanded(false));
+  }, []);
+
+  // While expanded, measure the (now black) shell and lay the frame out so it
+  // always fits the visible area: DRIVE_MIN_W is comfortably above Drive's
+  // ~400 px minimum preview width; the scale covers the shorter height.
+  useEffect(() => {
+    if (!native || !isDrive || !expanded) {
+      setDriveFit(null);
       return;
     }
-    const measure = () => {
-      const el = frameRef.current;
-      if (!el) return;
-      const doc = document as Document & { webkitFullscreenElement?: Element | null };
-      const fsEl = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
-      // Only act once the frame (or our own shell) is the fullscreen element:
-      // the inline 2x/scale(0.5) layout stays exactly as it is.
-      if (fsEl !== el && fsEl !== boxRef.current) {
-        setFrameFit(null);
-        return;
-      }
-      const vv = typeof window.visualViewport === "object" ? window.visualViewport : null;
-      const w = Math.min(window.innerWidth, vv ? vv.width : Number.POSITIVE_INFINITY);
-      const h = Math.min(window.innerHeight, vv ? vv.height : Number.POSITIVE_INFINITY);
-      setFrameFit({
-        w: Math.round(w),
-        h: Math.round(h),
-        x: Math.round(Math.max(0, (window.innerWidth - w) / 2)),
-        y: Math.round(Math.max(0, (window.innerHeight - h) / 2)),
-      });
+    const box = boxRef.current;
+    if (!box) return;
+    const apply = () => {
+      const W = box.clientWidth;
+      const H = box.clientHeight;
+      if (W <= 0 || H <= 0) return;
+      const s = Math.min(1, W / DRIVE_MIN_W);
+      setDriveFit({ W, H, s });
     };
-    measure();
-    document.addEventListener("fullscreenchange", measure);
-    document.addEventListener("webkitfullscreenchange", measure);
-    window.addEventListener("resize", measure);
-    window.addEventListener("orientationchange", measure);
-    const vv = typeof window.visualViewport === "object" ? window.visualViewport : null;
-    vv?.addEventListener("resize", measure);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(box);
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
     return () => {
-      document.removeEventListener("fullscreenchange", measure);
-      document.removeEventListener("webkitfullscreenchange", measure);
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("orientationchange", measure);
-      vv?.removeEventListener("resize", measure);
+      ro.disconnect();
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
     };
-  }, [isDrive]);
+  }, [native, isDrive, expanded]);
+
+  // Native-shell expansion (see the Drive branch): the shell becomes a black
+  // full-window backdrop and the frame is laid out scaled to fit.
+  const isDriveExpanded = native && isDrive && expanded;
+
+  // The frame itself is absolutely laid out on top of the (black, full-screen)
+  // shell and scaled to fit, so it can never overflow or be cropped.
+  const frameStyle: React.CSSProperties = isDriveExpanded
+    ? driveFit
+      ? {
+          border: 0,
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: driveFit.W / driveFit.s,
+          height: driveFit.H / driveFit.s,
+          transform: `scale(${driveFit.s})`,
+          transformOrigin: "0 0",
+        }
+      : { border: 0, width: "100%", height: "100%", transform: "none", transformOrigin: "0 0" }
+    : { border: 0, width: "200%", height: "200%", transform: "scale(0.5)", transformOrigin: "0 0" };
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -742,8 +762,12 @@ export function ProtectedVideoPlayer({
       onDragStart={(e) => e.preventDefault()}
       onDoubleClick={toggleFullscreen}
       onMouseMove={wake}
-      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none ${extraClass}`}
-      style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
+      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none${isDriveExpanded ? " pvp-expanded" : ""} ${extraClass}`}
+      style={
+        isDriveExpanded
+          ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "#000", borderRadius: 0 }
+          : { background: "#000", userSelect: "none", WebkitUserSelect: "none" }
+      }
       aria-label="Protected video player"
     >
       {body}
@@ -772,51 +796,57 @@ export function ProtectedVideoPlayer({
     return shell(
       <>
         {mediaStarted ? (
-          /* Drive renders its video at a fixed ~400px-wide layout anchored to
-             the iframe's bottom edge — any iframe narrower than that crops it
-             and shifts both video and its ▶ off-center (seen on phones).
-             Layout the frame at 2x the box and scale(0.5): Drive sees a wide
-             viewport so it centers correctly, and the transform shrinks the
-             result back to exactly our shell. Taps hit-test fine through the
-             transform (verified headless). */
+          /* Inline (the default, and the browser): the 2x/scale(0.5) trick —
+             Drive sees a wide virtual viewport so it centers correctly. In the
+             native shell, Drive's own fullscreen button must not be allowed to
+             reach the Android WebView custom view (PRODUCT-RULES: the player
+             owns its layout there) — expansion is via the overlay button. */
           <iframe
             key={`${embedUrl}:${frameRetry}`}
             ref={frameRef}
             src={embedUrl}
             title="Course video"
             sandbox="allow-scripts allow-same-origin"
-            allow="autoplay; fullscreen"
-            allowFullScreen
+            allow={native ? undefined : "autoplay; fullscreen"}
+            allowFullScreen={!native}
             referrerPolicy="no-referrer"
             onLoad={() => setReady(true)}
             className="pvp-scale absolute left-0 top-0"
-            style={
-              frameFit
-                ? /* Promoted to fullscreen: measured pixels, centred, no scale. */
-                  {
-                    border: 0,
-                    position: "fixed",
-                    left: frameFit.x,
-                    top: frameFit.y,
-                    width: frameFit.w,
-                    height: frameFit.h,
-                    maxWidth: "100vw",
-                    maxHeight: "100vh",
-                    margin: 0,
-                    transform: "none",
-                  }
-                : {
-                    border: 0,
-                    width: "200%",
-                    height: "200%",
-                    transform: "scale(0.5)",
-                    transformOrigin: "0 0",
-                  }
-            }
+            style={frameStyle}
           />
         ) : (
           poster(() => setMediaStarted(true), true)
         )}
+        {native && isDrive && !expanded ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            aria-label="Open full screen"
+            className="absolute right-3 bottom-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-[rgba(255,255,255,0.35)] bg-[rgba(0,0,0,0.35)] shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition hover:bg-[rgba(255,255,255,0.2)]"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+              <line x1="16" y1="9" x2="9" y2="16" />
+            </svg>
+          </button>
+        ) : null}
+        {native && isDrive && expanded ? (
+          /* In expanded mode the shell is the black full-window backdrop and
+             the frame sits absolutely on top, scaled to fit — no overflow. */
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            aria-label="Close full screen"
+            className="absolute right-3 top-3 z-10 grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.55)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        ) : null}
         {watermark}
         {mediaStarted && !ready && !frameFailed && (
           /* Taps pass through: Drive's own ▶ (and our frame) must stay

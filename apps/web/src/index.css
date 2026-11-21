@@ -200,6 +200,20 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
    so fullscreen goes through the watermarked container (double-click). */
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
+/* Native shell, expanded Drive preview (apps/mobile): the player shell turns
+   into a black full-window backdrop; the iframe inside is laid out wider and
+   scaled down by ProtectedVideoPlayer so every Drive control fits. */
+.pvp-expanded {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: #000;
+  border-radius: 0;
+}
+
 /* Guarded player frame: force the embed to exactly fill its mount in every
    direction/mode — kills offset/letterbox drift from the iframe defaults. */
 .pvp iframe:not(.pvp-scale) {

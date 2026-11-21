@@ -20,12 +20,20 @@ export type WebToNative =
    * from the server grant — the native side never asks for it again, so no
    * extra view is burned).
    */
-  | { v: 1; type: "watermark"; email: string; phoneLast4: string };
+  | { v: 1; type: "watermark"; email: string; phoneLast4: string }
+  /**
+   * The page announces an expanded player overlay (native shell only): the
+   * shell uses it so the hardware back button can collapse the overlay via
+   * `closeExpand` instead of leaving the app.
+   */
+  | { v: 1; type: "playerExpanded"; expanded: boolean };
 
 export type NativeToWeb =
   | { v: 1; type: "playerClosed"; lessonId: string; progressSec: number }
   | { v: 1; type: "deviceStatus"; ok: boolean; reason?: string }
-  | { v: 1; type: "downloadState"; lessonId: string; state: "queued" | "done" | "failed" };
+  | { v: 1; type: "downloadState"; lessonId: string; state: "queued" | "done" | "failed" }
+  /** The shell asks the page to collapse the expanded player overlay. */
+  | { v: 1; type: "closeExpand" };
 
 export type BridgeMessage = WebToNative | NativeToWeb;
 
@@ -93,6 +101,8 @@ export function parseMessage(raw: unknown): BridgeMessage | null {
         (data.state === "queued" || data.state === "done" || data.state === "failed")
         ? { v: 1, type, lessonId: data.lessonId, state: data.state }
         : null;
+    case "playerExpanded":
+      return typeof data.expanded === "boolean" ? { v: 1, type, expanded: data.expanded } : null;
     default:
       // Unknown types are dropped — never forwarded, never executed.
       return null;
@@ -105,7 +115,8 @@ export function isWebToNative(message: BridgeMessage): message is WebToNative {
     message.type === "authCode" ||
     message.type === "logout" ||
     message.type === "downloadLesson" ||
-    message.type === "watermark"
+    message.type === "watermark" ||
+    message.type === "playerExpanded"
   );
 }
 
@@ -113,7 +124,8 @@ export function isNativeToWeb(message: BridgeMessage): message is NativeToWeb {
   return (
     message.type === "playerClosed" ||
     message.type === "deviceStatus" ||
-    message.type === "downloadState"
+    message.type === "downloadState" ||
+    message.type === "closeExpand"
   );
 }
 
