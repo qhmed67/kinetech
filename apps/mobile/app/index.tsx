@@ -189,13 +189,13 @@ export default function Shell() {
     })();
   }, []);
 
-  // Defensive pass: ~1.2 s after the player opens, if the landscape lock did
-  // not actually take effect, re-assert portrait and nudge the WebView with a
-  // resize so the page re-measures. (No-op when the lock worked.)
+  // Defensive pass: ~1.2 s after the player closes (playerExpanded false),
+  // if the WebView still reports landscape, re-assert portrait and nudge the
+  // page with a resize so it re-measures.
   useEffect(() => {
-    if (!playerExpanded) return;
+    if (playerExpanded) return;
     const t = setTimeout(() => {
-      if (!(window.innerWidth > window.innerHeight)) {
+      if (window.innerWidth > window.innerHeight) {
         void lockAsync(OrientationLock.PORTRAIT_UP).catch(() => {});
         webRef.current?.injectJavaScript("window.dispatchEvent(new Event('resize'));");
       }

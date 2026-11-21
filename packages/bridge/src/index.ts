@@ -128,8 +128,7 @@ export function isWebToNative(message: BridgeMessage): message is WebToNative {
     message.type === "logout" ||
     message.type === "downloadLesson" ||
     message.type === "watermark" ||
-    message.type === "player-fullscreen" ||
-    message.type === "player-orientation-settled"
+    message.type === "player-fullscreen"
   );
 }
 
@@ -138,7 +137,8 @@ export function isNativeToWeb(message: BridgeMessage): message is NativeToWeb {
     message.type === "playerClosed" ||
     message.type === "deviceStatus" ||
     message.type === "downloadState" ||
-    message.type === "closeExpand"
+    message.type === "closeExpand" ||
+    message.type === "player-orientation-settled"
   );
 }
 

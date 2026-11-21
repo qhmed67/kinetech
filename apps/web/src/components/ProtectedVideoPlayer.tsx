@@ -318,6 +318,9 @@ export function ProtectedVideoPlayer({
   const stabilityRef = useRef<{ key: string; count: number } | null>(null);
   const debugRef = useRef<Record<string, unknown>>({});
   const [, setDebugTick] = useState(0);
+  // Inline baseline (before expand), compared after collapse to detect a
+  // layout that drifted back (intermittent broken state).
+  const inlineBaselineRef = useRef<{ cw: number; ch: number } | null>(null);
   const debugOn =
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("pvpdebug");
 
@@ -370,6 +373,22 @@ export function ProtectedVideoPlayer({
     stabilityRef.current = st?.key === key ? { key, count: st.count + 1 } : { key, count: 1 };
   };
 
+  // Inline expectation (collapse completion): the shell is back in
+  // document flow — not pvp-expanded, not fixed — its width equals the
+  // parent content width, and its aspect is ~16:9 (±5%).
+  const isInlineExpectationMet = () => {
+    const box = boxRef.current;
+    if (!box) return false;
+    const r = box.getBoundingClientRect();
+    const parent = box.parentElement;
+    if (!parent || r.width <= 0) return false;
+    if (box.classList.contains("pvp-expanded")) return false;
+    if (box.style.position.includes("fixed")) return false;
+    if (Math.abs(r.width - parent.clientWidth) > Math.max(1, parent.clientWidth * 0.02)) return false;
+    if (r.height <= 0 || Math.abs((r.width / r.height) - 16 / 9) / (16 / 9) > 0.05) return false;
+    return true;
+  };
+
   // Native → page: the shell asks us to collapse (hardware back button).
   const collapse = useCallback(() => {
     if (playerState === "inline" || playerState === "collapsing") return;
@@ -380,9 +399,15 @@ export function ProtectedVideoPlayer({
     const start = Date.now();
     const poll = () => {
       if (seqRef.current !== seq) return;
-      // Collapse finishes when the shell is back to portrait AND the inline
-      // expectation holds (not fixed, width = parent content width).
-      if (window.innerWidth > window.innerHeight === false && isInlineExpectationMet()) {
+      // Collapse finishes when the WebView is back to portrait. Flip the shell
+      // to inline — the inline-expectation assert + watchdog reconcile then
+      // verify/correct the geometry (never remount the iframe).
+      if (window.innerWidth > window.innerHeight === false) {
+        // Back to portrait: flip to inline first — the inline-expectation
+        // assert + watchdog reconcile then verify/correct the geometry
+        // (never remount the iframe).
+        setPlayerState("inline");
+        debugRef.current.inlineExpectationMet = isInlineExpectationMet();
         finish();
         return;
       }
@@ -394,6 +419,22 @@ export function ProtectedVideoPlayer({
     };
     const finish = () => {
       setPlayerState("inline");
+      // Compare the restored inline rect against the pre-expand baseline.
+      const box0 = boxRef.current;
+      if (box0) {
+        const r0 = box0.getBoundingClientRect();
+        const b = inlineBaselineRef.current;
+        debugRef.current.inlineBaseline = b ? { cw: b.cw, ch: b.ch } : null;
+        debugRef.current.inlineAfterCollapse = { cw: r0.width, ch: r0.height };
+        if (
+          b &&
+          (Math.abs(r0.width - b.cw) > Math.max(2, b.cw * 0.02) ||
+            Math.abs(r0.height - b.ch) > Math.max(2, b.ch * 0.02))
+        ) {
+          debugRef.current.inlineDrift = true;
+        }
+      }
+      inlineBaselineRef.current = null;
       scheduleReconcile("collapse");
       // Fade the black cover out over ~150 ms, then detach it.
       setTimeout(() => {
@@ -413,6 +454,12 @@ export function ProtectedVideoPlayer({
     setPlayerState("expanding");
     setCoverOn(true);
     setCoverFadeOut(false);
+    // Record the inline baseline for the post-collapse comparison.
+    const box0 = boxRef.current;
+    if (box0) {
+      const r0 = box0.getBoundingClientRect();
+      inlineBaselineRef.current = { cw: r0.width, ch: r0.height };
+    }
     const start = Date.now();
     const poll = () => {
       if (seqRef.current !== seq) return;
@@ -429,22 +476,6 @@ export function ProtectedVideoPlayer({
     requestAnimationFrame(poll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState]);
-
-  // Inline expectation (collapse poll): the shell is back in document flow
-  // with its natural 16:9 aspect, and its width matches the parent.
-  const isInlineExpectationMet = () => {
-    const box = boxRef.current;
-    if (!box) return false;
-    const r = box.getBoundingClientRect();
-    const parent = box.parentElement;
-    if (!parent || r.width <= 0) return false;
-    if (box.classList.contains("pvp-expanded")) return false;
-    if (box.style.position.includes("fixed")) return false;
-    if (Math.abs(r.width - parent.clientWidth) > Math.max(1, parent.clientWidth * 0.02)) return false;
-    // 16:9 ± 5%
-    if (r.height <= 0 || Math.abs((r.width / r.height) - 16 / 9) / (16 / 9) > 0.05) return false;
-    return true;
-  };
 
   const reconcile = useCallback(() => {
     const box = boxRef.current;
@@ -471,6 +502,7 @@ export function ProtectedVideoPlayer({
     if (!ok) {
       // Watchdog: derive layout again and force the inline state. Never
       // remount the iframe — Drive must not reload.
+      debugRef.current.reconcileCorrections = (Number(debugRef.current.reconcileCorrections) || 0) + 1;
       setPlayerState("inline");
       setContainerRect(null);
       measureContainer();
