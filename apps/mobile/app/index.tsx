@@ -15,7 +15,6 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -307,16 +306,15 @@ export default function Shell() {
             onLoadEnd={() => setRefreshing(false)}
             onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
             onShouldStartLoadWithRequest={(request) => {
-              // Only the web app may stay inside the shell; every other link
-              // opens in the system browser.
+              // Only the web app may stay inside the shell. Drive's pop-out
+              // button, window.open and any external navigation are DENIED
+              // (content protection: nothing opens outside the shell).
               try {
                 const { origin } = new URL(request.url);
-                if (ALLOWED_ORIGINS.includes(origin)) return true;
+                return ALLOWED_ORIGINS.includes(origin);
               } catch {
-                /* malformed URL -> external */
+                return false;
               }
-              void Linking.openURL(request.url).catch(() => {});
-              return false;
             }}
             webviewDebuggingEnabled={__DEV__}
             setSupportMultipleWindows={false}
