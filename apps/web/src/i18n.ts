@@ -1,6 +1,9 @@
 export type Lang = "en" | "ar";
 
 const en = {
+  errorTitle: "Something went wrong",
+  errorBody: "The page hit an unexpected error. Reload to try again.",
+  reload: "Reload",
   toggle: "عربي",
   menu: "Open menu",
   nav: {
@@ -374,6 +377,12 @@ const en = {
     noCourseD: "This course is gone or hasn't loaded yet. Go back and reopen it.",
     emptyT: "No lessons yet",
     emptyD: "The instructor hasn't added any parts to this course.",
+    nativePlay: "Play in the app",
+    nativePlayD: "This lesson plays in the KineTech app, where it is protected.",
+    download: "Save offline",
+    downloading: "Saving…",
+    downloaded: "Saved offline",
+    downloadFailed: "Save failed — retry",
   },
   dashboard: {
     title: "My courses",
@@ -394,6 +403,13 @@ const en = {
     assignDone: "Done",
     assignTodo: "To do",
     settingsNote: "Preferences are stored on this device only (demo).",
+    deleteAccount: "Delete account",
+    deleteAccountD: "Permanently removes your profile, enrollments, progress, exam work and view history. This cannot be undone.",
+    deleteConfirm: "Type DELETE to confirm. Your account and all learning data will be removed permanently.",
+    deleteType: "Type DELETE to confirm",
+    deleteYes: "Delete my account",
+    cancelDelete: "Cancel",
+    deleteError: "Could not delete the account. Please try again.",
     langL: "Language",
     tracksT: "Your spaces",
     trackNames: { courses: "Courses", marketing: "Marketing", programming: "Programming", design: "Design" },
@@ -745,10 +761,14 @@ const en = {
     privacyT: "Privacy Policy",
     termsT: "Terms of Service",
     pending: "Template text — legal review pending before launch.",
+    updated: "Last updated: 20 November 2026",
     pP: [
-      "We collect only what you type here: name, email, and course preferences. Everything stays in your browser (localStorage) in this demo — nothing is uploaded anywhere.",
-      "WhatsApp and Facebook links leave this site and fall under their own privacy policies.",
-      "Contact us on WhatsApp to request deletion of anything you shared.",
+      "KineTech is an academy for enrolled students. We collect the name, email and phone number you enter when you register. Your email and the last four digits of your phone appear as a drifting watermark over lessons.",
+      "Enrollment, lesson progress, view counts, exam and assignment work, notifications and activity are stored in Supabase. Each playback is bound to a device id and a short-lived token; view records are kept for access control.",
+      "Video is served from private Cloudflare R2 storage through a tokenised Worker. The media URL and token are never shown in the app. Lessons saved for offline use stay inside the app sandbox on your device.",
+      "Google Drive and YouTube lessons play inside Google's own frame when used; their own privacy policies apply to that playback. We do not fetch or host Drive files.",
+      "We do not sell data, show ads, or use analytics or tracking SDKs. Data is kept until you delete your account.",
+      "To delete your account and its learning data, open My Courses → Settings → Delete account. You can also contact us on WhatsApp.",
     ],
     tP: [
       "Courses are booked per group with limited seats; schedules are confirmed on WhatsApp before payment.",
@@ -798,6 +818,9 @@ const en = {
 export type Strings = typeof en;
 
 const ar: Strings = {
+  errorTitle: "حصل خطأ غير متوقع",
+  errorBody: "الصفحة واجهت مشكلة. أعد التحميل وجرب تاني.",
+  reload: "إعادة التحميل",
   toggle: "EN",
   menu: "افتح القائمة",
   nav: {
@@ -1162,6 +1185,12 @@ const ar: Strings = {
     noCourseD: "الكورس ده اتمسح أو متحملش. ارجع وافتحه تاني.",
     emptyT: "مفيش دروس لسه",
     emptyD: "المدرس مضافش أي أجزاء للكورس ده.",
+    nativePlay: "شغّل في التطبيق",
+    nativePlayD: "الدرس ده بيشتغل في تطبيق KineTech، عشان يكون محمي.",
+    download: "احفظه بدون نت",
+    downloading: "جاري الحفظ…",
+    downloaded: "محفوظ بدون نت",
+    downloadFailed: "الحفظ فشل — جرب تاني",
   },
   dashboard: {
     title: "كورساتي",
@@ -1182,6 +1211,13 @@ const ar: Strings = {
     assignDone: "تم",
     assignTodo: "متبقي",
     settingsNote: "التفضيلات محفوظة على جهازك فقط (تجريبي).",
+    deleteAccount: "حذف الحساب",
+    deleteAccountD: "بيشيل ملفك والتسجيلات والتقدم وواجبات الامتحانات وسجل المشاهدة نهائيًا. مفيش رجوع بعد الحذف.",
+    deleteConfirm: "اكتب DELETE عشان تؤكد. الحساب وكل بيانات التعلم هتشيل نهائيًا.",
+    deleteType: "اكتب DELETE عشان تؤكد",
+    deleteYes: "احذف حسابي",
+    cancelDelete: "إلغاء",
+    deleteError: "مش قادر احذف الحساب. جرب تاني.",
     langL: "اللغة",
     tracksT: "مساحاتك",
     trackNames: { courses: "الكورسات", marketing: "التسويق", programming: "البرمجة", design: "التصميم" },
@@ -1533,10 +1569,14 @@ const ar: Strings = {
     privacyT: "سياسة الخصوصية",
     termsT: "شروط الاستخدام",
     pending: "نص مبدئي — بانتظار المراجعة القانونية قبل الإطلاق.",
+    updated: "آخر تحديث: 20 نوفمبر 2026",
     pP: [
-      "بنجمع بس اللي بتكتبه: الاسم والبريد وتفضيلات الكورسات. كل حاجة محفوظة في متصفحك (localStorage) في النسخة التجريبية — مفيش حاجة بتترفع.",
-      "روابط واتساب وفيسبوك بتخرج من الموقع وتخضع لسياسات الخصوصية بتاعتهم.",
-      "كلمنا واتساب لطلب حذف أي حاجة شاركتها.",
+      "KineTech أكاديمية للطلبة المسجلين. بنجمع الاسم والبريد والهاتف اللي بتكتبه عند التسجيل. البريد وآخر 4 أرقام من الهاتف بيظهروا كعلامة مائية متحركة على الدروس.",
+      "التسجيلات والتقدم وعدد المشاهدات وواجبات الامتحانات والإشعارات والنشاط محفوظة في Supabase. كل تشغيل مرتبط بمعرف جهاز وtoken قصير العمر، وسجلات المشاهدة بتستخدم للتحكم في الدخول.",
+      "الفيديو بيتبعت من تخزين Cloudflare R2 الخاص عبر Worker بـ token. رابط الفيديو والـ token مبيظهروش في التطبيق. الدروس المحفوظة للاونلاين بتفضل داخل التطبيق على جهازك.",
+      "دروس Google Drive وYouTube بتشتغل داخل إطار Google نفسه، وسياسة الخصوصية بتاعتهم هي اللي بتحكمها. إحنا مش بننزل أو نستضيف ملفات Drive.",
+      "مبنبيع البيانات ومبنيش إعلانات ومبنستخدمش أدوات تحليل أو تتبع. البيانات بتفضل محفوظة لحد ما تحذف حسابك.",
+      "لحذف الحساب وبياناته: كورساتي ← الإعدادات ← حذف الحساب. أو كلمنا على واتساب.",
     ],
     tP: [
       "الكورسات بالحجز لكل مجموعة بأماكن محدودة؛ والمواعيد بتتأكد على واتساب قبل الدفع.",

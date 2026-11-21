@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { NETWORK_TIMEOUT_MS, throttle, withTimeout } from "./throttle";
+import { apiFetch } from "../http";
 import type { TrackId } from "../../auth";
 
 /* Brute-force friction: min gap between attempts per action. Server-side
@@ -84,7 +85,7 @@ export async function registerSession(): Promise<void> {
     const { data } = await sb.auth.getSession();
     const token = data.session?.access_token;
     if (!token) return;
-    void fetch("/api/session-register", {
+    void apiFetch("/api/session-register", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     }).catch(() => null);

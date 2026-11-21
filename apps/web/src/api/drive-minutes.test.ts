@@ -65,6 +65,7 @@ beforeEach(() => {
   process.env.SUPABASE_ANON_KEY = ENV.SUPABASE_ANON_KEY;
   process.env.SUPABASE_SERVICE_ROLE_KEY = ENV.SUPABASE_SERVICE_ROLE_KEY;
   process.env.GOOGLE_API_KEY = ENV.GOOGLE_API_KEY;
+  process.env.LOG_LEVEL = "error";
   globalThis.fetch = realFetch;
 });
 
@@ -117,5 +118,33 @@ describe("POST /api/drive-minutes", () => {
     const { res, seen } = resCapture();
     await handler(req("abc123"), res);
     expect(seen.code).toBe(500);
+  });
+
+  it("logs one JSON line with the incoming request id and final status", async () => {
+    process.env.LOG_LEVEL = "info";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const { res } = resCapture();
+      await handler({ method: "GET", headers: { "x-request-id": "req_test" }, body: {} }, res);
+      const line = write.mock.calls.map((call) => String(call[0])).find((text) => text.includes("api.request.end"));
+      expect(line).toBeDefined();
+      const rec = JSON.parse(String(line)) as Record<string, unknown>;
+      expect(rec.correlation_id).toBe("req_test");
+      expect(rec.event).toBe("api.request.end");
+      expect(rec.msg).toBe("request finished");
+      expect((rec.ctx as Record<string, unknown>).status).toBe(405);
+      for (const key of ["ts", "level", "service", "env", "version", "module"]) expect(rec[key]).toBeDefined();
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("returns the request id in error payloads and sets the response header", async () => {
+    const setHeader = vi.fn();
+    const capture = resCapture();
+    const res = Object.assign(capture.res, { setHeader });
+    await handler({ method: "GET", headers: { "x-request-id": "req_error" }, body: {} }, res);
+    expect(setHeader).toHaveBeenCalledWith("x-request-id", "req_error");
+    expect((capture.seen.payload as Record<string, unknown>).correlation_id).toBe("req_error");
   });
 });

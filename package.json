@@ -7,7 +7,11 @@
     "apps/mobile",
     "packages/core",
     "packages/tokens",
-    "packages/ui-native"
+    "packages/bridge",
+    "packages/playback-token",
+    "packages/video-source",
+    "backend/video-worker",
+    "tools/upload-lesson"
   ],
   "engines": {
     "node": ">=24.0.0",
@@ -17,7 +21,14 @@
     "dev": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=apps/web",
     "lint": "npm run lint --workspace=apps/web",
-    "test:unit": "npm run test:unit --workspace=apps/web",
-    "test:e2e": "npm run test:e2e --workspace=apps/web"
+    "test:unit": "npm run test:unit --workspace=apps/web && npm run test --workspace=packages/playback-token && npm run test --workspace=packages/video-source && npm run test --workspace=backend/video-worker",
+    "test:e2e": "npm run test:e2e --workspace=apps/web",
+    "logs": "bash scripts/logs.sh",
+    "lesson:upload": "npm run upload --workspace=tools/upload-lesson --"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261110.1": true,
+    "@parcel/watcher@2.6.0": true
   }
 }

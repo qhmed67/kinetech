@@ -12,4 +12,5 @@ Agents: when you add a failure path, add its row in the same change. When debugg
 | AUTH_002 | Not authorized | application | permission rule | check role/permission rule in the use case |
 | DB_001 | Database unavailable / timeout | infrastructure repo | connection pool, DB down | check DB health, pool size, slow query log |
 | EXT_001 | External API failed | infrastructure client | provider outage, timeout, bad credentials | check provider status, `ctx.status`, retry policy |
+| LOG_001 | Log upload rate limited | `api/log.ts` | too many client batches from one IP | check client ship rate; raise window only with owner approval |
 | <AREA>_<NNN> | <meaning> | <where> | <cause> | <hint> |

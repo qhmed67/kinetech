@@ -9,38 +9,35 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
-    "dev": "expo start --lan",
-    "android": "expo start --android --lan",
-    "ios": "expo start --ios --lan",
-    "start": "expo start --lan",
-    "test:bundle": "node e2e/bundle-check.mjs",
-    "test:logs": "node e2e/logs-test.mjs",
+    "dev": "expo start --lan --dev-client",
+    "dev:client": "expo start --lan --dev-client",
+    "android": "expo start --android --lan --dev-client",
+    "ios": "expo start --ios --lan --dev-client",
+    "start": "expo start --lan --dev-client",
+    "typecheck": "tsc --noEmit",
     "build:android": "eas build --platform android",
     "build:ios": "eas build --platform ios",
     "build:all": "eas build --platform all"
   },
   "dependencies": {
-    "@expo-google-fonts/alexandria": "^0.2.3",
-    "@expo/vector-icons": "^15.1.1",
+    "@kinetech/bridge": "*",
     "@kinetech/core": "*",
-    "@kinetech/tokens": "*",
-    "@kinetech/ui-native": "*",
-    "expo": "~58.0.23",
-    "expo-font": "~58.0.1",
-    "expo-haptics": "~58.0.0",
-    "expo-linking": "~6.3.1",
-    "expo-router": "~58.0.30",
-    "expo-secure-store": "~58.0.0",
-    "expo-status-bar": "~3.0.0",
-    "react": "19.3.1",
+    "expo": "~58.0.24",
+    "expo-crypto": "~58.0.8",
+    "expo-dev-client": "~58.0.18",
+    "expo-linking": "~58.0.17",
+    "expo-router": "~58.0.31",
+    "expo-secure-store": "~58.0.3",
+    "expo-status-bar": "~58.0.5",
+    "expo-video": "~58.0.14",
+    "react": "19.3.0",
     "react-native": "0.88.1",
     "react-native-safe-area-context": "^5.11.1",
     "react-native-screens": "~4.30.1",
-    "react-native-webview": "13.8.6",
-    "react-native-vector-icons": "^10.0.3"
+    "react-native-webview": "14.0.1"
   },
   "devDependencies": {
-    "@types/react": "~19.2.0",
+    "@types/react": "~19.3.0",
     "typescript": "~6.0.2"
   }
 }

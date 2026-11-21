@@ -16,8 +16,13 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 ## Mobile (Android / iOS)
 
-- Last stable: tag `mobile-stable-v1.0.0`, SHA `e7cf2b6`, date 2026-11-10, branch `main`. Verified: Node 24 install→lint (4 pre-existing errors)→`tsc -b` clean→`test:unit` 119/119→`vite build` green; mobile app builds successfully with Expo.
+- **Owner task list:** `docs/mobile/OWNER-TASKS.md` (private, untracked) — every step that needs the owner, in order, with the exact commands.
+- **Architecture (2026-11-11):** hybrid shell — the web app is the only UI (WebView), native owns the player/protection/storage. Plan: `2027-architecture.md`. The React Native UI rewrite is CANCELLED; the port is archived under tag `mobile-rn-ui-port` / branch `backup/mobile-rn-ui-port` (SHA `785d081`). `apps/mobile` is now the empty shell scaffold (EAS project `3d9573b0-bdc0-4f3a-bfa6-8829c092707f`).
+- Last stable: tag `mobile-stable-v1.0.0`, SHA `051e06f`, date 2026-11-11, branch `main`. Verified: mobile `tsc --noEmit` clean; mobile jest 9/9; web `tsc -b` clean; `test:unit` 119/119; `vite build` green; hex grep clean outside tokens.
+- Phase 6b–8 (verified, merged to main): SHA `051e06f`, date 2026-11-11, branch `main`. EAS profiles; dashboard/courses/watch screens restored; auth consolidated (authDb.ts + AuthProvider); ErrorBoundary + offline banner; token-only colors; mobile tests 9/9.
+- Phase 10 – Web-parity port (verified, merged to main): SHA `d0df240`, date 2026-11-11, branch `main`, feature `feat/mobile-web-parity`. Landing/courses/course/watch/dashboard/baccalaureate/service/about/contact/legal/not-found + auth screens ported 1:1 from apps/web (web components via react-native-svg; fonts bundled per weight; POST /api/play ProtectedPlayer; server-scored exams; web i18n en+ar default ar; SecureStore caches). Gates: mobile `tsc --noEmit` clean; mobile jest 9/9; e2e bundle-check PASS (dev server :8081, router bundle 200); hex grep clean outside tokens.
 - Phase 5 (verified, merged to main): SHA `e7cf2b6`, date 2026-11-10, branch `main`. Mobile UI components and screens implemented; React Native component library complete; e2e tests pass; 119/119 unit tests pass.
+- Phase 6 (verified, merged to main): SHA `20fec13`, date 2026-11-10, branch `main`. Complete mobile app screens implemented; all core components built; database services complete; internationalization support; theme system; e2e tests pass; 119/119 unit tests pass.
 
 ## Shared packages
 
@@ -38,7 +43,12 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 | Date | Deliverable | Tag | SHA |
 |---|---|---|---|
-| 2026-11-10 | Mobile | `mobile-stable-v1.0.0` | `e7cf2b6` |
+| 2026-11-11 | Hybrid-shell architecture switch (RN UI cancelled) | `mobile-rn-ui-port` (archive) | `785d081` (archived port) / `399fe21` (plan) |
+| 2026-11-11 | Mobile web-parity port (Phase 10) | — | `d0df240` (merge) / `5f73024` |
+| 2026-11-11 | Mobile (Phases 6b–8) | — | `051e06f` |
+| 2026-11-10 | Mobile | `mobile-stable-v1.0.0` | `d1186ff` |
+| 2026-11-10 | Mobile (Phase 6 screens) | — | `20fec13` |
+| 2026-11-10 | Mobile (Phase 5 UI-native) | — | `e7cf2b6` |
 | 2026-10-19 | Web | `web-stable-v1.0.0-pre-mobile` | `6e67bf0286bfde937ce85fa88d646679d8eed9b8` |
 | 2026-10-19 | Web (earlier) | `stable-2026-10-19` | `91ba6a36c0d32c6b2e5890c8bc9229ba456870a8` |
 | 2026-10-16 | Web (earlier) | `stable-2026-10-16` | `4d563a9ce51594061643d42ec7147c81458a994e` |

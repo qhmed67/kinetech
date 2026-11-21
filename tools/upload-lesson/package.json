@@ -1,0 +1,14 @@
+{
+  "name": "@kinetech/upload-lesson",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Encode one lesson into encrypted HLS and upload it to the private R2 bucket.",
+  "scripts": {
+    "upload": "node upload.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  }
+}

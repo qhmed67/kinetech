@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { bridgeOn, bridgeSend, isNativeApp } from "../native";
+import { useLang } from "./lang";
+import { apiFetch } from "../lib/http";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -89,6 +92,22 @@ export function ProtectedVideoPlayer({
   const boxRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
+  // Inside the native shell the page never plays protected media itself: it
+  // asks native to play the lesson (the native side owns the grant, the DRM
+  // licence and the watermark). In a browser nothing changes.
+  const native = isNativeApp();
+  const { t } = useLang();
+  // Offline state comes from the native downloader (ids only — no path/URL).
+  const [downloadState, setDownloadState] = useState<
+    "queued" | "done" | "failed" | null
+  >(null);
+  useEffect(
+    () =>
+      bridgeOn("downloadState", (message) => {
+        if (message.lessonId === videoId) setDownloadState(message.state);
+      }),
+    [videoId],
+  );
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
@@ -197,7 +216,7 @@ export function ProtectedVideoPlayer({
           cbRef.current.onSessionDead();
           return;
         }
-        const r = await fetch("/api/play", {
+        const r = await apiFetch("/api/play", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({ video_id: videoId }),
@@ -261,6 +280,28 @@ export function ProtectedVideoPlayer({
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
   const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
+  // A source the native player can play directly (mp4 / HLS). Drive and
+  // YouTube are web embeds — Google's own frame is the only place they may
+  // play (PRODUCT-RULES), so they stay in the page and the native layer
+  // protects the window around them instead.
+  const nativelyPlayable = embedUrl !== null && !isYt && !isDrive;
+
+  // The native shell floats the student's identity over the playback. The
+  // page already knows it from the server grant, so it hands it over — the
+  // native side never asks for a second grant (that would burn a view).
+  useEffect(() => {
+    if (!native || !grant) return;
+    bridgeSend({
+      v: 1,
+      type: "watermark",
+      email: grant.email,
+      phoneLast4: grant.phoneLast4,
+    });
+    // When the player goes away the native layer drops the overlay again.
+    return () => {
+      bridgeSend({ v: 1, type: "watermark", email: "", phoneLast4: "" });
+    };
+  }, [native, grant]);
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -814,6 +855,76 @@ export function ProtectedVideoPlayer({
         </div>
       </>,
       idle && mediaStarted ? "cursor-none" : "",
+    );
+  }
+
+  // Inside the native shell:
+  //  - a source the native player understands (mp4 / HLS) is played by the
+  //    native player — the page never sees a media URL;
+  //  - Drive / YouTube keep playing inside Google's own frame (the rules
+  //    forbid touching it), and the native layer protects the window around
+  //    it (FLAG_SECURE, watermark) instead of replacing the player.
+  if (native && nativelyPlayable) {
+    return (
+      <div
+        className="pvp relative aspect-video w-full overflow-hidden rounded-[20px]"
+        style={{ background: "#000" }}
+        aria-label={t.watch.nativePlay}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            // The native side owns the playback: hand it the session
+            // credential (stored in the device keystore) and the lesson id.
+            // The page never receives a media URL.
+            void (async () => {
+              try {
+                const { supabase } = await import("../lib/db/client");
+                const sb = supabase();
+                const session = sb ? await sb.auth.getSession() : null;
+                const token = session?.data?.session?.access_token ?? null;
+                if (token) bridgeSend({ v: 1, type: "authCode", code: token });
+              } catch {
+                /* the native side will ask for a session if it has none */
+              }
+              bridgeSend({ v: 1, type: "playVideo", lessonId: videoId });
+            })();
+          }}
+          className="absolute inset-0 z-20 grid place-items-center"
+          style={{ background: "linear-gradient(135deg, #3A1E6B 0%, #6E4E9C 55%, #3D3250 100%)" }}
+        >
+          <span className="flex flex-col items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="grid h-20 w-20 place-items-center rounded-full"
+              style={{ background: "#3BBCD9" }}
+            >
+              <svg viewBox="0 0 24 24" fill="#fff" className="h-9 w-9 translate-x-0.5" aria-hidden="true">
+                <path d="M8 5.5v13l11-6.5z" />
+              </svg>
+            </span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{t.watch.nativePlay}</span>
+            <span style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, maxWidth: 320, textAlign: "center" }}>
+              {t.watch.nativePlayD}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={downloadState === "queued"}
+          onClick={() => bridgeSend({ v: 1, type: "downloadLesson", lessonId: videoId })}
+          className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-2"
+          style={{ background: "rgba(26,26,26,0.86)", color: "#fff", fontSize: 12, fontWeight: 700 }}
+        >
+          {downloadState === "queued"
+            ? t.watch.downloading
+            : downloadState === "done"
+              ? t.watch.downloaded
+              : downloadState === "failed"
+                ? t.watch.downloadFailed
+                : t.watch.download}
+        </button>
+      </div>
     );
   }
 
