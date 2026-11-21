@@ -113,13 +113,18 @@ export default function Shell() {
     const data = event.nativeEvent.data;
     const url = event.nativeEvent.url ?? WEB_URL;
     handleWebMessage(data, url);
+    // The page announces the expanded-overlay state with a bare envelope
+    // ({ type: "player-fullscreen", expanded }) — see ProtectedVideoPlayer.
+    // Dispatch it here directly: the v:1-envelope bridge path drops it.
+    try {
+      const message = JSON.parse(String(data)) as { type?: unknown; expanded?: unknown };
+      if (message && message.type === "player-fullscreen" && typeof message.expanded === "boolean") {
+        setPlayerExpanded(message.expanded);
+      }
+    } catch {
+      /* not a JSON player message — ignore */
+    }
   }, []);
-
-  // The page reports expanded/collapsed state over the bridge so the hardware
-  // back button can first collapse the expanded Drive overlay.
-  useEffect(() => onWebMessage((message) => {
-    if (message.type === "player-fullscreen") setPlayerExpanded(message.expanded);
-  }), []);
 
   // Android back button: collapse the expanded overlay, then walk the web
   // history, then leave the app.
