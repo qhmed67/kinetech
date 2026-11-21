@@ -15,7 +15,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEvent } from "expo";
-import { offlineIdentity, offlinePlaylistUri } from "../src/downloads";
 import {
   getEnvironmentRisk,
   isScreenCaptured,
@@ -36,9 +35,8 @@ const WATERMARK_SPOTS = [
 ] as const;
 
 export default function Player() {
-  const { lessonId, offline } = useLocalSearchParams<{
+  const { lessonId } = useLocalSearchParams<{
     lessonId?: string;
-    offline?: string;
   }>();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>("loading");
@@ -71,23 +69,6 @@ export default function Player() {
           router.replace(
             `/blocked?reason=${encodeURIComponent(reasons.join(","))}` as never,
           );
-        }
-        return;
-      }
-      if (offline === "1") {
-        // Offline copy: no server call, no new view, no URL outside native.
-        const localUri = offlinePlaylistUri(id);
-        if (!localUri) {
-          if (alive) {
-            setPhase("error");
-            setMessage("This lesson is no longer available offline.");
-          }
-          return;
-        }
-        if (alive) {
-          setWatermark(offlineIdentity(id));
-          setUrl(localUri);
-          setPhase("playing");
         }
         return;
       }
@@ -160,12 +141,6 @@ export default function Player() {
   // entitlement) and continue where we stopped.
   useEffect(() => {
     if (status !== "error") return;
-    if (offline === "1") {
-      // No server to refresh from while offline — never leak a local path.
-      setPhase("error");
-      setMessage("The saved copy could not be played. Delete and save it again.");
-      return;
-    }
     if (refreshed.current) {
       setPhase("error");
       setMessage("The lesson could not be loaded. Open it again to continue.");
@@ -201,7 +176,7 @@ export default function Player() {
         setMessage("The lesson could not be loaded. Open it again to continue.");
       }
     })();
-  }, [status, lessonId, offline, player]);
+  }, [status, lessonId, player]);
 
   const close = useCallback(() => {
     const progressSec = Math.round((Date.now() - startedAt.current) / 1000);
