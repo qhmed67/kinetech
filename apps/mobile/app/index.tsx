@@ -1,6 +1,7 @@
 /* Hybrid shell — the only screen the app owns (2027-architecture.md §2.2).
  *
  * The UI is the existing web app loaded in a WebView. This screen:
+ *   - refuses to show the app until the server is reachable (no offline use),
  *   - loads the production web app over HTTPS,
  *   - whitelists the web origin (anything else opens in the system browser),
  *   - validates every message that arrives from the page (origin + schema),
@@ -12,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   Linking,
   Platform,
@@ -25,7 +27,6 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
 import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
-import { downloadLesson } from "../src/downloads";
 import {
   getEnvironmentRisk,
   isScreenCaptured,
@@ -52,6 +53,43 @@ export default function Shell() {
   const [refreshing, setRefreshing] = useState(false);
   const [identity, setIdentity] = useState("");
   const [captured, setCaptured] = useState(false);
+  // Online gate: the shell refuses to show the web app until the server is
+  // reachable. `null` = checking, `true` = allowed, `false` = blocked.
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const checkConnection = useCallback(async () => {
+    setChecking(true);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      // Any HTTP answer means the network and the server are reachable.
+      await fetch(WEB_URL, {
+        method: "HEAD",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      setOnline(true);
+    } catch {
+      setOnline(false);
+    } finally {
+      clearTimeout(timer);
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkConnection();
+  }, [checkConnection]);
+
+  // Returning to the app re-checks only while blocked; a working session is
+  // never torn down by this effect.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && online === false) void checkConnection();
+    });
+    return () => sub.remove();
+  }, [online, checkConnection]);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     const data = event.nativeEvent.data;
@@ -84,9 +122,6 @@ export default function Shell() {
           setIdentity(
             message.email + (message.phoneLast4 ? ` · ${message.phoneLast4}` : ""),
           );
-        }
-        if (message.type === "downloadLesson") {
-          void downloadLesson(message.lessonId);
         }
       }),
     [],
@@ -141,55 +176,75 @@ export default function Shell() {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <WebView
-        ref={webRef}
-        source={{ uri: WEB_URL }}
-        originWhitelist={ALLOWED_ORIGINS}
-        userAgent={USER_AGENT}
-        javaScriptEnabled
-        domStorageEnabled
-        thirdPartyCookiesEnabled
-        allowsFullscreenVideo
-        allowsInlineMediaPlayback
-        mediaPlaybackRequiresUserAction={false}
-        injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT}
-        onMessage={onMessage}
-        onScroll={onScroll}
-        scrollEnabled
-        onLoadEnd={() => setRefreshing(false)}
-        onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
-        onShouldStartLoadWithRequest={(request) => {
-          // Only the web app may stay inside the shell; every other link
-          // opens in the system browser.
-          try {
-            const { origin } = new URL(request.url);
-            if (ALLOWED_ORIGINS.includes(origin)) return true;
-          } catch {
-            /* malformed URL -> external */
-          }
-          void Linking.openURL(request.url).catch(() => {});
-          return false;
-        }}
-        webviewDebuggingEnabled={__DEV__}
-        setSupportMultipleWindows={false}
-        style={styles.web}
-      />
-      {/* The identity floats over whatever the page plays (including a
-          third-party frame) — drawn by the native layer, not the page. */}
-      <WatermarkOverlay identity={identity} />
-      {refreshing ? (
-        <View style={styles.loader} pointerEvents="none">
-          <ActivityIndicator size="small" color="#6E4E9C" />
+      {online ? (
+        <>
+          <WebView
+            ref={webRef}
+            source={{ uri: WEB_URL }}
+            originWhitelist={ALLOWED_ORIGINS}
+            userAgent={USER_AGENT}
+            javaScriptEnabled
+            domStorageEnabled
+            thirdPartyCookiesEnabled
+            allowsFullscreenVideo
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT}
+            onMessage={onMessage}
+            onScroll={onScroll}
+            scrollEnabled
+            onLoadEnd={() => setRefreshing(false)}
+            onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
+            onShouldStartLoadWithRequest={(request) => {
+              // Only the web app may stay inside the shell; every other link
+              // opens in the system browser.
+              try {
+                const { origin } = new URL(request.url);
+                if (ALLOWED_ORIGINS.includes(origin)) return true;
+              } catch {
+                /* malformed URL -> external */
+              }
+              void Linking.openURL(request.url).catch(() => {});
+              return false;
+            }}
+            webviewDebuggingEnabled={__DEV__}
+            setSupportMultipleWindows={false}
+            style={styles.web}
+          />
+          {/* The identity floats over whatever the page plays (including a
+              third-party frame) — drawn by the native layer, not the page. */}
+          <WatermarkOverlay identity={identity} />
+          {refreshing ? (
+            <View style={styles.loader} pointerEvents="none">
+              <ActivityIndicator size="small" color="#6E4E9C" />
+            </View>
+          ) : null}
+        </>
+      ) : (
+        <View style={styles.gate}>
+          <Text style={styles.gateTitle}>
+            {online === null ? "Connecting…" : "No connection"}
+          </Text>
+          <Text style={styles.gateNote}>
+            {online === null
+              ? "Checking the connection…"
+              : "KineTech needs an internet connection. Reconnect, then retry."}
+          </Text>
+          <Pressable
+            onPress={() => void checkConnection()}
+            disabled={checking}
+            style={styles.gateButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retry connection"
+          >
+            {checking ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.gateButtonText}>Retry</Text>
+            )}
+          </Pressable>
         </View>
-      ) : null}
-      <Pressable
-        onPress={() => router.push("/downloads" as never)}
-        style={styles.downloadsButton}
-        accessibilityRole="button"
-        accessibilityLabel="Offline downloads"
-      >
-        <Text style={styles.downloadsText}>↓ Offline</Text>
-      </Pressable>
+      )}
       {captured ? (
         <View style={styles.captureOverlay}>
           <Text style={styles.captureNote}>Screen recording detected. Playback paused.</Text>
@@ -219,14 +274,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   captureNote: { color: "#FFFFFF", fontSize: 15, textAlign: "center" },
-  downloadsButton: {
-    position: "absolute",
-    bottom: 12,
-    alignSelf: "center",
-    borderRadius: 999,
-    backgroundColor: "rgba(26,26,26,0.86)",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  gate: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
   },
-  downloadsText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+  gateTitle: { color: "#1A1A1A", fontSize: 22, fontWeight: "700", marginBottom: 10 },
+  gateNote: { color: "#5B5B66", fontSize: 15, lineHeight: 22, textAlign: "center" },
+  gateButton: {
+    marginTop: 22,
+    minWidth: 140,
+    alignItems: "center",
+    borderRadius: 999,
+    backgroundColor: "#6E4E9C",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  gateButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });

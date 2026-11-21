@@ -1,9 +1,9 @@
 /* Hybrid shell configuration (2027-architecture.md §2).
  *
  * The UI is the EXISTING web app rendered inside a WebView — the shell owns
- * no screens of its own beyond the protected player, the blocked screen and
- * (phase 4) offline downloads. Everything the web app needs is served by
- * apps/web; native only receives ids over the bridge, never URLs or tokens.
+ * no screens of its own beyond the protected player and the blocked screen.
+ * Everything the web app needs is served by apps/web; native only receives
+ * ids over the bridge, never URLs or tokens.
  */
 
 export const BRIDGE_VERSION = 1;
