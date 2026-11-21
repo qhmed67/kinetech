@@ -52,8 +52,15 @@ const QUALITY_LABEL: Record<string, string> = {
 /** Quality rung order, low → high. Used to always keep the better segment. */
 const QUALITY_RANK = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
 
-/** Drive's preview lays out at a ~400 CSS-px minimum; stay above it. */
-const DRIVE_MIN_W = 420;
+/** Fixed Drive design size — the iframe is NEVER resized in native mode:
+ *  Drive switches its layout mode by frame aspect/size; we freeze 640×360
+ *  (≈ the 592×334 layout that rendered correctly inline) and scale from
+ *  the outside with translate. */
+const DESIGN_W = 640;
+const DESIGN_H = 360;
+
+/** Explicit player overlay state machine (native shell only). */
+type PlayerState = "inline" | "expanding" | "expanded" | "collapsing" | "inline";
 
 function qualityRank(q: string): number {
   const i = QUALITY_RANK.indexOf(q);
@@ -296,14 +303,26 @@ export function ProtectedVideoPlayer({
     };
   }, [native, grant]);
 
-  // Native shell (Expo Go): Drive's own fullscreen button would be promoted
-  // into the Android WebView's native custom view, where it is invisible to
-  // the page and its layout overflows the screen. Instead the page expands
-  // itself — a black full-window backdrop with the frame laid out wider and
-  // scaled down — while the shell rotates the device to landscape.
-  const [expanded, setExpanded] = useState(false);
-  const [driveFit, setDriveFit] = useState<{ W: number; H: number; s: number } | null>(null);
-  const isDriveExpanded = native && isDrive && expanded;
+  // ---- Native shell (Expo Go) expand/collapse state machine ----------------
+  // One explicit machine: inline → expanding → expanded → collapsing → inline.
+  // transitionId serializes async steps — a stale step never applies its style.
+  // The frame layout is a pure function of (state, container rect): it is
+  // recomputed on every measurement, never stored as possibly-stale values.
+
+  const [playerState, setPlayerState] = useState<PlayerState>("inline");
+  const [transitionId, setTransitionId] = useState(0);
+  const [containerRect, setContainerRect] = useState<{ cw: number; ch: number } | null>(null);
+  const [coverOn, setCoverOn] = useState(false);
+  const [coverFadeOut, setCoverFadeOut] = useState(false);
+  const seqRef = useRef(0);
+  const stabilityRef = useRef<{ key: string; count: number } | null>(null);
+  const debugRef = useRef<Record<string, unknown>>({});
+  const [, setDebugTick] = useState(0);
+  const debugOn =
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("pvpdebug");
+
+  const isDriveShellBlack = native && isDrive && playerState !== "inline";
+  const isDriveExpanded = native && isDrive && playerState === "expanded";
 
   // Safe-area values the shell injects as window.__KT_SAFE_AREA (RN
   // useSafeAreaInsets at the root View). The WebView page has no other source
@@ -332,73 +351,264 @@ export function ProtectedVideoPlayer({
     [native],
   );
 
-  useEffect(() => {
-    sendPlayerFullscreen(isDriveExpanded);
-  }, [sendPlayerFullscreen, isDriveExpanded]);
+  // ---- Pure layout: frame = DESIGN_W × DESIGN_H, centered with translate ----
+  const layoutFor = (cw: number, ch: number): { s: number; tx: number; ty: number } => {
+    if (cw <= 0 || ch <= 0) return { s: 1, tx: 0, ty: 0 };
+    const s = Math.min(cw / DESIGN_W, ch / DESIGN_H);
+    return { s, tx: (cw - DESIGN_W * s) / 2, ty: (ch - DESIGN_H * s) / 2 };
+  };
+
+  // Measure the real container box — the single source of truth for the fit.
+  const measureContainer = () => {
+    const box = boxRef.current;
+    if (!box) return;
+    const r = box.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    setContainerRect({ cw: r.width, ch: r.height });
+    const key = `${Math.round(r.width)}x${Math.round(r.height)}`;
+    const st = stabilityRef.current;
+    stabilityRef.current = st?.key === key ? { key, count: st.count + 1 } : { key, count: 1 };
+  };
 
   // Native → page: the shell asks us to collapse (hardware back button).
+  const collapse = useCallback(() => {
+    if (playerState === "inline" || playerState === "collapsing") return;
+    const seq = ++seqRef.current;
+    setTransitionId(seq);
+    setPlayerState("collapsing");
+    sendPlayerFullscreen(false);
+    const start = Date.now();
+    const poll = () => {
+      if (seqRef.current !== seq) return;
+      // Collapse finishes when the shell is back to portrait AND the inline
+      // expectation holds (not fixed, width = parent content width).
+      if (window.innerWidth > window.innerHeight === false && isInlineExpectationMet()) {
+        finish();
+        return;
+      }
+      if (Date.now() - start > 1500) {
+        finish();
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    const finish = () => {
+      setPlayerState("inline");
+      scheduleReconcile("collapse");
+      // Fade the black cover out over ~150 ms, then detach it.
+      setTimeout(() => {
+        setCoverFadeOut(true);
+        setTimeout(() => setCoverOn(false), 150);
+        setTimeout(() => setCoverFadeOut(false), 400);
+      }, 150);
+    };
+    requestAnimationFrame(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState, sendPlayerFullscreen]);
+
+  const expand = useCallback(() => {
+    if (playerState !== "inline") return;
+    const seq = ++seqRef.current;
+    setTransitionId(seq);
+    setPlayerState("expanding");
+    setCoverOn(true);
+    setCoverFadeOut(false);
+    const start = Date.now();
+    const poll = () => {
+      if (seqRef.current !== seq) return;
+      if (window.innerWidth > window.innerHeight) {
+        setPlayerState("expanded");
+        return;
+      }
+      if (Date.now() - start > 1500) {
+        setPlayerState("expanded");
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState]);
+
+  // Inline expectation (collapse poll): the shell is back in document flow
+  // with its natural 16:9 aspect, and its width matches the parent.
+  const isInlineExpectationMet = () => {
+    const box = boxRef.current;
+    if (!box) return false;
+    const r = box.getBoundingClientRect();
+    const parent = box.parentElement;
+    if (!parent || r.width <= 0) return false;
+    if (box.classList.contains("pvp-expanded")) return false;
+    if (box.style.position.includes("fixed")) return false;
+    if (Math.abs(r.width - parent.clientWidth) > Math.max(1, parent.clientWidth * 0.02)) return false;
+    // 16:9 ± 5%
+    if (r.height <= 0 || Math.abs((r.width / r.height) - 16 / 9) / (16 / 9) > 0.05) return false;
+    return true;
+  };
+
+  const reconcile = useCallback(() => {
+    const box = boxRef.current;
+    if (!box || !native || !isDrive) return;
+    const r = box.getBoundingClientRect();
+    const parent = box.parentElement;
+    const info: Record<string, unknown> = {};
+    let ok = true;
+    info.hasExpandedClass = box.classList.contains("pvp-expanded");
+    info.positionFixed = box.style.position.includes("fixed");
+    if (info.hasExpandedClass || info.positionFixed) ok = false;
+    if (parent && r.width > 0) {
+      const diff = Math.abs(r.width - parent.clientWidth);
+      info.widthDiff = diff;
+      if (diff > Math.max(1, parent.clientWidth * 0.02)) ok = false;
+    }
+    if (r.height > 0) {
+      const aspect = r.width / r.height;
+      info.aspect = aspect;
+      if (Math.abs(aspect - 16 / 9) / (16 / 9) > 0.05) ok = false;
+    }
+    debugRef.current.reconcile = info;
+    setDebugTick((t) => t + 1);
+    if (!ok) {
+      // Watchdog: derive layout again and force the inline state. Never
+      // remount the iframe — Drive must not reload.
+      setPlayerState("inline");
+      setContainerRect(null);
+      measureContainer();
+    }
+  }, [native, isDrive]);
+
+  const scheduleReconcile = useCallback(
+    (why: string) => {
+      reconcile();
+      debugRef.current.lastReconcile = why;
+      setTimeout(() => reconcile(), 250);
+      setTimeout(() => reconcile(), 600);
+      setTimeout(() => reconcile(), 1200);
+    },
+    [reconcile],
+  );
+
+  // Cover removal while expanded: wait until orientation is right AND the
+  // rect is stable (2 consecutive measures), plus a 1500 ms hard timeout.
   useEffect(() => {
-    return bridgeOn("closeExpand", () => setExpanded(false));
+    if (playerState !== "expanded") return;
+    const id = setInterval(() => {
+      const st = stabilityRef.current;
+      if (st && st.count >= 2) removeCover();
+    }, 100);
+    const t = setTimeout(removeCover, 1500);
+    return () => { clearInterval(id); clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState]);
+
+  const removeCover = useCallback(() => {
+    setCoverFadeOut(true);
+    setTimeout(() => setCoverOn(false), 150);
+    setTimeout(() => setCoverFadeOut(false), 400);
   }, []);
 
-  // While expanded, the frame is laid out wider than the box and scaled down:
-  // W/H come from the measured visible viewport (minus safe areas), DRIVE_MIN_W
-  // is comfortably above Drive's ~400 px minimum layout width. The fit is
-  // recomputed after the native lock settles (rAF + 250 ms — the WebView
-  // resizes asynchronously when the shell rotates it) and on viewport changes.
+  // Collapse watchdog: reconcile repeatedly while inline.
   useEffect(() => {
-    if (!isDriveExpanded) {
-      setDriveFit(null);
-      return;
-    }
-    const apply = () => {
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          const ins = safeInsets();
-          const vw = window.visualViewport;
-          const W = Math.max(1, (vw ? vw.width : window.innerWidth) - ins.left - ins.right);
-          const H = Math.max(1, (vw ? vw.height : window.innerHeight) - ins.top - ins.bottom);
-          const s = Math.min(1, W / DRIVE_MIN_W);
-          setDriveFit({ W, H, s });
-        }, 250);
-      });
-    };
-    apply();
-    const onViewportChange = () => apply();
-    window.addEventListener("resize", onViewportChange);
-    window.addEventListener("orientationchange", onViewportChange);
-    window.visualViewport?.addEventListener("resize", onViewportChange);
-    // Every exit path announces the collapse: unmounting, leaving the page
-    // (route/lesson change) or the tab being discarded.
-    const onUnload = () => sendPlayerFullscreen(false);
-    window.addEventListener("pagehide", onUnload);
-    window.addEventListener("beforeunload", onUnload);
+    if (!native || !isDrive || playerState !== "inline") return;
+    const on = () => reconcile();
+    window.addEventListener("resize", on);
+    window.addEventListener("orientationchange", on);
+    window.addEventListener("pageshow", on);
+    window.addEventListener("visibilitychange", on);
+    window.addEventListener("focus", on);
     return () => {
-      window.removeEventListener("resize", onViewportChange);
-      window.removeEventListener("orientationchange", onViewportChange);
-      window.visualViewport?.removeEventListener("resize", onViewportChange);
-      window.removeEventListener("pagehide", onUnload);
-      window.removeEventListener("beforeunload", onUnload);
-      sendPlayerFullscreen(false);
+      window.removeEventListener("resize", on);
+      window.removeEventListener("orientationchange", on);
+      window.removeEventListener("pageshow", on);
+      window.removeEventListener("visibilitychange", on);
+      window.removeEventListener("focus", on);
     };
-  }, [isDriveExpanded, sendPlayerFullscreen]);
+  }, [native, isDrive, playerState, reconcile]);
 
-  // The frame itself is absolutely laid out on top of the (black, full-screen)
-  // shell and scaled to fit, so it can never overflow or be cropped.
-  const frameStyle: React.CSSProperties = isDriveExpanded
-    ? driveFit
-      ? {
-          border: 0,
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: driveFit.W / driveFit.s,
-          height: driveFit.H / driveFit.s,
-          transform: `scale(${driveFit.s})`,
-          transformOrigin: "0 0",
-        }
-      : { border: 0, width: "100%", height: "100%", transform: "none", transformOrigin: "0 0" }
-    : { border: 0, width: "200%", height: "200%", transform: "scale(0.5)", transformOrigin: "0 0" };
+  // Measure the container continuously while native.
+  useEffect(() => {
+    if (!native || !isDrive) return;
+    measureContainer();
+    const onChange = () => measureContainer();
+    const ro = new ResizeObserver(onChange);
+    const box = boxRef.current;
+    if (box) ro.observe(box);
+    window.addEventListener("resize", onChange);
+    window.addEventListener("orientationchange", onChange);
+    window.visualViewport?.addEventListener("resize", onChange);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", onChange);
+      window.removeEventListener("orientationchange", onChange);
+      window.visualViewport?.removeEventListener("resize", onChange);
+    };
+  }, [native, isDrive]);
+
+  // Announce/unannounce the overlay to the shell on every state change, and
+  // on unmount.
+  useEffect(() => {
+    sendPlayerFullscreen(playerState !== "inline");
+  }, [playerState, sendPlayerFullscreen]);
+
+  useEffect(() => () => sendPlayerFullscreen(false), [sendPlayerFullscreen]);
+
+  // Native → page: orientation ack → re-measure now; the real box is settling.
+  useEffect(() => {
+    if (!native || !isDrive) return;
+    const offs: Array<() => void> = [];
+    offs.push(bridgeOn("player-orientation-settled", () => {
+      measureContainer();
+      reconcile();
+    }));
+    // Shell asks: collapse (hardware back button pressed).
+    offs.push(bridgeOn("closeExpand", () => collapse()));
+    return () => offs.forEach((off) => off());
+  }, [native, isDrive, reconcile, collapse]);
+
+  // Debug overlay (?pvpdebug=1, native only).
+  useEffect(() => {
+    if (!debugOn || !native || !isDrive) return;
+    const id = setInterval(() => {
+      const { s, tx, ty } = layoutFor(containerRect?.cw ?? 0, containerRect?.ch ?? 0);
+      debugRef.current = {
+        state: playerState,
+        transitionId,
+        cw: containerRect?.cw ?? null,
+        ch: containerRect?.ch ?? null,
+        s,
+        tx,
+        ty,
+        landscape: window.innerWidth > window.innerHeight,
+        coverOn,
+        lastReconcile: debugRef.current.lastReconcile ?? null,
+      };
+      setDebugTick((t) => t + 1);
+    }, 250);
+    return () => clearInterval(id);
+  }, [debugOn, native, isDrive]);
+
+  // The frame is a pure function of the state machine and the container
+  // rect: native = DESIGN_W × DESIGN_H, centred via translate+scale. The
+  // browser keeps its original 2x/scale(0.5) trick.
+  const nativeFrameStyle: React.CSSProperties | null =
+    native && isDrive
+      ? (() => {
+          const { s, tx, ty } = layoutFor(containerRect?.cw ?? 0, containerRect?.ch ?? 0);
+          return {
+            border: 0,
+            position: "absolute" as const,
+            left: 0,
+            top: 0,
+            width: DESIGN_W,
+            height: DESIGN_H,
+            zIndex: 10,
+            transformOrigin: "0 0" as const,
+            transform: `translate(${tx}px, ${ty}px) scale(${s})`,
+          };
+        })()
+      : null;
+  const frameStyle: React.CSSProperties =
+    nativeFrameStyle ?? { border: 0, width: "200%", height: "200%", transform: "scale(0.5)", transformOrigin: "0 0" };
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -799,17 +1009,56 @@ export function ProtectedVideoPlayer({
       onDragStart={(e) => e.preventDefault()}
       onDoubleClick={toggleFullscreen}
       onMouseMove={wake}
-      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none${isDriveExpanded ? " pvp-expanded" : ""} ${extraClass}`}
+      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none${isDriveShellBlack ? " pvp-expanded" : ""} ${extraClass}`}
       style={
-        isDriveExpanded
+        isDriveShellBlack
           ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "#000", borderRadius: 0 }
           : { background: "#000", userSelect: "none", WebkitUserSelect: "none" }
       }
       aria-label="Protected video player"
     >
+      {cover}
+      {debugOverlay}
       {body}
     </div>
   );
+
+  // Opaque black cover over the player while expanding (above the iframe,
+  // below watermark/controls). Never display:none and never remount.
+  const cover = coverOn && (
+    <div
+      aria-hidden="true"
+      className="absolute inset-0 z-15 pointer-events-none"
+      style={{
+        background: "#000",
+        opacity: coverFadeOut ? 0 : 1,
+        transitionDuration: coverFadeOut ? "150ms" : "0ms",
+      }}
+    />
+  );
+
+  // Debug overlay (?pvpdebug=1, native only).
+  const debugOverlay = debugOn ? (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: 8,
+        left: 8,
+        zIndex: 100000,
+        pointerEvents: "none",
+        background: "rgba(0,0,0,0.85)",
+        color: "#fff",
+        fontSize: 10,
+        fontFamily: "monospace",
+        padding: 4,
+        maxWidth: 420,
+        whiteSpace: "pre",
+      }}
+    >
+      {Object.entries(debugRef.current).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n")}
+    </div>
+  ) : null;
 
   // Grant pending: spinner, no URL anywhere yet.
   if (!grant || !embedUrl) {
@@ -854,14 +1103,15 @@ export function ProtectedVideoPlayer({
         ) : (
           poster(() => setMediaStarted(true), true)
         )}
-        {native && isDrive && !expanded ? (
-          /* Safe-area-aware offsets: clear of the status bar, notch and the
-             user-identity watermark (which sits at z-20). */
+        {native && isDrive && playerState === "inline" ? (
+          /* Expand button: top-LEFT of the inline player — Drive fills the
+             inline shell, so a bottom-right float would overlap Drive's
+             bottom-left controls in landscape. Safe-area aware. */
           <button
             type="button"
-            onClick={() => setExpanded(true)}
+            onClick={expand}
             aria-label="Open full screen"
-            style={{ position: "absolute", bottom: safeInsets().bottom + 12, right: safeInsets().right + 12, zIndex: 30 }}
+            style={{ position: "absolute", top: safeInsets().top + 8, left: safeInsets().left + 8, zIndex: 30 }}
             className="grid h-11 w-11 place-items-center rounded-full border border-[rgba(255,255,255,0.35)] bg-[rgba(0,0,0,0.35)] shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition hover:bg-[rgba(255,255,255,0.2)]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
@@ -872,15 +1122,15 @@ export function ProtectedVideoPlayer({
             </svg>
           </button>
         ) : null}
-        {native && isDrive && expanded ? (
-          /* In expanded mode the shell is the black full-window backdrop and
-             the frame sits absolutely on top, scaled to fit — no overflow. */
+        {native && isDrive && isDriveExpanded ? (
+          /* Solid, high-contrast 44×44 ✕: semi-opaque black circle behind it,
+             offset by env(safe-area-inset-*) — above the watermark (z-20). */
           <button
             type="button"
-            onClick={() => setExpanded(false)}
+            onClick={collapse}
             aria-label="Close full screen"
-            style={{ position: "absolute", top: safeInsets().top + 12, right: safeInsets().right + 12, zIndex: 30 }}
-            className="grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.55)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
+            style={{ position: "absolute", top: safeInsets().top + 8, right: safeInsets().right + 8, zIndex: 40 }}
+            className="grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.6)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />

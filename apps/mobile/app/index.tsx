@@ -162,12 +162,46 @@ export default function Shell() {
   );
 
   // Orientation: the shell starts portrait; while a player is expanded it
-  // locks landscape; a collapse returns to portrait.
+  // locks landscape; a collapse returns to portrait. Locks are serialized by
+  // a sequence counter — a late-resolving "lock landscape" can never
+  // override a newer "lock portrait".
+  const lockSeqRef = useRef(0);
   const lockOrientation = useCallback((lock: OrientationLock) => {
-    void lockAsync(lock).catch(() => {
-      /* expo-screen-orientation can reject when unsupported — stay unlocked */
-    });
+    const seq = ++lockSeqRef.current;
+    void (async () => {
+      try {
+        await lockAsync(lock);
+      } catch {
+        return; /* unsupported — stay unlocked */
+      }
+      if (lockSeqRef.current !== seq) return;
+      const orientation: "landscape" | "portrait" =
+        lock === OrientationLock.LANDSCAPE ? "landscape" : "portrait";
+      // Wait (≤ ~1 s) for the WebView to report the target orientation.
+      const start = Date.now();
+      while (Date.now() - start < 1000) {
+        const landscape = window.innerWidth > window.innerHeight;
+        if (landscape === (orientation === "landscape")) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (lockSeqRef.current !== seq) return;
+      sendToWeb({ v: 1, type: "player-orientation-settled", orientation, seq });
+    })();
   }, []);
+
+  // Defensive pass: ~1.2 s after the player opens, if the landscape lock did
+  // not actually take effect, re-assert portrait and nudge the WebView with a
+  // resize so the page re-measures. (No-op when the lock worked.)
+  useEffect(() => {
+    if (!playerExpanded) return;
+    const t = setTimeout(() => {
+      if (!(window.innerWidth > window.innerHeight)) {
+        void lockAsync(OrientationLock.PORTRAIT_UP).catch(() => {});
+        webRef.current?.injectJavaScript("window.dispatchEvent(new Event('resize'));");
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [playerExpanded]);
 
   useEffect(() => {
     lockOrientation(OrientationLock.PORTRAIT_UP);

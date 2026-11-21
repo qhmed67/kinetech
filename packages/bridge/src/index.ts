@@ -33,7 +33,12 @@ export type NativeToWeb =
   | { v: 1; type: "deviceStatus"; ok: boolean; reason?: string }
   | { v: 1; type: "downloadState"; lessonId: string; state: "queued" | "done" | "failed" }
   /** The shell asks the page to collapse the expanded player overlay. */
-  | { v: 1; type: "closeExpand" };
+  | { v: 1; type: "closeExpand" }
+  /**
+   * The shell reports that it landed on the orientation it locked: the
+   * WebView is about to report it via resize. The page re-measures/reconciles.
+   */
+  | { v: 1; type: "player-orientation-settled"; orientation: "landscape" | "portrait"; seq: number };
 
 export type BridgeMessage = WebToNative | NativeToWeb;
 
@@ -103,6 +108,13 @@ export function parseMessage(raw: unknown): BridgeMessage | null {
         : null;
     case "player-fullscreen":
       return typeof data.expanded === "boolean" ? { v: 1, type, expanded: data.expanded } : null;
+    case "player-orientation-settled":
+      return (
+        (data.orientation === "landscape" || data.orientation === "portrait") &&
+        typeof data.seq === "number"
+          ? { v: 1, type, orientation: data.orientation, seq: data.seq }
+          : null
+      );
     default:
       // Unknown types are dropped — never forwarded, never executed.
       return null;
@@ -116,7 +128,8 @@ export function isWebToNative(message: BridgeMessage): message is WebToNative {
     message.type === "logout" ||
     message.type === "downloadLesson" ||
     message.type === "watermark" ||
-    message.type === "player-fullscreen"
+    message.type === "player-fullscreen" ||
+    message.type === "player-orientation-settled"
   );
 }
 
@@ -125,7 +138,6 @@ export function isNativeToWeb(message: BridgeMessage): message is NativeToWeb {
     message.type === "playerClosed" ||
     message.type === "deviceStatus" ||
     message.type === "downloadState" ||
-    message.type === "player-fullscreen" ||
     message.type === "closeExpand"
   );
 }
