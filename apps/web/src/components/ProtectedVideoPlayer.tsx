@@ -464,10 +464,14 @@ export function ProtectedVideoPlayer({
     const poll = () => {
       if (seqRef.current !== seq) return;
       if (window.innerWidth > window.innerHeight) {
+        // Re-measure now: the shell is full-window by the time we flip to
+        // "expanded" — the frame fit follows the real box.
+        measureContainer();
         setPlayerState("expanded");
         return;
       }
       if (Date.now() - start > 1500) {
+        measureContainer();
         setPlayerState("expanded");
         return;
       }
@@ -556,6 +560,14 @@ export function ProtectedVideoPlayer({
       window.removeEventListener("focus", on);
     };
   }, [native, isDrive, playerState, reconcile]);
+
+  // Re-measure on every settled state change (after the DOM updates): while
+  // expanding/expanded the black shell is the full window; after a collapse
+  // lands, the shell is back in document flow with its inline rect.
+  useEffect(() => {
+    if (!native || !isDrive || playerState === "collapsing") return;
+    measureContainer();
+  }, [native, isDrive, playerState]);
 
   // Measure the container continuously while native.
   useEffect(() => {
