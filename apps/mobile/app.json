@@ -4,7 +4,7 @@
     "slug": "kinetech",
     "version": "1.0.0",
     "scheme": "kinetech",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {

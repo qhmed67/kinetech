@@ -298,53 +298,90 @@ export function ProtectedVideoPlayer({
 
   // Native shell (Expo Go): Drive's own fullscreen button would be promoted
   // into the Android WebView's native custom view, where it is invisible to
-  // the page and its layout overflows the screen. Instead of native
-  // fullscreen, the page expands itself — see the Drive branch below.
+  // the page and its layout overflows the screen. Instead the page expands
+  // itself — a black full-window backdrop with the frame laid out wider and
+  // scaled down — while the shell rotates the device to landscape.
   const [expanded, setExpanded] = useState(false);
   const [driveFit, setDriveFit] = useState<{ W: number; H: number; s: number } | null>(null);
+  const isDriveExpanded = native && isDrive && expanded;
 
-  // The shell consults the page for back-button handling (see apps/mobile).
+  // Safe-area values the shell injects as window.__KT_SAFE_AREA (RN
+  // useSafeAreaInsets at the root View). The WebView page has no other source
+  // of them; CSS env() vars are not set there.
+  const safeInsets = () => {
+    const anyWindow = window as Window & {
+      __KT_SAFE_AREA?: { top: number; right: number; bottom: number; left: number };
+    };
+    const a = anyWindow.__KT_SAFE_AREA;
+    return { top: a?.top ?? 0, right: a?.right ?? 0, bottom: a?.bottom ?? 0, left: a?.left ?? 0 };
+  };
+
+  // Page → native: announces the expanded overlay (shell locks landscape,
+  // hides the status bar, and lets the hardware back button collapse first).
+  const sendPlayerFullscreen = useCallback(
+    (value: boolean) => {
+      if (!native) return;
+      const el = window.ReactNativeWebView;
+      if (!el?.postMessage) return;
+      try {
+        el.postMessage(JSON.stringify({ type: "player-fullscreen", expanded: value }));
+      } catch {
+        /* bridge not ready / closed — nothing we can do */
+      }
+    },
+    [native],
+  );
+
   useEffect(() => {
-    if (!native) return;
-    bridgeSend({ v: 1, type: "playerExpanded", expanded });
-  }, [native, expanded]);
+    sendPlayerFullscreen(isDriveExpanded);
+  }, [sendPlayerFullscreen, isDriveExpanded]);
 
+  // Native → page: the shell asks us to collapse (hardware back button).
   useEffect(() => {
     return bridgeOn("closeExpand", () => setExpanded(false));
   }, []);
 
-  // While expanded, measure the (now black) shell and lay the frame out so it
-  // always fits the visible area: DRIVE_MIN_W is comfortably above Drive's
-  // ~400 px minimum preview width; the scale covers the shorter height.
+  // While expanded, the frame is laid out wider than the box and scaled down:
+  // W/H come from the measured visible viewport (minus safe areas), DRIVE_MIN_W
+  // is comfortably above Drive's ~400 px minimum layout width. The fit is
+  // recomputed after the native lock settles (rAF + 250 ms — the WebView
+  // resizes asynchronously when the shell rotates it) and on viewport changes.
   useEffect(() => {
-    if (!native || !isDrive || !expanded) {
+    if (!isDriveExpanded) {
       setDriveFit(null);
       return;
     }
-    const box = boxRef.current;
-    if (!box) return;
     const apply = () => {
-      const W = box.clientWidth;
-      const H = box.clientHeight;
-      if (W <= 0 || H <= 0) return;
-      const s = Math.min(1, W / DRIVE_MIN_W);
-      setDriveFit({ W, H, s });
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const ins = safeInsets();
+          const vw = window.visualViewport;
+          const W = Math.max(1, (vw ? vw.width : window.innerWidth) - ins.left - ins.right);
+          const H = Math.max(1, (vw ? vw.height : window.innerHeight) - ins.top - ins.bottom);
+          const s = Math.min(1, W / DRIVE_MIN_W);
+          setDriveFit({ W, H, s });
+        }, 250);
+      });
     };
     apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(box);
-    window.addEventListener("resize", apply);
-    window.addEventListener("orientationchange", apply);
+    const onViewportChange = () => apply();
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("orientationchange", onViewportChange);
+    window.visualViewport?.addEventListener("resize", onViewportChange);
+    // Every exit path announces the collapse: unmounting, leaving the page
+    // (route/lesson change) or the tab being discarded.
+    const onUnload = () => sendPlayerFullscreen(false);
+    window.addEventListener("pagehide", onUnload);
+    window.addEventListener("beforeunload", onUnload);
     return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", apply);
-      window.removeEventListener("orientationchange", apply);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("orientationchange", onViewportChange);
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("pagehide", onUnload);
+      window.removeEventListener("beforeunload", onUnload);
+      sendPlayerFullscreen(false);
     };
-  }, [native, isDrive, expanded]);
-
-  // Native-shell expansion (see the Drive branch): the shell becomes a black
-  // full-window backdrop and the frame is laid out scaled to fit.
-  const isDriveExpanded = native && isDrive && expanded;
+  }, [isDriveExpanded, sendPlayerFullscreen]);
 
   // The frame itself is absolutely laid out on top of the (black, full-screen)
   // shell and scaled to fit, so it can never overflow or be cropped.
@@ -818,11 +855,14 @@ export function ProtectedVideoPlayer({
           poster(() => setMediaStarted(true), true)
         )}
         {native && isDrive && !expanded ? (
+          /* Safe-area-aware offsets: clear of the status bar, notch and the
+             user-identity watermark (which sits at z-20). */
           <button
             type="button"
             onClick={() => setExpanded(true)}
             aria-label="Open full screen"
-            className="absolute right-3 bottom-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-[rgba(255,255,255,0.35)] bg-[rgba(0,0,0,0.35)] shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition hover:bg-[rgba(255,255,255,0.2)]"
+            style={{ position: "absolute", bottom: safeInsets().bottom + 12, right: safeInsets().right + 12, zIndex: 30 }}
+            className="grid h-11 w-11 place-items-center rounded-full border border-[rgba(255,255,255,0.35)] bg-[rgba(0,0,0,0.35)] shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition hover:bg-[rgba(255,255,255,0.2)]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
               <polyline points="15 3 21 3 21 9" />
@@ -839,7 +879,8 @@ export function ProtectedVideoPlayer({
             type="button"
             onClick={() => setExpanded(false)}
             aria-label="Close full screen"
-            className="absolute right-3 top-3 z-10 grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.55)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
+            style={{ position: "absolute", top: safeInsets().top + 12, right: safeInsets().right + 12, zIndex: 30 }}
+            className="grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.55)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />

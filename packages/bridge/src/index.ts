@@ -26,7 +26,7 @@ export type WebToNative =
    * shell uses it so the hardware back button can collapse the overlay via
    * `closeExpand` instead of leaving the app.
    */
-  | { v: 1; type: "playerExpanded"; expanded: boolean };
+  | { v: 1; type: "player-fullscreen"; expanded: boolean };
 
 export type NativeToWeb =
   | { v: 1; type: "playerClosed"; lessonId: string; progressSec: number }
@@ -101,7 +101,7 @@ export function parseMessage(raw: unknown): BridgeMessage | null {
         (data.state === "queued" || data.state === "done" || data.state === "failed")
         ? { v: 1, type, lessonId: data.lessonId, state: data.state }
         : null;
-    case "playerExpanded":
+    case "player-fullscreen":
       return typeof data.expanded === "boolean" ? { v: 1, type, expanded: data.expanded } : null;
     default:
       // Unknown types are dropped — never forwarded, never executed.
@@ -116,7 +116,7 @@ export function isWebToNative(message: BridgeMessage): message is WebToNative {
     message.type === "logout" ||
     message.type === "downloadLesson" ||
     message.type === "watermark" ||
-    message.type === "playerExpanded"
+    message.type === "player-fullscreen"
   );
 }
 
@@ -125,6 +125,7 @@ export function isNativeToWeb(message: BridgeMessage): message is NativeToWeb {
     message.type === "playerClosed" ||
     message.type === "deviceStatus" ||
     message.type === "downloadState" ||
+    message.type === "player-fullscreen" ||
     message.type === "closeExpand"
   );
 }

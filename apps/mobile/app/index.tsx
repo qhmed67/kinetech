@@ -22,9 +22,11 @@ import {
   Text,
   View,
 } from "react-native";
+import { StatusBar } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { lockAsync, OrientationLock } from "expo-screen-orientation";
 import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
 import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
 import {
@@ -52,6 +54,12 @@ type WebViewHandle = React.ComponentRef<typeof WebView>;
  *  phone until the app data is cleared. A unique query per launch forces the
  *  HTML to be refetched while the hashed JS/CSS stay cached. */
 const LAUNCH_URL = `${WEB_URL}${WEB_URL.includes("?") ? "&" : "?"}v=${Date.now()}`;
+
+/** Puts the shell's safe-area insets on `window.__KT_SAFE_AREA` so the page
+ *  (which has no RN-safe-area source of its own and where the WebView does
+ *  not set env() vars) can offset its expanded-player buttons. */
+const safeAreaScript = (insets: { top: number; right: number; bottom: number; left: number }): string =>
+  `window.__KT_SAFE_AREA = ${JSON.stringify(insets)};`;
 
 export default function Shell() {
   const webRef = useRef<WebViewHandle | null>(null);
@@ -110,7 +118,7 @@ export default function Shell() {
   // The page reports expanded/collapsed state over the bridge so the hardware
   // back button can first collapse the expanded Drive overlay.
   useEffect(() => onWebMessage((message) => {
-    if (message.type === "playerExpanded") setPlayerExpanded(message.expanded);
+    if (message.type === "player-fullscreen") setPlayerExpanded(message.expanded);
   }), []);
 
   // Android back button: collapse the expanded overlay, then walk the web
@@ -147,6 +155,44 @@ export default function Shell() {
       }),
     [],
   );
+
+  // Orientation: the shell starts portrait; while a player is expanded it
+  // locks landscape; a collapse returns to portrait.
+  const lockOrientation = useCallback((lock: OrientationLock) => {
+    void lockAsync(lock).catch(() => {
+      /* expo-screen-orientation can reject when unsupported — stay unlocked */
+    });
+  }, []);
+
+  useEffect(() => {
+    lockOrientation(OrientationLock.PORTRAIT_UP);
+  }, [lockOrientation]);
+
+  useEffect(() => {
+    if (playerExpanded) {
+      lockOrientation(OrientationLock.LANDSCAPE);
+      StatusBar.setHidden(true, "fade");
+    } else {
+      lockOrientation(OrientationLock.PORTRAIT_UP);
+      StatusBar.setHidden(false, "fade");
+    }
+  }, [playerExpanded, lockOrientation]);
+
+  // Safety nets — never get stuck in landscape:
+  // backgrounding, reloading the page, leaving the shell, going down.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background") lockOrientation(OrientationLock.PORTRAIT_UP);
+    });
+    return () => sub.remove();
+  }, [lockOrientation]);
+
+  useEffect(() => () => lockOrientation(OrientationLock.PORTRAIT_UP), [lockOrientation]);
+
+  // A new navigation or reload inside the WebView restores portrait.
+  const onLoadStart = useCallback(() => {
+    lockOrientation(OrientationLock.PORTRAIT_UP);
+  }, [lockOrientation]);
 
   // Let the native screens (the player) talk back to the page.
   useEffect(() => {
@@ -214,7 +260,8 @@ export default function Shell() {
             allowsFullscreenVideo={false}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
-            injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT}
+            injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT + safeAreaScript(insets)}
+            onLoadStart={onLoadStart}
             onMessage={onMessage}
             onScroll={onScroll}
             scrollEnabled
