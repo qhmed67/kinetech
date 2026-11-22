@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { bridgeOn, bridgeSend, isNativeApp } from "../native";
 import { useLang } from "./lang";
 import { apiFetch } from "../lib/http";
+import { getAccessToken } from "../lib/accessToken";
+import { log } from "../lib/logger";
+import { WorkerVideoPlayer } from "./WorkerVideoPlayer";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -32,7 +35,18 @@ type PlayGrant = {
   minutes: number;
   email: string;
   phoneLast4: string;
+  /** "worker" = a <video> streamed through the Worker; "embed" = Drive/YouTube. */
+  mode: "worker" | "embed";
+  /** Worker stream URL (signed token, no Drive id). Present when mode=worker. */
+  src?: string;
+  /** ISO expiry of the current Worker token. */
+  expiresAt?: string;
+  /** Whether a YouTube fallback exists for this lesson. */
+  youtubeAvailable?: boolean;
 };
+
+/** Playback tier chain: Worker → Drive → YouTube. */
+type Tier = "worker" | "drive" | "youtube";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -111,6 +125,9 @@ export function ProtectedVideoPlayer({
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
+  // Active playback tier. Starts at "drive" and becomes "worker" when the
+  // server grants a Worker stream; falls forward on failure, never back.
+  const [tier, setTier] = useState<Tier>("drive");
   // Terminal (denied/session-dead): parent takes over the area.
   const [over, setOver] = useState(false);
   const [ready, setReady] = useState(false);
@@ -180,6 +197,7 @@ export function ProtectedVideoPlayer({
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     let alive = true;
     setGrant(null);
+    setTier("drive");
     setOver(false);
     setReady(false);
     setFailed(false);
@@ -229,7 +247,8 @@ export function ProtectedVideoPlayer({
         }
         const body = (await r.json().catch(() => null)) as {
           ok?: boolean; code?: string; ar?: string; en?: string;
-          embedUrl?: string; minutes?: number;
+          embedUrl?: string; minutes?: number; mode?: string; src?: string;
+          expiresAt?: string; youtubeAvailable?: boolean;
           watermark?: { email?: string; phoneLast4?: string };
         } | null;
         if (!alive) return;
@@ -254,7 +273,12 @@ export function ProtectedVideoPlayer({
           minutes: typeof body.minutes === "number" ? body.minutes : 0,
           email: body.watermark?.email ?? "",
           phoneLast4: body.watermark?.phoneLast4 ?? "",
+          mode: body.mode === "worker" && typeof body.src === "string" ? "worker" : "embed",
+          src: typeof body.src === "string" ? body.src : undefined,
+          expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
+          youtubeAvailable: body.youtubeAvailable === true,
         });
+        setTier(body.mode === "worker" && typeof body.src === "string" ? "worker" : "drive");
       } catch {
         if (alive) setFailed(true);
       }
@@ -285,6 +309,67 @@ export function ProtectedVideoPlayer({
   // play (PRODUCT-RULES), so they stay in the page and the native layer
   // protects the window around them instead.
   const nativelyPlayable = embedUrl !== null && !isYt && !isDrive;
+
+  // ---- Tier fallback chain: Worker → Drive → YouTube ----------------------
+  // Every switch is forward-only and logged WITHOUT ids or URLs.
+  const loadYoutubeFallback = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setFailed(true);
+      return;
+    }
+    try {
+      const r = await apiFetch("/api/play", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ video_id: videoId, fallback: "youtube" }),
+      });
+      const body = (await r.json().catch(() => null)) as {
+        ok?: boolean;
+        embedUrl?: string;
+      } | null;
+      if (!r.ok || !body || body.ok !== true || typeof body.embedUrl !== "string") {
+        setFailed(true);
+        return;
+      }
+      log("warn", "player.tier_fallback", "switched to the youtube fallback", {
+        module: "player",
+        ctx: { from: tier, to: "youtube" },
+      });
+      const ytEmbed = body.embedUrl;
+      setGrant((g) => (g ? { ...g, embedUrl: ytEmbed, mode: "embed" } : g));
+      setTier("youtube");
+    } catch {
+      setFailed(true);
+    }
+  }, [videoId, tier]);
+
+  const onWorkerFatal = useCallback(
+    (reason: string) => {
+      log("warn", "player.tier_fallback", "worker tier failed", {
+        module: "player",
+        ctx: { from: "worker", to: "drive", reason },
+      });
+      setTier("drive");
+    },
+    [],
+  );
+
+  const onDriveStall = useCallback(() => {
+    if (!grant?.youtubeAvailable || tier === "youtube") return;
+    log("warn", "player.tier_fallback", "drive tier stalled", {
+      module: "player",
+      ctx: { from: "drive", to: "youtube" },
+    });
+    void loadYoutubeFallback();
+  }, [grant, tier, loadYoutubeFallback]);
+
+  // The Drive iframe already has a 20s watchdog (frameFailed). When it fires
+  // and the lesson has a YouTube fallback, fall forward automatically.
+  useEffect(() => {
+    if (!frameFailed) return;
+    onDriveStall();
+  }, [frameFailed, onDriveStall]);
 
   // The native shell floats the student's identity over the playback. The
   // page already knows it from the server grant, so it hands it over — the
@@ -1115,6 +1200,36 @@ export function ProtectedVideoPlayer({
         />
       </div>,
       "",
+    );
+  }
+
+  /* Worker tier: a real <video> fed by the Worker (signed token in the URL,
+     no Drive id). It is the first choice whenever the lesson has a Drive
+     file; on failure the parent falls forward to Drive, then YouTube. */
+  if (tier === "worker" && grant.src) {
+    return (
+      <WorkerVideoPlayer
+        src={grant.src}
+        expiresAt={grant.expiresAt}
+        videoId={videoId}
+        native={native}
+        watermark={watermark}
+        playerState={playerState}
+        onExpand={expand}
+        onCollapse={collapse}
+        safeInsets={safeInsets}
+        debugOn={debugOn}
+        onProgress={(s) => cbRef.current.onProgress(s)}
+        onSeeked={(s) => cbRef.current.onSeeked(s)}
+        onDuration={(s) => cbAllRef.current.onDuration(s)}
+        onEnded={() => {
+          if (!endedRef.current) {
+            endedRef.current = true;
+            cbRef.current.onEnded();
+          }
+        }}
+        onFatal={onWorkerFatal}
+      />
     );
   }
 

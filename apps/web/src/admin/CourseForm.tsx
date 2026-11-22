@@ -12,6 +12,7 @@ import {
 import { useLang } from "../components/lang";
 import { Area, ChipInput, Field, RowActions, Section, Text } from "./ui";
 import { ExamBuilder } from "./ExamBuilder";
+import { VideoStreamFields } from "./VideoStreamFields";
 import { extractDriveId, isUsableImageUrl, toDirectImageUrl } from "@kinetech/core";
 import { extractYoutubeId, isDriveSource } from "../lib/videoGuard";
 import { apiFetch } from "../lib/http";
@@ -256,6 +257,42 @@ export function CourseForm({ slug }: { slug?: string }) {
           /* links stay blank for typing; save fills them */
         });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  // Optional: explicit stream ids (additive migration 20261122). Best-effort
+  // — on a database where it is not applied this RPC is missing, the call
+  // errors, and the fields simply stay blank (the server derives the Drive id
+  // from the stored link at play time).
+  useEffect(() => {
+    const s = slug ?? "";
+    if (s === "") return;
+    void import("../lib/db/client")
+      .then((m) => m.supabase())
+      .then((sb) => (sb ? sb.rpc("admin_video_streams", { p_slug: s }) : null))
+      .then((r) => {
+        if (!r || r.error || s !== slug) return;
+        const rows = (r.data ?? []) as unknown as Array<{
+          sort_order: number;
+          drive_file_id: string | null;
+          youtube_video_id: string | null;
+        }>;
+        if (rows.length === 0) return;
+        const byOrder = new Map(rows.map((x) => [x.sort_order, x]));
+        setCourse((cur) => {
+          if (cur.slug !== s || dirtyRef.current) return cur;
+          const videos = cur.videos.map((v, i) => {
+            const row = byOrder.get(i);
+            return row
+              ? { ...v, driveId: row.drive_file_id ?? "", youtubeId: row.youtube_video_id ?? "" }
+              : v;
+          });
+          return { ...cur, videos };
+        });
+      })
+      .catch(() => {
+        /* pre-migration DB — derived at play time instead */
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -880,6 +917,11 @@ export function CourseForm({ slug }: { slug?: string }) {
                 <LinkField label={a.vidAssign} value={course.videos[i]?.assign ?? ""} onChange={(v) => setVid(i, { assign: v.trim() })} />
                 <LinkField label={a.vidExam} value={course.videos[i]?.exam ?? ""} onChange={(v) => setVid(i, { exam: v.trim() })} />
               </div>
+              <VideoStreamFields
+                src={course.videos[i]?.src ?? ""}
+                youtubeId={course.videos[i]?.youtubeId ?? ""}
+                onYoutubeId={(v) => setVid(i, { youtubeId: v })}
+              />
               {!isNew && course.slug.trim() !== "" && (
                 <div className="rounded-2xl border p-4" style={{ borderColor: "var(--kt-teal)", background: "#fff" }}>
                   <h4 className="font-bold" style={{ fontFamily: "var(--font-display)" }}>

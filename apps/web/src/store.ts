@@ -18,6 +18,10 @@ export type StoreVideo = {
   assign: string;
   /** exam link: URL, uploaded file (data:), or "" = none */
   exam: string;
+  /** explicit Google Drive file id for Worker streaming (optional) */
+  driveId?: string;
+  /** optional YouTube fallback video id */
+  youtubeId?: string;
 };
 
 export type Post = {

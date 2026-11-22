@@ -317,6 +317,88 @@ function youtubeId(src: string): string | null {
   return m ? m[1] : null;
 }
 
+/* ---- Worker stream grant (self-contained copy; mirrors
+ * apps/web/src/lib/streamToken.ts and apps/worker-video/src/token.ts). ---- */
+const STREAM_TOKEN_VERSION = 1;
+const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
+
+type StreamPayload = { v: number; uid: string; fid: string; exp: number; jti: string };
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Sign { uid, fid, exp, jti } — HMAC-SHA256, base64url. Exported so the
+ *  unit tests can assert the shared TEST_VECTOR against this copy. */
+export async function signStreamToken(payload: StreamPayload, secret: string): Promise<string> {
+  if (secret === "") throw new Error("stream token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
+  return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+function newJti(): string {
+  try {
+    const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+    if (uuid) return uuid;
+  } catch {
+    /* fall through */
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function driveIdFromLink(src: string): string {
+  const v = (src ?? "").trim();
+  return v.match(DRIVE_FILE)?.[1] ?? v.match(DRIVE_ID_PARAM)?.[1] ?? "";
+}
+
+type VideoStreamRow = {
+  course_id?: string;
+  mins?: number;
+  drive_file_id?: string | null;
+  youtube_video_id?: string | null;
+};
+
+/** Minimal shape of the service-role client used by the helper below (keeps
+ *  the self-contained copy independent of the library's generic defaults). */
+type AdminDb = { from: (table: string) => any };
+
+/** Read the lesson row, tolerating a database where migration
+ *  20261122_video_stream_fallbacks.sql has not been applied yet. */
+async function readVideoStreamRow(
+  admin: AdminDb,
+  videoId: string,
+): Promise<VideoStreamRow | null> {
+  const full = await admin
+    .from("videos")
+    .select("course_id,mins,drive_file_id,youtube_video_id")
+    .eq("id", videoId)
+    .maybeSingle();
+  if (!full.error) return (full.data ?? null) as VideoStreamRow | null;
+  const basic = await admin
+    .from("videos")
+    .select("course_id,mins")
+    .eq("id", videoId)
+    .maybeSingle();
+  if (basic.error) return null;
+  return (basic.data ?? null) as VideoStreamRow | null;
+}
+
+function workerStreamUrl(base: string, token: string): string {
+  const origin = base.replace(/\/+$/, "");
+  return `${origin}/v?t=${encodeURIComponent(token)}`;
+}
+
 /** Raw stored link -> sandboxed embed URL. YouTube keeps its ID-based API
     playable client-side; Drive becomes the preview embed; anything else
     (legacy mp4 seeds) passes through for the native <video> branch. */
@@ -340,8 +422,9 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   if (!token) return fail(res, "INVALID_TOKEN", "no-bearer");
 
   const rawBody = typeof req.body === "string" ? safeJson(req.body) : req.body;
-  const body = (rawBody ?? {}) as { video_id?: unknown };
+  const body = (rawBody ?? {}) as { video_id?: unknown; fallback?: unknown };
   const videoId = typeof body.video_id === "string" ? body.video_id.trim() : "";
+  const fallback = body.fallback === "youtube" ? "youtube" : "";
   if (!/^[0-9a-fA-F-]{36}$/.test(videoId)) return fail(res, "BAD_REQUEST", "video-id");
 
   const userClient = createClient(env.url, env.anonKey, {
@@ -392,6 +475,64 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     return fail(res, "SESSION_MISMATCH");
   }
 
+  // ---- YouTube fallback: a separate, READ-ONLY call -----------------------
+  // The client asks for this only after the Worker and Drive tiers failed.
+  // It never counts a view (the initial grant already did) and never weakens
+  // the gate: same JWT, same single-session check above, plus a read-only
+  // entitlement + ban check. The id is returned only here, never in the
+  // initial response, HTML or a bundle.
+  if (fallback === "youtube") {
+    const videoRow = await readVideoStreamRow(admin, videoId);
+    if (!videoRow) return fail(res, "NOT_FOUND");
+    const { data: prof, error: profErr } = await admin
+      .from("profiles")
+      .select("banned,email,phone,role")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profErr) return fail(res, "SERVER_ERROR", "profile-read");
+    const profile = (prof ?? null) as {
+      banned?: boolean;
+      email?: string;
+      phone?: string;
+      role?: string;
+    } | null;
+    if (!profile) return fail(res, "NO_PROFILE");
+    if (profile.banned === true) return fail(res, "BANNED");
+    if (profile.role !== "admin") {
+      const { data: enrolment, error: enrErr } = await admin
+        .from("enrollments")
+        .select("user_id")
+        .eq("user_id", authData.user.id)
+        .eq("course_id", videoRow.course_id ?? "")
+        .maybeSingle();
+      if (enrErr) return fail(res, "SERVER_ERROR", "enrolment-read");
+      if (!enrolment) return fail(res, "NOT_ENROLLED");
+    }
+    const { data: fbSrcRow } = await admin
+      .from("video_sources")
+      .select("src_url")
+      .eq("video_id", videoId)
+      .maybeSingle();
+    const fbRaw = ((fbSrcRow as { src_url?: string } | null)?.src_url ?? "").trim();
+    const yt = ((videoRow.youtube_video_id ?? "").trim() || youtubeId(fbRaw) || "");
+    if (yt === "") return fail(res, "VIDEO_MISSING", "no-youtube");
+    return res.status(200).json({
+      ok: true,
+      mode: "youtube",
+      embedUrl: `https://www.youtube-nocookie.com/embed/${yt}`,
+      youtubeVideoId: yt,
+      minutes: typeof videoRow.mins === "number" ? videoRow.mins : 0,
+      watermark: {
+        email: typeof profile.email === "string" ? profile.email : "",
+        phoneLast4:
+          typeof profile.phone === "string" && profile.phone.length > 0
+            ? profile.phone.slice(-4)
+            : "",
+      },
+      viewsLeft: 0,
+    });
+  }
+
   const { data: playRows, error: rpcError } = await userClient.rpc("request_play", {
     p_video: videoId,
     p_session: sessionId,
@@ -430,6 +571,17 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   const embed = embedUrlFor(raw);
   if (!embed) return fail(res, "VIDEO_MISSING");
 
+  // The explicit columns win; until the additive migration is applied the
+  // Drive id is derived from the stored link, so existing lessons keep
+  // working and can use the Worker path immediately.
+  const videoRow = await readVideoStreamRow(admin, videoId);
+  const driveFileId =
+    ((videoRow?.drive_file_id ?? "").trim() || driveIdFromLink(raw));
+  const youtubeVideoId =
+    ((videoRow?.youtube_video_id ?? "").trim() || (youtubeId(raw) ?? ""));
+  const workerBase = getEnvVar("VIDEO_STREAM_WORKER_URL").replace(/\/+$/, "");
+  const streamSecret = getEnvVar("STREAM_TOKEN_SECRET");
+
   // Retention: opportunistic 90-day purge (pg_cron may not exist on free tiers).
   try {
     const cutoff = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
@@ -438,9 +590,40 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     /* next request retries */
   }
 
+  if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + STREAM_TOKEN_TTL_SECONDS;
+    const token = await signStreamToken(
+      {
+        v: STREAM_TOKEN_VERSION,
+        uid: authData.user.id,
+        fid: driveFileId,
+        exp,
+        jti: newJti(),
+      },
+      streamSecret,
+    );
+    return res.status(200).json({
+      ok: true,
+      mode: "worker",
+      // No Drive id in the URL: the Worker reads it from the signed token.
+      src: workerStreamUrl(workerBase, token),
+      // Same-grant Drive fallback: the client can switch tiers WITHOUT a
+      // second /api/play (which would burn another view).
+      embedUrl: embed,
+      expiresAt: new Date(exp * 1000).toISOString(),
+      youtubeAvailable: youtubeVideoId !== "",
+      minutes: play.minutes,
+      watermark: { email: play.email, phoneLast4: play.phone_last4 },
+      viewsLeft: play.views_left,
+    });
+  }
+
   return res.status(200).json({
     ok: true,
+    mode: "embed",
     embedUrl: embed,
+    youtubeAvailable: youtubeVideoId !== "",
     minutes: play.minutes,
     watermark: { email: play.email, phoneLast4: play.phone_last4 },
     viewsLeft: play.views_left,
