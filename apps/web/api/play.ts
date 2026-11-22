@@ -574,7 +574,14 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   // The explicit columns win; until the additive migration is applied the
   // Drive id is derived from the stored link, so existing lessons keep
   // working and can use the Worker path immediately.
-  const videoRow = await readVideoStreamRow(admin, videoId);
+  // Read the row best-effort: a transient read failure must not block
+  // playback — the Drive embed path works without the stream columns.
+  let videoRow: VideoStreamRow | null = null;
+  try {
+    videoRow = await readVideoStreamRow(admin, videoId);
+  } catch {
+    videoRow = null;
+  }
   const driveFileId =
     ((videoRow?.drive_file_id ?? "").trim() || driveIdFromLink(raw));
   const youtubeVideoId =
@@ -590,28 +597,47 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     /* next request retries */
   }
 
-  if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
-    const now = Math.floor(Date.now() / 1000);
-    const exp = now + STREAM_TOKEN_TTL_SECONDS;
-    const token = await signStreamToken(
-      {
-        v: STREAM_TOKEN_VERSION,
-        uid: authData.user.id,
-        fid: driveFileId,
-        exp,
-        jti: newJti(),
-      },
-      streamSecret,
-    );
+  // Worker-stream branch. FAIL-SAFE: missing or malformed env
+  // (STREAM_TOKEN_SECRET / VIDEO_STREAM_WORKER_URL), a signing error or any
+  // other failure degrades to the existing Drive embed response — the
+  // branch itself never throws.
+  let workerSrc: string | null = null;
+  let workerExp = 0;
+  try {
+    if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
+      const base = new URL(workerBase); // malformed value throws → caught
+      if (base.protocol !== "https:" && base.protocol !== "http:") {
+        throw new Error("worker url is not http(s)");
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const exp = now + STREAM_TOKEN_TTL_SECONDS;
+      const token = await signStreamToken(
+        {
+          v: STREAM_TOKEN_VERSION,
+          uid: authData.user.id,
+          fid: driveFileId,
+          exp,
+          jti: newJti(),
+        },
+        streamSecret,
+      );
+      workerSrc = workerStreamUrl(base.href, token);
+      workerExp = exp;
+    }
+  } catch {
+    workerSrc = null;
+  }
+
+  if (workerSrc !== null) {
     return res.status(200).json({
       ok: true,
       mode: "worker",
       // No Drive id in the URL: the Worker reads it from the signed token.
-      src: workerStreamUrl(workerBase, token),
+      src: workerSrc,
       // Same-grant Drive fallback: the client can switch tiers WITHOUT a
       // second /api/play (which would burn another view).
       embedUrl: embed,
-      expiresAt: new Date(exp * 1000).toISOString(),
+      expiresAt: new Date(workerExp * 1000).toISOString(),
       youtubeAvailable: youtubeVideoId !== "",
       minutes: play.minutes,
       watermark: { email: play.email, phoneLast4: play.phone_last4 },
