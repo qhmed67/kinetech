@@ -24,6 +24,22 @@ export function chunkCacheKey(fileId: string, index: number): string {
   return `${CACHE_ORIGIN}/chunk/${fileId}/${index}`;
 }
 
+/** Probe result detail for diagnostics. */
+export type ChunkFetchDetail = { status: number | null; reason: string | null; driveReason: string | null };
+
+/** Internal signal: a chunk loader could not get bytes from Drive/cache. */
+export class ChunkFetchError extends Error {
+  readonly kind: "quota" | "error" | "cache_error";
+  readonly detail: ChunkFetchDetail;
+
+  constructor(kind: "quota" | "error" | "cache_error", detail: ChunkFetchDetail = { status: null, reason: null, driveReason: null }) {
+    super(kind);
+    this.name = "ChunkFetchError";
+    this.kind = kind;
+    this.detail = detail;
+  }
+}
+
 /** One put+match probe. False = the platform does not persist (workers.dev). */
 export async function probeCache(cache: CacheLike): Promise<boolean> {
   const key = `${CACHE_ORIGIN}/probe/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -66,14 +82,22 @@ export async function readChunk(options: {
   key: string;
   loader: () => Promise<ArrayBuffer>;
   waitUntil: (promise: Promise<unknown>) => void;
+  /** Optional stage callback for diagnostics ("cache_get"/"cache_put"). */
+  onStage?: (stage: string) => void;
 }): Promise<ChunkRead> {
-  const { cache, key, loader, waitUntil } = options;
+  const { cache, key, loader, waitUntil, onStage } = options;
+  onStage?.("cache_get");
   try {
     const hit = await cache.match(key);
     if (hit !== undefined && hit !== null) {
-      return { buffer: await hit.arrayBuffer(), hit: true };
+      try {
+        return { buffer: await hit.arrayBuffer(), hit: true };
+      } catch {
+        throw new ChunkFetchError("cache_error");
+      }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ChunkFetchError) throw error;
     /* cache read failed — fall through to upstream */
   }
 
@@ -83,6 +107,7 @@ export async function readChunk(options: {
   const promise = loader()
     .then((buffer) => {
       // Cache a copy; the caller slices its own ArrayBuffer.
+      onStage?.("cache_put");
       waitUntil(
         cache
           .put(

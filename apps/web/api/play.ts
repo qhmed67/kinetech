@@ -318,11 +318,20 @@ function youtubeId(src: string): string | null {
 }
 
 /* ---- Worker stream grant (self-contained copy; mirrors
- * apps/web/src/lib/streamToken.ts and apps/worker-video/src/token.ts). ---- */
-const STREAM_TOKEN_VERSION = 1;
+ * apps/web/src/lib/streamToken.ts and apps/worker-video/src/token.ts).
+ *
+ * v2: the signed payload carries an AES-GCM-encrypted Drive file id, so the
+ * raw id never appears in a token a student can read. The HMAC covers the
+ * encrypted payload; the Worker decrypts. Legacy v1 tokens (plaintext fid)
+ * still verify. No token, id or URL is ever logged. ---- */
+const STREAM_TOKEN_VERSION = 2;
 const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
 
-type StreamPayload = { v: number; uid: string; fid: string; exp: number; jti: string };
+type EncryptedFid = { iv: string; ct: string };
+
+type SignedStreamTokenPayload =
+  | { v: 1; uid: string; fid: string; exp: number; jti: string }
+  | { v: 2; uid: string; efid: EncryptedFid; exp: number; jti: string };
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -330,19 +339,63 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Sign { uid, fid, exp, jti } — HMAC-SHA256, base64url. Exported so the
- *  unit tests can assert the shared TEST_VECTOR against this copy. */
-export async function signStreamToken(payload: StreamPayload, secret: string): Promise<string> {
-  if (secret === "") throw new Error("stream token: empty secret");
+async function hmacKey(secret: string) {
   const encoder = new TextEncoder();
-  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const key = await crypto.subtle.importKey(
+  return crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
+}
+
+/** Key derivation for the encrypted fid: HKDF-SHA256 with fixed salt/info. */
+async function deriveFidKey(secret: string) {
+  const encoder = new TextEncoder();
+  const hkdfKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HKDF" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: { name: "SHA-256" },
+      salt: encoder.encode("kinetech-video-stream-token-v1"),
+      info: encoder.encode("fid-aes-gcm"),
+    },
+    hkdfKey,
+    256,
+  );
+  return crypto.subtle.importKey("raw", bits, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+}
+
+/** Encrypt the Drive file id with AES-GCM (HKDF-derived key, random IV). */
+async function encryptFid(fid: string, secret: string) {
+  const encoder = new TextEncoder();
+  const key = await deriveFidKey(secret);
+  const ivBytes = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: ivBytes },
+    key,
+    encoder.encode(fid),
+  );
+  let binary = "";
+  for (const byte of new Uint8Array(ct)) binary += String.fromCharCode(byte);
+  const ctB64 = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return { iv: base64UrlEncode(ivBytes), ct: ctB64 };
+}
+
+/** Sign { uid, efid, exp, jti } — HMAC-SHA256, base64url. Exported so the
+ *  unit tests can assert the shared TEST_VECTOR against this copy. */
+export async function signStreamToken(payload: SignedStreamTokenPayload, secret: string): Promise<string> {
+  if (secret === "") throw new Error("stream token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await hmacKey(secret);
   const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
   return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
@@ -615,7 +668,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
         {
           v: STREAM_TOKEN_VERSION,
           uid: authData.user.id,
-          fid: driveFileId,
+          efid: await encryptFid(driveFileId, streamSecret),
           exp,
           jti: newJti(),
         },

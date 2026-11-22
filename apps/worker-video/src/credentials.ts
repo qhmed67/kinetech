@@ -1,6 +1,6 @@
 /* Drive credential pool.
  *
- * DRIVE_CREDENTIALS is a JSON array:
+ * DRIVE_CREDENTIALS is a JSON array of entries:
  *   [{ "type": "apikey", "key": "AIza..." },
  *    { "type": "service_account", "json": { ...service account json... } }]
  *
@@ -8,11 +8,18 @@
  * architecture accepts a list so a second key can be added without a deploy
  * of new code. On a Drive 403/429 the caller tries the next entry once.
  *
+ * Parsing is fail-soft and never throws: any unparseable or unusable value
+ * yields an empty pool (the Worker answers quota, and the player falls back
+ * to the Drive tier). A non-secret `credentials_shape` warning is logged
+ * once per parsed value: bare_key | quoted | array | object | invalid.
+ *
  * API-key mode reads files shared as "Anyone with the link". Service-account
  * mode is optional (private files): the folder must be shared with the SA's
  * client_email. Access tokens are cached in module scope until shortly before
  * expiry.
  */
+
+import { logWorker } from "./log";
 
 export type ServiceAccountJson = {
   client_email: string;
@@ -28,6 +35,9 @@ export type DriveAuth =
   | { kind: "key"; key: string }
   | { kind: "bearer"; token: string };
 
+/** Non-secret diagnostic of how the DRIVE_CREDENTIALS value was shaped. */
+export type CredentialsShape = "array" | "object" | "bare_key" | "quoted" | "invalid";
+
 const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 
@@ -37,19 +47,26 @@ function isServiceAccount(value: unknown): value is ServiceAccountJson {
   return typeof v.client_email === "string" && typeof v.private_key === "string";
 }
 
-/** Parse the env value. Invalid entries are dropped (never thrown) so one bad
- *  entry cannot take the Worker down. */
-export function parseCredentials(raw: string | undefined | null): DriveCredential[] {
-  if (typeof raw !== "string" || raw.trim() === "") return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
+/** Strip one layer of surrounding quotes ("..." or '...'). */
+function stripOneLayerQuotes(value: string): string {
+  const v = value.trim();
+  if (v.length >= 2) {
+    const first = v[0];
+    const last = v[v.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return v.slice(1, -1).trim();
+    }
   }
-  if (!Array.isArray(parsed)) return [];
+  return v;
+}
+
+/** Extract enabled entries from a JSON array or single object. Invalid
+ *  entries are dropped (never thrown) so one bad entry cannot take the
+ *  Worker down. */
+function extractEntries(parsed: unknown): DriveCredential[] {
+  const entries: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
   const out: DriveCredential[] = [];
-  for (const entry of parsed) {
+  for (const entry of entries) {
     if (typeof entry !== "object" || entry === null) continue;
     const e = entry as Record<string, unknown>;
     if (e.type === "apikey" && typeof e.key === "string" && e.key.trim() !== "") {
@@ -68,6 +85,72 @@ export function parseCredentials(raw: string | undefined | null): DriveCredentia
     }
   }
   return out;
+}
+
+export type CredentialsParseResult = {
+  credentials: DriveCredential[];
+  shape: CredentialsShape;
+};
+
+/** Parse the env value: fail-soft, never throws. See the module doc for the
+ *  accepted shapes. */
+export function parseCredentialsDetailed(raw: string | undefined | null): CredentialsParseResult {
+  const trimmed = (raw ?? "").trim();
+  const v = stripOneLayerQuotes(trimmed);
+  const hadQuotes = v !== trimmed;
+  const keyShape: CredentialsShape = hadQuotes ? "quoted" : "bare_key";
+  if (v === "") {
+    logWorker("credentials_shape", { shape: "invalid" });
+    return { credentials: [], shape: "invalid" };
+  }
+  let parsed: unknown;
+  let parsedOk = false;
+  try {
+    parsed = JSON.parse(v);
+    parsedOk = true;
+  } catch {
+    parsedOk = false;
+  }
+  if (!parsedOk) {
+    if (v.startsWith("AIza")) {
+      // A Google API key string (quoted or bare, no JSON).
+      logWorker("credentials_shape", { shape: keyShape });
+      return { credentials: [{ type: "apikey", key: v }], shape: keyShape };
+    }
+    logWorker("credentials_shape", { shape: "invalid" });
+    return { credentials: [], shape: "invalid" };
+  }
+  if (Array.isArray(parsed)) {
+    logWorker("credentials_shape", { shape: "array" });
+    return { credentials: extractEntries(parsed), shape: "array" };
+  }
+  if (isServiceAccount(parsed)) {
+    logWorker("credentials_shape", { shape: "object" });
+    return { credentials: [{ type: "service_account", json: parsed }], shape: "object" };
+  }
+  const asObj = parsed as Record<string, unknown>;
+  if (asObj.type === "apikey" && typeof asObj.key === "string" && asObj.key.trim() !== "") {
+    logWorker("credentials_shape", { shape: "object" });
+    return { credentials: [{ type: "apikey", key: asObj.key.trim() }], shape: "object" };
+  }
+  if (asObj.type === "service_account") {
+    // Single service-account object (no surrounding array).
+    logWorker("credentials_shape", { shape: "object" });
+    return { credentials: extractEntries([parsed]), shape: "object" };
+  }
+  if (typeof parsed === "string" && parsed.startsWith("AIza")) {
+    // JSON-encoded key string (the value was quoted, so JSON.parse yields it).
+    logWorker("credentials_shape", { shape: keyShape });
+    return { credentials: [{ type: "apikey", key: parsed }], shape: keyShape };
+  }
+  logWorker("credentials_shape", { shape: "object" });
+  return { credentials: extractEntries(parsed), shape: "object" };
+}
+
+/** Parse the env value. Invalid entries are dropped (never thrown) so one bad
+ *  entry cannot take the Worker down. */
+export function parseCredentials(raw: string | undefined | null): DriveCredential[] {
+  return parseCredentialsDetailed(raw).credentials;
 }
 
 /** Round-robin pick. `start` is a monotonic counter supplied by the caller. */

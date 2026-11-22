@@ -3,6 +3,7 @@ import "plyr/dist/plyr.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
+import { workerFailAgeMs } from "../lib/workerFailMarker";
 import "./workerPlayer.css";
 
 /** Same state machine the Drive tier uses, owned by the parent orchestrator. */
@@ -27,6 +28,9 @@ export type WorkerVideoPlayerProps = {
   onSeeked: (seconds: number) => void;
   onDuration: (seconds: number) => void;
   onEnded: () => void;
+  /** Worker became healthy (first successful frame) — the parent clears its
+   *  "worker failed" marker so the next lesson retries the Worker tier. */
+  onWorkerHealthy?: () => void;
   /** The Worker tier is dead: the parent switches to Drive / YouTube. */
   onFatal: (reason: string) => void;
 };
@@ -53,17 +57,18 @@ export function WorkerVideoPlayer({
   onSeeked,
   onDuration,
   onEnded,
+  onWorkerHealthy,
   onFatal,
 }: WorkerVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const plyrRef = useRef<Plyr | null>(null);
 
-  const cbRef = useRef({ onProgress, onSeeked, onDuration, onEnded, onFatal });
+  const cbRef = useRef({ onProgress, onSeeked, onDuration, onEnded, onFatal, onWorkerHealthy });
   // Keep the latest callbacks reachable from native media listeners without
   // re-binding them on every render.
   useEffect(() => {
-    cbRef.current = { onProgress, onSeeked, onDuration, onEnded, onFatal };
+    cbRef.current = { onProgress, onSeeked, onDuration, onEnded, onFatal, onWorkerHealthy };
   });
 
   const [currentSrc, setCurrentSrc] = useState(src);
@@ -72,6 +77,9 @@ export function WorkerVideoPlayer({
   const readyRef = useRef(false);
   const [debugLocal, setDebugLocal] = useState(false);
   const [dbg, setDbg] = useState<Record<string, unknown>>({});
+  // Last Worker error (status + non-secret reason from the error body) — for
+  // the debug strip. Never values (ids/tokens).
+  const [workerInfo, setWorkerInfo] = useState<Record<string, unknown>>({});
 
   const [exp, setExp] = useState<number>(() => (expiresAt ? Date.parse(expiresAt) : 0));
   const expiresRef = useRef<number>(expiresAt ? Date.parse(expiresAt) : 0);
@@ -134,26 +142,35 @@ export function WorkerVideoPlayer({
     const el = videoRef.current;
     if (!el) return;
     let status = 0;
-    let quota = false;
+    let workerReason: string | null = null;
+    let workerError: string | null = null;
+    let workerDriveReason: string | null = null;
+    let workerStage: string | null = null;
     try {
       const probe = await fetch(currentSrcRef.current, {
         headers: { Range: "bytes=0-0" },
         cache: "no-store",
       });
       status = probe.status;
-      if (status === 503) {
-        try {
-          const json = (await probe.json()) as { error?: string };
-          quota = json.error === "quota";
-        } catch {
-          /* not JSON */
-        }
-      }
+      const parsed = (await probe.json().catch(() => null)) as
+        | { error?: string; reason?: string; drive_reason?: string; stage?: string }
+        | null;
+      workerError = parsed?.error ?? null;
+      workerReason = parsed?.reason ?? null;
+      workerDriveReason = parsed?.drive_reason ?? null;
+      workerStage = parsed?.stage ?? null;
     } catch {
       /* network failure — treated as transient below */
     }
+    // Read the Worker's structured reason (never values) for the debug strip.
+    setWorkerInfo({
+      workerStatus: status,
+      workerReason: workerReason ?? (status >= 400 ? `http_${status}` : null),
+      workerDriveReason,
+      workerStage,
+    });
 
-    if (status === 503 && quota) {
+    if (status === 503 && workerError === "quota") {
       fail("quota");
       return;
     }
@@ -161,6 +178,11 @@ export function WorkerVideoPlayer({
       const refreshed = await refreshToken();
       if (refreshed) return;
       fail("auth");
+      return;
+    }
+    if (status >= 400) {
+      // Any other Worker 4xx/5xx: switch to Drive immediately.
+      fail(`http_${status}`);
       return;
     }
     if (status === 200 || status === 206) {
@@ -277,9 +299,15 @@ export function WorkerVideoPlayer({
       clearCanplay();
       readyRef.current = true;
       setReady(true);
+      setWorkerInfo({});
+      // The Worker is healthy — the parent clears its failure marker so the
+      // next lesson tries the Worker tier again.
+      cbRef.current.onWorkerHealthy?.();
     };
     const onWaiting = () => {
-      if (waitStart.current === 0) waitStart.current = Date.now();
+      // Arm the buffering watchdog only once playback has started — it is
+      // the longer stall timeout for mid-playback, not the cold-load timer.
+      if (readyRef.current) waitStart.current = Date.now();
     };
     const onPlaying = () => {
       waitStart.current = 0;
@@ -353,10 +381,12 @@ export function WorkerVideoPlayer({
         currentTime: el.currentTime.toFixed(1),
         errorCode: el.error?.code ?? 0,
         tokenTtl: ttl,
+        workerFailMarkerAgeMs: workerFailAgeMs(videoId),
+        ...workerInfo,
       });
     }, 500);
     return () => window.clearInterval(id);
-  }, [debugVisible]);
+  }, [debugVisible, videoId, workerInfo]);
 
   const startPress = () => {
     if (debugOn) return;

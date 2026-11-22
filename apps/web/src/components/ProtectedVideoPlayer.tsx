@@ -6,6 +6,12 @@ import { getAccessToken } from "../lib/accessToken";
 import { log } from "../lib/logger";
 import { WorkerVideoPlayer } from "./WorkerVideoPlayer";
 import {
+  isWorkerFailFresh,
+  clearWorkerFailMarker,
+  setWorkerFailMarker,
+  workerFailAgeMs,
+} from "../lib/workerFailMarker";
+import {
   YT_STATE,
   extractYoutubeId,
   formatClock,
@@ -278,7 +284,11 @@ export function ProtectedVideoPlayer({
           expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
           youtubeAvailable: body.youtubeAvailable === true,
         });
-        setTier(body.mode === "worker" && typeof body.src === "string" ? "worker" : "drive");
+        setTier(
+          body.mode === "worker" && typeof body.src === "string" && !isWorkerFailFresh(videoId)
+            ? "worker"
+            : "drive",
+        );
       } catch {
         if (alive) setFailed(true);
       }
@@ -350,9 +360,12 @@ export function ProtectedVideoPlayer({
         module: "player",
         ctx: { from: "worker", to: "drive", reason },
       });
+      // Mark the Worker as failing: the next ~10 minutes skip the Worker
+      // tier and play through Drive (cleared when the Worker is healthy).
+      setWorkerFailMarker(videoId);
       setTier("drive");
     },
-    [],
+    [videoId],
   );
 
   const onDriveStall = useCallback(() => {
@@ -1186,6 +1199,21 @@ export function ProtectedVideoPlayer({
       }}
     >
       {Object.entries(debugRef.current).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n")}
+      {workerFailAgeMs(videoId) !== null && (
+        <span style={{ pointerEvents: "auto" }}>
+          {"\n"}workerFailMarker set {(workerFailAgeMs(videoId)! / 60000).toFixed(1)} min ago{" "}
+          <button
+            type="button"
+            onClick={() => {
+              clearWorkerFailMarker(videoId);
+              setTier("worker");
+            }}
+            style={{ color: "#3BBCD9", background: "none", border: 0, cursor: "pointer", padding: 0 }}
+          >
+            Clear
+          </button>
+        </span>
+      )}
     </div>
   ) : null;
 
@@ -1228,6 +1256,7 @@ export function ProtectedVideoPlayer({
             cbRef.current.onEnded();
           }
         }}
+        onWorkerHealthy={() => clearWorkerFailMarker(videoId)}
         onFatal={onWorkerFatal}
       />
     );

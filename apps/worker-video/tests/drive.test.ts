@@ -28,7 +28,13 @@ describe("fetchDriveRange", () => {
   it("classifies 403 as quota with the Drive reason", async () => {
     const fetchImpl = vi.fn(async () => quotaBody("userRateLimitExceeded"));
     const out = await fetchDriveRange("f", 0, 2, KEY_AUTH, fetchImpl as unknown as typeof fetch);
-    expect(out).toMatchObject({ kind: "quota", reason: "userRateLimitExceeded" });
+    expect(out).toMatchObject({ kind: "quota", reason: "drive_403", drive_reason: "userRateLimitExceeded" });
+  });
+
+  it("classifies 5xx as drive_5xx", async () => {
+    const fetchImpl = vi.fn(async () => new Response("boom", { status: 503 }));
+    const out = await fetchDriveRange("f", 0, 2, KEY_AUTH, fetchImpl as unknown as typeof fetch);
+    expect(out).toMatchObject({ kind: "error", reason: "drive_5xx" });
   });
 
   it("classifies 401 as auth", async () => {
@@ -46,7 +52,7 @@ describe("fetchDriveRange", () => {
         }),
     );
     const out = await fetchDriveRange("f", 0, 2, KEY_AUTH, fetchImpl as unknown as typeof fetch);
-    expect(out).toMatchObject({ kind: "error", reason: "range-ignored" });
+    expect(out).toMatchObject({ kind: "error", reason: "range_ignored" });
   });
 });
 
@@ -68,7 +74,7 @@ describe("fetchDriveMeta", () => {
   it("rejects a file without a size", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ mimeType: "video/mp4" })));
     const out = await fetchDriveMeta("f-nosize", KEY_AUTH, fetchImpl as unknown as typeof fetch);
-    expect(out).toMatchObject({ kind: "error", reason: "no-size" });
+    expect(out).toMatchObject({ kind: "error", reason: "meta_failed" });
   });
 });
 

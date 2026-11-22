@@ -21,13 +21,17 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "@supabase/supabase-js";
 
-const STREAM_TOKEN_VERSION = 1;
+const STREAM_TOKEN_VERSION = 2;
 const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
 
 const DRIVE_FILE = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
 const DRIVE_ID_PARAM = /drive\.google\.com\/(?:open|uc)\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)/;
 
-type StreamPayload = { v: number; uid: string; fid: string; exp: number; jti: string };
+type EncryptedFid = { iv: string; ct: string };
+
+type SignedStreamTokenPayload =
+  | { v: 1; uid: string; fid: string; exp: number; jti: string }
+  | { v: 2; uid: string; efid: EncryptedFid; exp: number; jti: string };
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -35,18 +39,59 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Exported so tests can assert the shared vector against this copy. */
-export async function signStreamToken(payload: StreamPayload, secret: string): Promise<string> {
-  if (secret === "") throw new Error("stream token: empty secret");
+async function hmacKey(secret: string) {
   const encoder = new TextEncoder();
-  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const key = await crypto.subtle.importKey(
+  return crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
+}
+
+async function deriveFidKey(secret: string) {
+  const encoder = new TextEncoder();
+  const hkdfKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HKDF" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: { name: "SHA-256" },
+      salt: encoder.encode("kinetech-video-stream-token-v1"),
+      info: encoder.encode("fid-aes-gcm"),
+    },
+    hkdfKey,
+    256,
+  );
+  return crypto.subtle.importKey("raw", bits, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+}
+
+async function encryptFid(fid: string, secret: string) {
+  const encoder = new TextEncoder();
+  const key = await deriveFidKey(secret);
+  const ivBytes = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: ivBytes },
+    key,
+    encoder.encode(fid),
+  );
+  let binary = "";
+  for (const byte of new Uint8Array(ct)) binary += String.fromCharCode(byte);
+  return { iv: base64UrlEncode(ivBytes), ct: btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") };
+}
+
+/** Exported so tests can assert the shared vector against this copy. */
+export async function signStreamToken(payload: SignedStreamTokenPayload, secret: string): Promise<string> {
+  if (secret === "") throw new Error("stream token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await hmacKey(secret);
   const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
   return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
@@ -370,7 +415,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + STREAM_TOKEN_TTL_SECONDS;
   const streamToken = await signStreamToken(
-    { v: STREAM_TOKEN_VERSION, uid: userId, fid: driveFileId, exp, jti: newJti() },
+    { v: STREAM_TOKEN_VERSION, uid: userId, efid: await encryptFid(driveFileId, streamSecret), exp, jti: newJti() },
     streamSecret,
   );
 
