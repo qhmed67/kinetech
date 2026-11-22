@@ -31,8 +31,11 @@ Cloudflare Worker ──► Google Drive (Range requests, chunk cache)
 ```
 
 * **Worker tier** (first): a real `<video>` element fed by the Worker. The
-  token carries `{ uid, fid, exp, jti }` (HMAC-SHA256, 60 min). The Drive id is
-  inside the token, never in the URL.
+  token carries `{ v, uid, efid: { iv, ct }, exp, jti }` (HMAC-SHA256, 60
+  min). The Drive file id is inside the token **encrypted** — AES-GCM-256,
+  key = HKDF-SHA256 of `STREAM_TOKEN_SECRET` (fixed salt/info, random
+  12-byte IV, authenticated). It never appears in the URL, the DOM or
+  localStorage. Legacy v1 tokens (`fid` in the clear) still verify.
 * **Drive tier**: the existing sandboxed Drive preview iframe, using the
   `embedUrl` returned by the *same* `/api/play` grant — switching tiers never
   burns another view.
@@ -282,7 +285,7 @@ blank.
 |---|---|
 | Routes | `GET|HEAD /v?t=…`, `GET /meta?t=…`, `GET /health`, `OPTIONS *` |
 | Auth | HMAC-SHA256 token verified with WebCrypto (`crypto.subtle.verify`, constant-time) on every request; `exp` enforced |
-| Token | `{ v, uid, fid, exp, jti }`, base64url, TTL 60 min |
+| Token | `{ v, uid, efid: { iv, ct }, exp, jti }`, base64url, TTL 60 min — `efid` = the Drive id AES-GCM-encrypted (HKDF-derived key); legacy v1 `{ v:1, uid, fid, exp, jti }` accepted |
 | CORS | `ALLOWED_ORIGINS` exact/`*` match on `Origin`, else `Referer` origin; no-origin allowed |
 | Drive call | `GET files/{id}?alt=media&supportsAllDrives=true` with `Range` |
 | Ranges | 206 with `Content-Range`; 416 for malformed/unsatisfiable/multi-range; `bytes=-N` keeps last-N semantics; one response is capped to a single aligned chunk (4 MiB by default, `CHUNK_BYTES`-tunable) |
