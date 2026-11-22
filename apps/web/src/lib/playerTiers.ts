@@ -28,3 +28,18 @@ export function tierAfterWorkerFailure(opts: { canDirect: boolean }): "direct" |
 export function tierAfterDirectFailure(): "youtube" {
   return "youtube";
 }
+
+/** Whether a lesson's ORIGINAL grant opens a Google Drive source — i.e. this
+ *  lesson goes through the Worker / Direct tiers.
+ *
+ *  Must be decided once, from the initial grant, and then carried on the
+ *  grant object. The chain replaces `embedUrl` with a youtube-nocookie link
+ *  when Direct dies; re-deriving the lesson kind from the live embed would
+ *  reclassify it as a YouTube lesson, which drops it into the generic
+ *  `!isYt` <video> branch and shows "Video unavailable".
+ */
+export function isDriveLessonEmbed(embedUrl: string | null, youtubeId: string | null): boolean {
+  if (embedUrl === null) return false;
+  if (youtubeId !== null) return false;
+  return /drive\.google\.com/.test(embedUrl);
+}
