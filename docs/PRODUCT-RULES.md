@@ -106,8 +106,9 @@ exists because breaking it once leaked or confused them.
 
 ## File map (behavioral, no DB internals)
 
-- `src/components/ProtectedVideoPlayer.tsx` — the ONLY player. Three modes:
-  YouTube custom chrome / Drive sandboxed preview / native mp4.
+- `src/components/ProtectedVideoPlayer.tsx` — the ONLY player. Four paths:
+  YouTube custom chrome, Direct Drive `<video>`, Worker `<video>`, native mp4.
+  The chain is Worker → Direct Drive → YouTube (no Drive iframe tier).
 - `src/pages/Watch.tsx` — lesson page: unlock/limit/empty/session panels,
   exam modal entry, sidebar.
 - `src/pages/Dashboard.tsx` — overview cards, sessions widget, exam tabs.

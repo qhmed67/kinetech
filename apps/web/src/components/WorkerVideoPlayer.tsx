@@ -6,7 +6,7 @@ import { getAccessToken } from "../lib/accessToken";
 import { workerFailAgeMs } from "../lib/workerFailMarker";
 import "./workerPlayer.css";
 
-/** Same state machine the Drive tier uses, owned by the parent orchestrator. */
+/** Same state machine the parent orchestrator owns (Worker → Direct → YouTube). */
 export type WorkerPlayerState = "inline" | "expanding" | "expanded" | "collapsing";
 
 export type WorkerVideoPlayerProps = {
@@ -31,7 +31,7 @@ export type WorkerVideoPlayerProps = {
   /** Worker became healthy (first successful frame) — the parent clears its
    *  "worker failed" marker so the next lesson retries the Worker tier. */
   onWorkerHealthy?: () => void;
-  /** The Worker tier is dead: the parent switches to Drive / YouTube. */
+  /** The Worker tier is dead: the parent switches to Direct / YouTube. */
   onFatal: (reason: string) => void;
 };
 
@@ -181,10 +181,10 @@ export function WorkerVideoPlayer({
       return;
     }
     if (status >= 400) {
-      // Any other Worker 4xx/5xx: switch to Drive immediately.
-      fail(`http_${status}`);
-      return;
-    }
+        // Any other Worker 4xx/5xx: switch to Direct / YouTube immediately.
+        fail(`http_${status}`);
+        return;
+      }
     if (status === 200 || status === 206) {
       // The Worker is healthy — the media error was transient. Reload once.
       errCount.current += 1;

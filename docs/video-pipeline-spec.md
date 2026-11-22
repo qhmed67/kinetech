@@ -1,8 +1,8 @@
 # Video pipeline spec — Worker-streamed lessons
 
 Owner-facing spec for publishing a lesson so the player can stream it through
-the `kinetech-video-test` Worker, with automatic fallback to the Drive preview
-and then YouTube. Nothing here changes the existing Drive-only lessons: a
+the `kinetech-video-test` Worker, with automatic fallback to Direct Drive and
+then YouTube. Nothing here changes the existing Drive-only lessons: a
 lesson with no Drive file keeps playing exactly as before.
 
 > **Honest limits.** A signed Worker token replaces the raw Drive URL in the
@@ -25,12 +25,14 @@ admin pastes a Drive link
         ▼
 <video> + Plyr  ──error/quota/stall──►  Direct Drive <video> (same grant)
         │                                      │
-        │                                      └─error/403/429/stall──►  Drive preview iframe (same grant)
-        │                                                                      │
-        │                                                                      └─stall──► /api/play fallback=youtube
+        │                                      └─error/403/429/no-canplay/stall──►  YouTube (via /api/play fallback=youtube, read-only)
         ▼
 Cloudflare Worker ──► Google Drive (Range requests, chunk cache)
 ```
+
+Playback order is always **Worker → Direct Drive → YouTube**; there is no
+Drive iframe tier anymore. Every switch is forward-only, logged without ids
+or URLs (`player.tier_fallback`), and never loops.
 
 * **Worker tier** (first): a real `<video>` element fed by the Worker. The
   token carries `{ v, uid, efid: { iv, ct }, exp, jti }` (HMAC-SHA256, 60
@@ -47,21 +49,22 @@ Cloudflare Worker ──► Google Drive (Range requests, chunk cache)
   Honest notes: the key and file id are visible in devtools once issued;
   the key is restricted by HTTP referrer; the watermark is the real
   deterrent.
-* **Drive tier**: the existing sandboxed Drive preview iframe, using the
-  `embedUrl` returned by the *same* `/api/play` grant — switching tiers never
-  burns another view. Also the landing spot when the Direct tier fails.
-* **YouTube tier**: requested only after the earlier tiers fail, via a separate
-  `/api/play` call with `{ fallback: "youtube" }`. That call is read-only
-  (no view counted) and returns the `youtube-nocookie.com` embed.
+* **YouTube tier**: the chain's end. Reached two ways — a lesson without a
+  Drive file (the server returns `mode:"embed"` with the `youtube-nocookie`
+  embed) or a Direct failure (`video.error`, 403/429, no canplay ~12 s, or
+  stall): the client calls `/api/play` with `{ fallback: "youtube" }` (a
+  separate, read-only call — it counts no view) and plays the returned
+  `youtube-nocookie.com` embed. The chain never returns to Direct or Worker.
 
-Tier switching is forward-only, logged without ids or URLs
-(`player.tier_fallback`), and never loops. A Worker failure marks the Worker
-in localStorage (`kt-worker-fail-<videoId>`) for ~10 minutes — later lessons
-skip straight to Direct (`isWorkerFailFresh`); the marker is cleared when the
-Worker is healthy again (`onWorkerHealthy`). Direct failure, or a YouTube
-stall with no canplay within ~12 s, falls to the Drive iframe.
-Lessons without a `drive_file_id` keep the existing Drive/YouTube embed path
-unchanged.
+A Worker failure marks the Worker in localStorage (`kt-worker-fail-<videoId>`)
+for ~10 minutes — later lessons skip straight to Direct (`isWorkerFailFresh`);
+the marker is cleared when the Worker is healthy again (`onWorkerHealthy`).
+Direct failure falls to YouTube immediately (debounced, one attempt per
+lesson — never loops). A Drive lesson that can only be played by YouTube and
+has no YouTube version on the account shows the error screen — the Drive
+tier is gone, so there is nothing left to try.
+Lessons without a `drive_file_id` go Worker-less straight to YouTube as
+before.
 
 ---
 
@@ -167,7 +170,7 @@ If `mdat` appears first, re-run the remux command above.
 
 Upload the same file to YouTube (Unlisted is fine; embedding must be enabled),
 then paste the link or the 11-character id into **YouTube fallback** in the
-course editor. This tier is used only when the Worker and Drive tiers fail.
+course editor. This tier is used only when the Worker and Direct tiers fail.
 
 ### 2.5 Fill the admin fields
 
@@ -183,12 +186,12 @@ https://drive.google.com/uc?export=download&id=<ID>
 
 The editor extracts the id, shows **Drive file detected**, and **Validate
 file** asks the admin-only endpoint for the MIME type, size, and faststart
-hint. A warning is informational only — the player still falls back to Drive
-and YouTube. Save the course as usual; the ids are written with the rest of the
+hint. A warning is informational only — the player still falls back to
+Direct and YouTube. Save the course as usual; the ids are written with the rest of the
 lesson.
 
-> An **empty Drive link** leaves the lesson on the existing Drive/YouTube
-> embed path — nothing changes for that lesson.
+> An **empty Drive link** leaves the lesson Worker-less straight to YouTube —
+> nothing changes for that lesson.
 
 ---
 
@@ -264,7 +267,7 @@ Set these on the project (Preview and Production as appropriate) and redeploy:
 | `GOOGLE_API_KEY` | Drive API key (§3.1) |
 
 Until both `STREAM_TOKEN_SECRET` and `VIDEO_STREAM_WORKER_URL` are present,
-`/api/play` returns `mode:"embed"` and lessons keep the existing Drive player.
+`/api/play` returns `mode:"embed"` and lessons play straight to YouTube.
 
 ### 3.6 Custom domain (optional, recommended)
 

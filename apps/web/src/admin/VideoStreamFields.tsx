@@ -24,7 +24,8 @@ type Meta = {
  * (all common Drive link forms are accepted); the optional YouTube id is the
  * last-resort fallback. "Validate file" asks the admin-only endpoint for the
  * MIME type / size / faststart hint — a WARNING for the admin, never a block:
- * the player still falls back to Drive/YouTube if a file is not ideal.
+ * the player still falls back to Direct / YouTube if the stream is
+ * unavailable.
  */
 export function VideoStreamFields({
   src,
@@ -91,6 +92,7 @@ export function VideoStreamFields({
 
   return (
     <div className="grid gap-3 rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+      <p className="text-[11px] font-bold" style={{ color: "var(--muted)" }}>{a.vidPlaybackOrder}</p>
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-[13px] font-bold" style={{ color: driveId ? "var(--accent)" : "var(--muted)" }}>
           {driveId ? `${a.vidDriveDetected} ✓` : a.vidDriveMissing}

@@ -7,7 +7,7 @@ import "./directPlayer.css";
 /** The Direct Drive tier: Plyr around a real <video> whose src is the Drive
  *  API URL (no Worker, no token, no auth, no Supabase). Diagnoses failures
  *  by probing with a one-off Range request and reports them via onFatal so
- *  the chain falls to the Drive iframe (then YouTube). */
+ *  the chain falls to YouTube immediately. */
 
 const CANPLAY_TIMEOUT_MS = 12_000;
 const STALL_TIMEOUT_MS = 15_000;

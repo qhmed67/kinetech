@@ -10,24 +10,24 @@ describe("tierAfterGrant", () => {
     expect(tierAfterGrant({ workerMode: true, workerSrc: true, markerFresh: false })).toBe("worker");
   });
 
-  it("skips straight to Direct when the worker-fail marker is fresh", () => {
+  it("goes straight to Direct when the worker-fail marker is fresh", () => {
     expect(tierAfterGrant({ workerMode: true, workerSrc: true, markerFresh: true })).toBe("direct");
   });
 
-  it("falls back to the Drive iframe for embed grants", () => {
-    expect(tierAfterGrant({ workerMode: false, workerSrc: false, markerFresh: false })).toBe("drive");
+  it("goes Worker-less to YouTube for lessons without a Worker grant (no Drive file)", () => {
+    expect(tierAfterGrant({ workerMode: false, workerSrc: false, markerFresh: false })).toBe("youtube");
   });
 });
 
 describe("tierAfterWorkerFailure", () => {
-  it("goes Direct when available, Drive iframe otherwise", () => {
+  it("goes Direct when available, YouTube otherwise", () => {
     expect(tierAfterWorkerFailure({ canDirect: true })).toBe("direct");
-    expect(tierAfterWorkerFailure({ canDirect: false })).toBe("drive");
+    expect(tierAfterWorkerFailure({ canDirect: false })).toBe("youtube");
   });
 });
 
 describe("tierAfterDirectFailure", () => {
-  it("goes to the Drive iframe — the chain never loops", () => {
-    expect(tierAfterDirectFailure()).toBe("drive");
+  it("goes straight to YouTube — the chain ends there", () => {
+    expect(tierAfterDirectFailure()).toBe("youtube");
   });
 });

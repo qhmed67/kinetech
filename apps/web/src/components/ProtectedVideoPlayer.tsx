@@ -45,7 +45,7 @@ type PlayGrant = {
   email: string;
   phoneLast4: string;
   /** "worker" = a <video> streamed through the Worker; "direct" = a <video>
-   *  playing the Drive API URL directly; "embed" = Drive/YouTube iframe. */
+   *  playing the Drive API URL directly; "embed" = YouTube/mp4 stored link. */
   mode: "worker" | "direct" | "embed";
   /** Worker stream URL (signed token, no Drive id). Present when mode=worker. */
   src?: string;
@@ -60,8 +60,8 @@ type PlayGrant = {
   directSrc?: string;
 };
 
-/** Playback tier chain: Worker → Direct Drive → Drive iframe → YouTube. */
-type Tier = "worker" | "direct" | "drive" | "youtube";
+/** Playback tier chain: Worker → Direct Drive → YouTube. */
+type Tier = "worker" | "direct" | "youtube";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -81,13 +81,6 @@ const QUALITY_LABEL: Record<string, string> = {
 /** Quality rung order, low → high. Used to always keep the better segment. */
 const QUALITY_RANK = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
 
-/** Fixed Drive design size — the iframe is NEVER resized in native mode:
- *  Drive switches its layout mode by frame aspect/size; we freeze 640×360
- *  (≈ the 592×334 layout that rendered correctly inline) and scale from
- *  the outside with translate. */
-const DESIGN_W = 640;
-const DESIGN_H = 360;
-
 /** Explicit player overlay state machine (native shell only). */
 type PlayerState = "inline" | "expanding" | "expanded" | "collapsing" | "inline";
 
@@ -105,15 +98,15 @@ const WM_SPOTS = [
 
 /**
  * Guarded player over server-issued embed URLs (POST /api/play).
- * The raw Drive/YouTube URL never sits in props, state, or the DOM — only
- * the sandboxed embed URL the server minted for this session.
- * YouTube keeps zero native chrome + custom bar; Drive preview and legacy
- * mp4 render in hardened frames with the same watermark + completion wiring.
+ * The raw Drive/YouTube URL never sits in props, state, or the DOM — Drive
+ * plays through the Worker or the Direct tier, YouTube through Google's
+ * frame with zero native chrome + custom bar.
  *
  * Honest limits: the Drive FILE ID is visible in the browser at playback
- * time (iframe src, network tab), and screen recording cannot be blocked by
- * any website technology. Real protection stays server-side (single session,
- * enrollment + 3-view cap + rate/suspicion rules, watermarked identity).
+ * time (the Direct URL, network tab), and screen recording cannot be
+ * blocked by any website technology. Real protection stays server-side
+ * (single session, enrollment + 3-view cap + rate/suspicion rules,
+ * watermarked identity).
  */
 export function ProtectedVideoPlayer({
   videoId,
@@ -129,7 +122,6 @@ export function ProtectedVideoPlayer({
   const cbRef = useRef({ onProgress, onSeeked, onEnded, onDenied, onSessionDead });
   cbRef.current = { onProgress, onSeeked, onEnded, onDenied, onSessionDead };
   const boxRef = useRef<HTMLDivElement>(null);
-  const frameRef = useRef<HTMLIFrameElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
   // Inside the native shell the page never plays protected media itself: it
@@ -140,9 +132,8 @@ export function ProtectedVideoPlayer({
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
-  // Active playback tier. Starts at "drive" and becomes "worker" when the
-  // server grants a Worker stream; falls forward on failure, never back.
-  const [tier, setTier] = useState<Tier>("drive");
+  // Active playback tier. Worker → Direct → YouTube, forward-only.
+  const [tier, setTier] = useState<Tier>("youtube");
   // Terminal (denied/session-dead): parent takes over the area.
   const [over, setOver] = useState(false);
   const [ready, setReady] = useState(false);
@@ -150,7 +141,7 @@ export function ProtectedVideoPlayer({
   const [playing, setPlaying] = useState(false);
   // Poster covers the unstarted frame (where YouTube shows title/avatar).
   const [started, setStarted] = useState(false);
-  // Non-YouTube poster gate (Drive preview / mp4 need an explicit start).
+  // Poster gate for native elements (mp4 / HLS seeds need an explicit start).
   const [mediaStarted, setMediaStarted] = useState(false);
   const gotQualities = useRef(false);
   const [time, setTime] = useState(0);
@@ -189,10 +180,6 @@ export function ProtectedVideoPlayer({
   const sessionToken = useRotatingSession();
   const lastPoll = useRef(0);
   const endedRef = useRef(false);
-  // Preview watchdog/retry + wall-clock completion for API-less frames.
-  const [frameFailed, setFrameFailed] = useState(false);
-  const [frameRetry, setFrameRetry] = useState(0);
-  const elapsedRef = useRef(0);
   const mediaRef = useRef<HTMLVideoElement>(null);
 
   // Watermark drift.
@@ -204,10 +191,10 @@ export function ProtectedVideoPlayer({
     return () => window.clearInterval(id);
   }, []);
 
-  /** Direct Drive tier (Priority 2): /api/play {fallback:"direct"} — a
-   *  read-only, no-view-count call. Returns the Drive file id + the browser
-   *  key (from the DRIVE_BROWSER_KEY server env var). On any failure the
-   *  tier becomes the Drive iframe via tierAfterDirectFailure(). */
+  /** Direct Drive tier: /api/play {fallback:"direct"} — a read-only,
+   *  no-view-count call. Returns the Drive file id + the browser key
+   *  (from the DRIVE_BROWSER_KEY server env var). On any failure the
+   *  chain falls to YouTube via tierAfterDirectFailure(). */
   const loadDirect = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -256,14 +243,13 @@ export function ProtectedVideoPlayer({
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     let alive = true;
     setGrant(null);
-    setTier("drive");
+    setTier("youtube");
     setOver(false);
     setReady(false);
     setFailed(false);
     setPlaying(false);
     setStarted(false);
     setMediaStarted(false);
-    setFrameFailed(false);
     gotQualities.current = false;
     setQualities([]);
     setQuality("auto");
@@ -273,7 +259,6 @@ export function ProtectedVideoPlayer({
     setDur(0);
     lastPoll.current = 0;
     endedRef.current = false;
-    elapsedRef.current = 0;
     void (async () => {
       try {
         const { supabase } = await import("../lib/db/client");
@@ -339,8 +324,13 @@ export function ProtectedVideoPlayer({
         });
         const workerActive = body.mode === "worker" && typeof body.src === "string";
         const freshMarker = isWorkerFailFresh(videoId);
-        setTier(tierAfterGrant({ workerMode: workerActive, workerSrc: workerActive, markerFresh: freshMarker }));
-        if (workerActive && freshMarker) void loadDirect();
+        if (workerActive && freshMarker) {
+          // Fresh worker-fail marker: skip straight to Direct.
+          setTier("direct");
+          void loadDirect();
+        } else {
+          setTier(tierAfterGrant({ workerMode: workerActive, workerSrc: workerActive, markerFresh: false }));
+        }
       } catch {
         if (alive) setFailed(true);
       }
@@ -366,13 +356,12 @@ export function ProtectedVideoPlayer({
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
   const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
-  // A source the native player can play directly (mp4 / HLS). Drive and
-  // YouTube are web embeds — Google's own frame is the only place they may
-  // play (PRODUCT-RULES), so they stay in the page and the native layer
-  // protects the window around them instead.
+  // A Drive lesson. The Drive URL never reaches the DOM — the chain renders
+  // it via Worker or Direct, and YouTube after Direct dies (the render
+  // branch below). Non-YouTube non-Drive embeds are natively playable.
   const nativelyPlayable = embedUrl !== null && !isYt && !isDrive;
 
-  // ---- Tier fallback chain: Worker → Drive → YouTube ----------------------
+  // ---- Tier fallback chain: Worker → Direct → YouTube ---------------------
   // Every switch is forward-only and logged WITHOUT ids or URLs.
   const loadYoutubeFallback = useCallback(async () => {
     const token = await getAccessToken();
@@ -415,41 +404,43 @@ export function ProtectedVideoPlayer({
       // Mark the Worker as failing: later lessons skip straight to Direct.
       // (The marker is cleared when the Worker is healthy again.)
       setWorkerFailMarker(videoId);
-      // Direct if available, else the Drive iframe — loadDirect applies
+      // Direct if available, else YouTube — loadDirect applies
       // tierAfterDirectFailure() when direct is unavailable.
       void loadDirect();
     },
     [videoId, loadDirect],
   );
 
-  /** Direct Drive tier (Priority 2) died → the Drive iframe (→ YouTube). */
+  /** Direct Drive tier died (video.error, 403/429, or no canplay) → YouTube. */
   const onDirectFatal = useCallback(
     (reason: string) => {
       log("warn", "player.tier_fallback", "direct tier failed", {
         module: "player",
-        ctx: { from: "direct", to: "drive", reason },
+        ctx: { from: "direct", to: "youtube", reason },
       });
-      debugRef.current.lastTierFailure = { from: "direct", to: "drive", reason };
-      setTier("drive");
+      debugRef.current.lastTierFailure = { from: "direct", to: "youtube", reason };
+      setTier("youtube");
     },
     [],
   );
 
-  const onDriveStall = useCallback(() => {
-    if (!grant?.youtubeAvailable || tier === "youtube") return;
-    log("warn", "player.tier_fallback", "drive tier stalled", {
-      module: "player",
-      ctx: { from: "drive", to: "youtube" },
-    });
-    void loadYoutubeFallback();
-  }, [grant, tier, loadYoutubeFallback]);
-
-  // The Drive iframe already has a 20s watchdog (frameFailed). When it fires
-  // and the lesson has a YouTube fallback, fall forward automatically.
+  // Direct died on a Drive lesson that has a YouTube version: fetch the
+  // YouTube embed now. One attempt per lesson — the chain is forward-only
+  // and never loops.
+  const ytFetchRef = useRef(false);
   useEffect(() => {
-    if (!frameFailed) return;
-    onDriveStall();
-  }, [frameFailed, onDriveStall]);
+    if (tier !== "youtube" || !isDrive || !grant?.youtubeAvailable || isYt) return;
+    if (ytFetchRef.current) return;
+    ytFetchRef.current = true;
+    void loadYoutubeFallback();
+  }, [tier, isDrive, grant, isYt, loadYoutubeFallback]);
+
+  // A Drive lesson that can only be played by YouTube and has none: error.
+  // (Without a YouTube version there is nothing left to try — the Drive tier
+  // is gone.)
+  useEffect(() => {
+    if (tier === "youtube" && isDrive && !grant?.youtubeAvailable) setFailed(true);
+  }, [tier, isDrive, grant]);
 
   // The native shell floats the student's identity over the playback. The
   // page already knows it from the server grant, so it hands it over — the
@@ -469,28 +460,17 @@ export function ProtectedVideoPlayer({
   }, [native, grant]);
 
   // ---- Native shell (Expo Go) expand/collapse state machine ----------------
-  // One explicit machine: inline → expanding → expanded → collapsing → inline.
-  // transitionId serializes async steps — a stale step never applies its style.
-  // The frame layout is a pure function of (state, container rect): it is
-  // recomputed on every measurement, never stored as possibly-stale values.
-
   const [playerState, setPlayerState] = useState<PlayerState>("inline");
-  const [transitionId, setTransitionId] = useState(0);
-  const [containerRect, setContainerRect] = useState<{ cw: number; ch: number } | null>(null);
   const [coverOn, setCoverOn] = useState(false);
   const [coverFadeOut, setCoverFadeOut] = useState(false);
   const seqRef = useRef(0);
   const stabilityRef = useRef<{ key: string; count: number } | null>(null);
   const debugRef = useRef<Record<string, unknown>>({});
-  const [, setDebugTick] = useState(0);
   // Inline baseline (before expand), compared after collapse to detect a
   // layout that drifted back (intermittent broken state).
   const inlineBaselineRef = useRef<{ cw: number; ch: number } | null>(null);
   const debugOn =
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("pvpdebug");
-
-  const isDriveShellBlack = native && isDrive && playerState !== "inline";
-  const isDriveExpanded = native && isDrive && playerState === "expanded";
 
   // Safe-area values the shell injects as window.__KT_SAFE_AREA (RN
   // useSafeAreaInsets at the root View). The WebView page has no other source
@@ -519,20 +499,12 @@ export function ProtectedVideoPlayer({
     [native],
   );
 
-  // ---- Pure layout: frame = DESIGN_W × DESIGN_H, centered with translate ----
-  const layoutFor = (cw: number, ch: number): { s: number; tx: number; ty: number } => {
-    if (cw <= 0 || ch <= 0) return { s: 1, tx: 0, ty: 0 };
-    const s = Math.min(cw / DESIGN_W, ch / DESIGN_H);
-    return { s, tx: (cw - DESIGN_W * s) / 2, ty: (ch - DESIGN_H * s) / 2 };
-  };
-
   // Measure the real container box — the single source of truth for the fit.
   const measureContainer = () => {
     const box = boxRef.current;
     if (!box) return;
     const r = box.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return;
-    setContainerRect({ cw: r.width, ch: r.height });
     const key = `${Math.round(r.width)}x${Math.round(r.height)}`;
     const st = stabilityRef.current;
     stabilityRef.current = st?.key === key ? { key, count: st.count + 1 } : { key, count: 1 };
@@ -558,19 +530,14 @@ export function ProtectedVideoPlayer({
   const collapse = useCallback(() => {
     if (playerState === "inline" || playerState === "collapsing") return;
     const seq = ++seqRef.current;
-    setTransitionId(seq);
     setPlayerState("collapsing");
     sendPlayerFullscreen(false);
     const start = Date.now();
     const poll = () => {
       if (seqRef.current !== seq) return;
-      // Collapse finishes when the WebView is back to portrait. Flip the shell
-      // to inline — the inline-expectation assert + watchdog reconcile then
-      // verify/correct the geometry (never remount the iframe).
+      // Collapse finishes when the WebView is back to portrait: flip the
+      // shell to inline.
       if (window.innerWidth > window.innerHeight === false) {
-        // Back to portrait: flip to inline first — the inline-expectation
-        // assert + watchdog reconcile then verify/correct the geometry
-        // (never remount the iframe).
         setPlayerState("inline");
         debugRef.current.inlineExpectationMet = isInlineExpectationMet();
         finish();
@@ -600,7 +567,6 @@ export function ProtectedVideoPlayer({
         }
       }
       inlineBaselineRef.current = null;
-      scheduleReconcile("collapse");
       // Fade the black cover out over ~150 ms, then detach it.
       setTimeout(() => {
         setCoverFadeOut(true);
@@ -615,7 +581,6 @@ export function ProtectedVideoPlayer({
   const expand = useCallback(() => {
     if (playerState !== "inline") return;
     const seq = ++seqRef.current;
-    setTransitionId(seq);
     setPlayerState("expanding");
     setCoverOn(true);
     setCoverFadeOut(false);
@@ -646,49 +611,6 @@ export function ProtectedVideoPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState]);
 
-  const reconcile = useCallback(() => {
-    const box = boxRef.current;
-    if (!box || !native || !isDrive) return;
-    const r = box.getBoundingClientRect();
-    const parent = box.parentElement;
-    const info: Record<string, unknown> = {};
-    let ok = true;
-    info.hasExpandedClass = box.classList.contains("pvp-expanded");
-    info.positionFixed = box.style.position.includes("fixed");
-    if (info.hasExpandedClass || info.positionFixed) ok = false;
-    if (parent && r.width > 0) {
-      const diff = Math.abs(r.width - parent.clientWidth);
-      info.widthDiff = diff;
-      if (diff > Math.max(1, parent.clientWidth * 0.02)) ok = false;
-    }
-    if (r.height > 0) {
-      const aspect = r.width / r.height;
-      info.aspect = aspect;
-      if (Math.abs(aspect - 16 / 9) / (16 / 9) > 0.05) ok = false;
-    }
-    debugRef.current.reconcile = info;
-    setDebugTick((t) => t + 1);
-    if (!ok) {
-      // Watchdog: derive layout again and force the inline state. Never
-      // remount the iframe — Drive must not reload.
-      debugRef.current.reconcileCorrections = (Number(debugRef.current.reconcileCorrections) || 0) + 1;
-      setPlayerState("inline");
-      setContainerRect(null);
-      measureContainer();
-    }
-  }, [native, isDrive]);
-
-  const scheduleReconcile = useCallback(
-    (why: string) => {
-      reconcile();
-      debugRef.current.lastReconcile = why;
-      setTimeout(() => reconcile(), 250);
-      setTimeout(() => reconcile(), 600);
-      setTimeout(() => reconcile(), 1200);
-    },
-    [reconcile],
-  );
-
   // Cover removal while expanded: wait until orientation is right AND the
   // rect is stable (2 consecutive measures), plus a 1500 ms hard timeout.
   useEffect(() => {
@@ -708,51 +630,6 @@ export function ProtectedVideoPlayer({
     setTimeout(() => setCoverFadeOut(false), 400);
   }, []);
 
-  // Collapse watchdog: reconcile repeatedly while inline.
-  useEffect(() => {
-    if (!native || !isDrive || playerState !== "inline") return;
-    const on = () => reconcile();
-    window.addEventListener("resize", on);
-    window.addEventListener("orientationchange", on);
-    window.addEventListener("pageshow", on);
-    window.addEventListener("visibilitychange", on);
-    window.addEventListener("focus", on);
-    return () => {
-      window.removeEventListener("resize", on);
-      window.removeEventListener("orientationchange", on);
-      window.removeEventListener("pageshow", on);
-      window.removeEventListener("visibilitychange", on);
-      window.removeEventListener("focus", on);
-    };
-  }, [native, isDrive, playerState, reconcile]);
-
-  // Re-measure on every settled state change (after the DOM updates): while
-  // expanding/expanded the black shell is the full window; after a collapse
-  // lands, the shell is back in document flow with its inline rect.
-  useEffect(() => {
-    if (!native || !isDrive || playerState === "collapsing") return;
-    measureContainer();
-  }, [native, isDrive, playerState]);
-
-  // Measure the container continuously while native.
-  useEffect(() => {
-    if (!native || !isDrive) return;
-    measureContainer();
-    const onChange = () => measureContainer();
-    const ro = new ResizeObserver(onChange);
-    const box = boxRef.current;
-    if (box) ro.observe(box);
-    window.addEventListener("resize", onChange);
-    window.addEventListener("orientationchange", onChange);
-    window.visualViewport?.addEventListener("resize", onChange);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", onChange);
-      window.removeEventListener("orientationchange", onChange);
-      window.visualViewport?.removeEventListener("resize", onChange);
-    };
-  }, [native, isDrive]);
-
   // Announce/unannounce the overlay to the shell on every state change, and
   // on unmount.
   useEffect(() => {
@@ -761,63 +638,13 @@ export function ProtectedVideoPlayer({
 
   useEffect(() => () => sendPlayerFullscreen(false), [sendPlayerFullscreen]);
 
-  // Native → page: orientation ack → re-measure now; the real box is settling.
+  // Native → page: the shell asks us to collapse (hardware back button).
+  // The native shell sends this regardless of tier; the Worker tier owns
+  // its own expand/collapse, the guard dedupes both paths.
   useEffect(() => {
-    if (!native || !isDrive) return;
-    const offs: Array<() => void> = [];
-    offs.push(bridgeOn("player-orientation-settled", () => {
-      measureContainer();
-      reconcile();
-    }));
-    // Shell asks: collapse (hardware back button pressed).
-    offs.push(bridgeOn("closeExpand", () => collapse()));
-    return () => offs.forEach((off) => off());
-  }, [native, isDrive, reconcile, collapse]);
-
-  // Debug overlay (?pvpdebug=1, native only).
-  useEffect(() => {
-    if (!debugOn || !native || !isDrive) return;
-    const id = setInterval(() => {
-      const { s, tx, ty } = layoutFor(containerRect?.cw ?? 0, containerRect?.ch ?? 0);
-      debugRef.current = {
-        state: playerState,
-        transitionId,
-        cw: containerRect?.cw ?? null,
-        ch: containerRect?.ch ?? null,
-        s,
-        tx,
-        ty,
-        landscape: window.innerWidth > window.innerHeight,
-        coverOn,
-        lastReconcile: debugRef.current.lastReconcile ?? null,
-      };
-      setDebugTick((t) => t + 1);
-    }, 250);
-    return () => clearInterval(id);
-  }, [debugOn, native, isDrive]);
-
-  // The frame is a pure function of the state machine and the container
-  // rect: native = DESIGN_W × DESIGN_H, centred via translate+scale. The
-  // browser keeps its original 2x/scale(0.5) trick.
-  const nativeFrameStyle: React.CSSProperties | null =
-    native && isDrive
-      ? (() => {
-          const { s, tx, ty } = layoutFor(containerRect?.cw ?? 0, containerRect?.ch ?? 0);
-          return {
-            border: 0,
-            position: "absolute" as const,
-            left: 0,
-            top: 0,
-            width: DESIGN_W,
-            height: DESIGN_H,
-            zIndex: 10,
-            transformOrigin: "0 0" as const,
-            transform: `translate(${tx}px, ${ty}px) scale(${s})`,
-          };
-        })()
-      : null;
-  const frameStyle: React.CSSProperties =
-    nativeFrameStyle ?? { border: 0, width: "200%", height: "200%", transform: "scale(0.5)", transformOrigin: "0 0" };
+    const off = bridgeOn("closeExpand", () => collapse());
+    return () => off();
+  }, [collapse]);
 
   // Player construction, reusable for initial build AND quality rebuilds.
   // Raw ID + API live in refs (memory only); stale generations are ignored.
@@ -996,31 +823,6 @@ export function ProtectedVideoPlayer({
     }, 250);
     return () => window.clearInterval(poll);
   }, [videoId]);
-
-  // Preview watchdog: unresolvable hosts never fire onLoad — show retry.
-  useEffect(() => {
-    if (!grant || !isDrive || !mediaStarted || ready || frameFailed) return;
-    const id = window.setTimeout(() => setFrameFailed(true), 20000);
-    return () => window.clearTimeout(id);
-  }, [grant, isDrive, mediaStarted, ready, frameFailed]);
-
-  // Wall-clock completion for API-less frames (Drive preview offers no play
-  // state; the server already counted the view at grant time).
-  useEffect(() => {
-    if (!grant || !isDrive || !mediaStarted) return;
-    const need = Math.max(60, Math.round((grant.minutes || 10) * 60 * 0.8));
-    const id = window.setInterval(() => {
-      if (document.hidden) return;
-      elapsedRef.current += 1;
-      const n = elapsedRef.current;
-      cbRef.current.onProgress(n);
-      if (n >= need && !endedRef.current) {
-        endedRef.current = true;
-        cbRef.current.onEnded();
-      }
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [grant, isDrive, mediaStarted]);
 
   // Poster click chains into native playback while the tap gesture is fresh.
   useEffect(() => {
@@ -1218,12 +1020,8 @@ export function ProtectedVideoPlayer({
       onDragStart={(e) => e.preventDefault()}
       onDoubleClick={toggleFullscreen}
       onMouseMove={wake}
-      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none${isDriveShellBlack ? " pvp-expanded" : ""} ${extraClass}`}
-      style={
-        isDriveShellBlack
-          ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "#000", borderRadius: 0 }
-          : { background: "#000", userSelect: "none", WebkitUserSelect: "none" }
-      }
+      className={`pvp relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none${extraClass}`}
+      style={{ background: "#000", userSelect: "none", WebkitUserSelect: "none" }}
       aria-label="Protected video player"
     >
       {cover}
@@ -1232,7 +1030,7 @@ export function ProtectedVideoPlayer({
     </div>
   );
 
-  // Opaque black cover over the player while expanding (above the iframe,
+  // Opaque black cover over the player while expanding (above the video,
   // below watermark/controls). Never display:none and never remount.
   const cover = coverOn && (
     <div
@@ -1300,7 +1098,7 @@ export function ProtectedVideoPlayer({
 
   /* Worker tier: a real <video> fed by the Worker (signed token in the URL,
      no Drive id). It is the first choice whenever the lesson has a Drive
-     file; on failure the parent falls forward to Drive, then YouTube. */
+     file; on failure the parent falls forward to Direct, then YouTube. */
   if (tier === "worker" && grant.src) {
     return (
       <WorkerVideoPlayer
@@ -1329,9 +1127,9 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Direct Drive tier (Priority 2): Plyr around a <video> whose src is the
-     Drive API URL — no Worker, no token, no auth, no Supabase. Resolved by
-     loadDirect from /api/play {fallback:"direct"}. */
+  /* Direct Drive tier: Plyr around a <video> whose src is the Drive API URL
+     — no Worker, no token, no auth, no Supabase. Resolved by loadDirect
+     from /api/play {fallback:"direct"}. */
   if (tier === "direct" && grant.directSrc) {
     return <DirectDriveVideoPlayer src={grant.directSrc} onFatal={onDirectFatal} native={native} />;
   }
@@ -1348,109 +1146,19 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  /* Drive preview: sandboxed iframe. Sandbox = allow-scripts +
-     allow-same-origin ONLY (no downloads/pop-outs/popups, no PiP token).
-     Clicks must reach Drive's own controls — no click shield; right-clicks
-     inside the frame stay Google's, unblockable cross-origin. */
-  if (isDrive) {
+  // YouTube tier: the chain ends here. YouTube lessons render the YouTube
+  // web player below; a Drive lesson whose Direct tier died shows the
+  // spinner while the YouTube embed is fetched (the fallback effect above).
+  if (tier === "youtube" && isDrive) {
     return shell(
-      <>
-        {mediaStarted ? (
-          /* Inline (the default, and the browser): the 2x/scale(0.5) trick —
-             Drive sees a wide virtual viewport so it centers correctly. In the
-             native shell, Drive's own fullscreen button must not be allowed to
-             reach the Android WebView custom view (PRODUCT-RULES: the player
-             owns its layout there) — expansion is via the overlay button. */
-          <iframe
-            key={`${embedUrl}:${frameRetry}`}
-            ref={frameRef}
-            src={embedUrl}
-            title="Course video"
-            sandbox="allow-scripts allow-same-origin"
-            allow={native ? undefined : "autoplay; fullscreen"}
-            allowFullScreen={!native}
-            referrerPolicy="no-referrer"
-            onLoad={() => setReady(true)}
-            className="pvp-scale absolute left-0 top-0"
-            style={frameStyle}
-          />
-        ) : (
-          poster(() => setMediaStarted(true), true)
-        )}
-        {native && isDrive && playerState === "inline" ? (
-          /* Expand button: top-LEFT of the inline player — Drive fills the
-             inline shell, so a bottom-right float would overlap Drive's
-             bottom-left controls in landscape. Safe-area aware. */
-          <button
-            type="button"
-            onClick={expand}
-            aria-label="Open full screen"
-            style={{ position: "absolute", top: safeInsets().top + 8, left: safeInsets().left + 8, zIndex: 30 }}
-            className="grid h-11 w-11 place-items-center rounded-full border border-[rgba(255,255,255,0.35)] bg-[rgba(0,0,0,0.35)] shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition hover:bg-[rgba(255,255,255,0.2)]"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-              <polyline points="15 3 21 3 21 9" />
-              <polyline points="9 21 3 21 3 15" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-              <line x1="16" y1="9" x2="9" y2="16" />
-            </svg>
-          </button>
-        ) : null}
-        {native && isDrive && isDriveExpanded ? (
-          /* Solid, high-contrast 44×44 ✕: semi-opaque black circle behind it,
-             offset by env(safe-area-inset-*) — above the watermark (z-20). */
-          <button
-            type="button"
-            onClick={collapse}
-            aria-label="Close full screen"
-            style={{ position: "absolute", top: safeInsets().top + 8, right: safeInsets().right + 8, zIndex: 40 }}
-            className="grid h-11 w-11 place-items-center rounded-full bg-[rgba(0,0,0,0.6)] shadow-[0_2px_10px_rgba(0,0,0,0.4)]"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        ) : null}
-        {watermark}
-        {mediaStarted && !ready && !frameFailed && (
-          /* Taps pass through: Drive's own ▶ (and our frame) must stay
-             clickable even while the spinner shows — onLoad never forming /
-             arriving late must never freeze the player behind a shield. */
-          <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
-            <span
-              aria-hidden="true"
-              className="h-12 w-12 animate-spin rounded-full"
-              style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
-            />
-          </div>
-        )}
-        {mediaStarted && frameFailed && (
-          <div className="absolute inset-0 z-20 grid place-items-center p-6 text-center" style={{ background: "rgba(0,0,0,0.85)" }} role="alert">
-            <div className="grid max-w-md gap-3">
-              <p className="font-bold text-white">Video didn&apos;t load — check your connection and try again.</p>
-              <p className="font-bold text-white" dir="rtl">الفيديو متحملش — اتأكد من النت وحاول تاني.</p>
-              <p className="text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>
-                If nothing loads either, switch network or pause adblock/VPN — then retry.
-              </p>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFrameFailed(false);
-                    setReady(false);
-                    setFrameRetry((k) => k + 1);
-                  }}
-                  className="btn btn-primary"
-                >
-                  Try again · حاول تاني
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </>,
-      idle && mediaStarted ? "cursor-none" : "",
+      <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+        <span
+          aria-hidden="true"
+          className="h-12 w-12 animate-spin rounded-full"
+          style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+        />
+      </div>,
+      "",
     );
   }
 
@@ -1513,9 +1221,9 @@ export function ProtectedVideoPlayer({
   // Inside the native shell:
   //  - a source the native player understands (mp4 / HLS) is played by the
   //    native player — the page never sees a media URL;
-  //  - Drive / YouTube keep playing inside Google's own frame (the rules
-  //    forbid touching it), and the native layer protects the window around
-  //    it (FLAG_SECURE, watermark) instead of replacing the player.
+  //  - YouTube keeps playing inside Google's own frame (the rules forbid
+  //    touching it), and the native layer protects the window around it
+  //    (FLAG_SECURE, watermark) instead of replacing the player.
   if (native && nativelyPlayable) {
     return (
       <div
