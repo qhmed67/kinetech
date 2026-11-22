@@ -4,6 +4,7 @@ import { getUser, setUser, notifyUserChanged } from "../../auth";
 import { purgeProgress, replaceProgress } from "../../watch";
 import { NETWORK_TIMEOUT_MS, withTimeout } from "./throttle";
 import { toDirectImageUrl } from "@kinetech/core";
+import { extractDriveFileId } from "../driveLinks";
 import { getWatchStateDb, recordPlayDb, completeVideoDb } from "./watchDb";
 
 /* Cloud sync: Supabase is source of truth when configured.
@@ -696,6 +697,23 @@ export async function pushCourseToDb(course: StoreCourse): Promise<boolean> {
       if (!vid) throw new Error("videos: no id returned");
       const { error: srcErr } = await sb.rpc("admin_set_video_src", { p_video: vid, p_src: src });
       if (srcErr) throw new Error(`video_sources: ${srcErr.message}`);
+      // Explicit stream ids (additive migration 20261122). Best-effort: on a
+      // database where that migration is not applied the RPC is missing and
+      // the server still derives the Drive id from the stored link, so the
+      // save must not fail. `driveId` always follows the CURRENT link.
+      try {
+        const driveId = extractDriveFileId(src) || (v.driveId ?? "").trim();
+        const youtubeId = (v.youtubeId ?? "").trim();
+        if (driveId !== "" || youtubeId !== "") {
+          await sb.rpc("admin_set_video_fallbacks", {
+            p_video: vid,
+            p_drive: driveId,
+            p_youtube: youtubeId,
+          });
+        }
+      } catch {
+        /* pre-migration DB — derived at play time instead */
+      }
       videoIds.set(vk(course.slug, i), vid);
       // Novelty, not row-operation: a src the course never had (fresh insert,
       // same-save delete+re-add, replaced link) notifies once per push.

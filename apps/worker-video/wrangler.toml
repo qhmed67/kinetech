@@ -1,0 +1,26 @@
+name = "kinetech-video-test"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# Test Worker on the workers.dev domain. The Drive file itself stays private:
+# the Worker is the only door, and only a signed stream token opens it.
+workers_dev = true
+preview_urls = false
+
+# No R2 binding: this Worker streams Google Drive bytes through the Cache API.
+
+[observability]
+enabled = true
+
+# Secrets are NOT in this file. Set them with:
+#   npx wrangler secret put STREAM_TOKEN_SECRET   --config apps/worker-video/wrangler.toml
+#   npx wrangler secret put DRIVE_CREDENTIALS     --config apps/worker-video/wrangler.toml
+#   npx wrangler secret put ALLOWED_ORIGINS       --config apps/worker-video/wrangler.toml
+#
+# STREAM_TOKEN_SECRET must equal the value in Vercel (the server signs what
+# this Worker verifies). DRIVE_CREDENTIALS is a JSON array:
+#   [{"type":"apikey","key":"AIza..."}]
+# ALLOWED_ORIGINS is a comma-separated list of exact origins or `*` patterns:
+#   https://kinetechtest.vercel.app,https://*.vercel.app
+#
+# Free plan budget: 100k requests/day, 10 ms CPU/request, 50 subrequests/request.

@@ -32,6 +32,7 @@
     "dotted-map": "^3.1.0",
     "lucide-react": "^1.46.0",
     "motion": "^13.4.0",
+    "plyr": "^3.8.5",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "simplex-noise": "^4.0.3",
