@@ -5,12 +5,15 @@ import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { log } from "../lib/logger";
 import { WorkerVideoPlayer } from "./WorkerVideoPlayer";
+import { DirectDriveVideoPlayer } from "./DirectDriveVideoPlayer";
+import { directDriveUrl } from "../lib/driveBrowser";
 import {
   isWorkerFailFresh,
   clearWorkerFailMarker,
   setWorkerFailMarker,
   workerFailAgeMs,
 } from "../lib/workerFailMarker";
+import { tierAfterGrant, tierAfterDirectFailure } from "../lib/playerTiers";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -41,18 +44,24 @@ type PlayGrant = {
   minutes: number;
   email: string;
   phoneLast4: string;
-  /** "worker" = a <video> streamed through the Worker; "embed" = Drive/YouTube. */
-  mode: "worker" | "embed";
+  /** "worker" = a <video> streamed through the Worker; "direct" = a <video>
+   *  playing the Drive API URL directly; "embed" = Drive/YouTube iframe. */
+  mode: "worker" | "direct" | "embed";
   /** Worker stream URL (signed token, no Drive id). Present when mode=worker. */
   src?: string;
   /** ISO expiry of the current Worker token. */
   expiresAt?: string;
   /** Whether a YouTube fallback exists for this lesson. */
   youtubeAvailable?: boolean;
+  /** Direct Drive tier (Priority 2): set by the /api/play fallback=direct
+   *  response. The key is served by the server from DRIVE_BROWSER_KEY. */
+  driveFileId?: string;
+  directKey?: string;
+  directSrc?: string;
 };
 
-/** Playback tier chain: Worker → Drive → YouTube. */
-type Tier = "worker" | "drive" | "youtube";
+/** Playback tier chain: Worker → Direct Drive → Drive iframe → YouTube. */
+type Tier = "worker" | "direct" | "drive" | "youtube";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -195,6 +204,50 @@ export function ProtectedVideoPlayer({
     return () => window.clearInterval(id);
   }, []);
 
+  /** Direct Drive tier (Priority 2): /api/play {fallback:"direct"} — a
+   *  read-only, no-view-count call. Returns the Drive file id + the browser
+   *  key (from the DRIVE_BROWSER_KEY server env var). On any failure the
+   *  tier becomes the Drive iframe via tierAfterDirectFailure(). */
+  const loadDirect = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setTier(tierAfterDirectFailure());
+      return;
+    }
+    try {
+      const r = await apiFetch("/api/play", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ video_id: videoId, fallback: "direct" }),
+      });
+      const body = (await r.json().catch(() => null)) as {
+        ok?: boolean;
+        mode?: string;
+        driveFileId?: string;
+        key?: string;
+        youtubeAvailable?: boolean;
+      } | null;
+      const directSrc =
+        body && body.mode === "direct" ? directDriveUrl(body.driveFileId ?? "", body.key ?? "") : null;
+      if (!r.ok || !body || body.mode !== "direct" || directSrc === null) {
+        setTier(tierAfterDirectFailure());
+        return;
+      }
+      log("warn", "player.tier_fallback", "worker tier failed — direct drive", {
+        module: "player",
+        ctx: { from: "worker", to: "direct" },
+      });
+      setGrant((g) =>
+        g
+          ? { ...g, mode: "direct", driveFileId: body.driveFileId, directKey: body.key, directSrc }
+          : g,
+      );
+      setTier("direct");
+    } catch {
+      setTier(tierAfterDirectFailure());
+    }
+  }, [videoId]);
+
   // Grant fetch: exactly one /api/play per mount. AbortController (not a
   // ref guard) handles React StrictMode double-effects: the first request
   // is cancelled before a second can start, and the server's 30-minute
@@ -284,11 +337,10 @@ export function ProtectedVideoPlayer({
           expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
           youtubeAvailable: body.youtubeAvailable === true,
         });
-        setTier(
-          body.mode === "worker" && typeof body.src === "string" && !isWorkerFailFresh(videoId)
-            ? "worker"
-            : "drive",
-        );
+        const workerActive = body.mode === "worker" && typeof body.src === "string";
+        const freshMarker = isWorkerFailFresh(videoId);
+        setTier(tierAfterGrant({ workerMode: workerActive, workerSrc: workerActive, markerFresh: freshMarker }));
+        if (workerActive && freshMarker) void loadDirect();
       } catch {
         if (alive) setFailed(true);
       }
@@ -309,7 +361,7 @@ export function ProtectedVideoPlayer({
       playerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId]);
+  }, [videoId, loadDirect]);
 
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
@@ -358,14 +410,29 @@ export function ProtectedVideoPlayer({
     (reason: string) => {
       log("warn", "player.tier_fallback", "worker tier failed", {
         module: "player",
-        ctx: { from: "worker", to: "drive", reason },
+        ctx: { from: "worker", to: "direct", reason },
       });
-      // Mark the Worker as failing: the next ~10 minutes skip the Worker
-      // tier and play through Drive (cleared when the Worker is healthy).
+      // Mark the Worker as failing: later lessons skip straight to Direct.
+      // (The marker is cleared when the Worker is healthy again.)
       setWorkerFailMarker(videoId);
+      // Direct if available, else the Drive iframe — loadDirect applies
+      // tierAfterDirectFailure() when direct is unavailable.
+      void loadDirect();
+    },
+    [videoId, loadDirect],
+  );
+
+  /** Direct Drive tier (Priority 2) died → the Drive iframe (→ YouTube). */
+  const onDirectFatal = useCallback(
+    (reason: string) => {
+      log("warn", "player.tier_fallback", "direct tier failed", {
+        module: "player",
+        ctx: { from: "direct", to: "drive", reason },
+      });
+      debugRef.current.lastTierFailure = { from: "direct", to: "drive", reason };
       setTier("drive");
     },
-    [videoId],
+    [],
   );
 
   const onDriveStall = useCallback(() => {
@@ -1259,6 +1326,25 @@ export function ProtectedVideoPlayer({
         onWorkerHealthy={() => clearWorkerFailMarker(videoId)}
         onFatal={onWorkerFatal}
       />
+    );
+  }
+
+  /* Direct Drive tier (Priority 2): Plyr around a <video> whose src is the
+     Drive API URL — no Worker, no token, no auth, no Supabase. Resolved by
+     loadDirect from /api/play {fallback:"direct"}. */
+  if (tier === "direct" && grant.directSrc) {
+    return <DirectDriveVideoPlayer src={grant.directSrc} onFatal={onDirectFatal} native={native} />;
+  }
+  if (tier === "direct") {
+    return shell(
+      <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
+        <span
+          aria-hidden="true"
+          className="h-12 w-12 animate-spin rounded-full"
+          style={{ border: "4px solid rgba(255,255,255,0.25)", borderTopColor: "#3BBCD9" }}
+        />
+      </div>,
+      "",
     );
   }
 

@@ -23,9 +23,11 @@ admin pastes a Drive link
 /api/play (JWT + entitlement + view count)
         │  mode:"worker", src: https://<worker>/v?t=<signed token>
         ▼
-<video> + Plyr  ──error/quota/stall──►  Drive preview iframe (same grant)
+<video> + Plyr  ──error/quota/stall──►  Direct Drive <video> (same grant)
         │                                      │
-        │                                      └─stall──► /api/play fallback=youtube
+        │                                      └─error/403/429/stall──►  Drive preview iframe (same grant)
+        │                                                                      │
+        │                                                                      └─stall──► /api/play fallback=youtube
         ▼
 Cloudflare Worker ──► Google Drive (Range requests, chunk cache)
 ```
@@ -36,12 +38,30 @@ Cloudflare Worker ──► Google Drive (Range requests, chunk cache)
   key = HKDF-SHA256 of `STREAM_TOKEN_SECRET` (fixed salt/info, random
   12-byte IV, authenticated). It never appears in the URL, the DOM or
   localStorage. Legacy v1 tokens (`fid` in the clear) still verify.
+* **Direct Drive tier** (second): Plyr around a real `<video>` playing the
+  Drive API URL directly — no Worker, no token, no auth, no Supabase.
+  Activated via `/api/play` with `{ fallback: "direct" }` (after the full
+  gate) which returns the Drive file id + the browser key from the
+  `DRIVE_BROWSER_KEY` server env var; the client builds
+  `src = https://www.googleapis.com/drive/v3/files/<id>?alt=media&key=<key>&supportsAllDrives=true`.
+  Honest notes: the key and file id are visible in devtools once issued;
+  the key is restricted by HTTP referrer; the watermark is the real
+  deterrent.
 * **Drive tier**: the existing sandboxed Drive preview iframe, using the
   `embedUrl` returned by the *same* `/api/play` grant — switching tiers never
-  burns another view.
+  burns another view. Also the landing spot when the Direct tier fails.
 * **YouTube tier**: requested only after the earlier tiers fail, via a separate
   `/api/play` call with `{ fallback: "youtube" }`. That call is read-only
   (no view counted) and returns the `youtube-nocookie.com` embed.
+
+Tier switching is forward-only, logged without ids or URLs
+(`player.tier_fallback`), and never loops. A Worker failure marks the Worker
+in localStorage (`kt-worker-fail-<videoId>`) for ~10 minutes — later lessons
+skip straight to Direct (`isWorkerFailFresh`); the marker is cleared when the
+Worker is healthy again (`onWorkerHealthy`). Direct failure, or a YouTube
+stall with no canplay within ~12 s, falls to the Drive iframe.
+Lessons without a `drive_file_id` keep the existing Drive/YouTube embed path
+unchanged.
 
 ---
 

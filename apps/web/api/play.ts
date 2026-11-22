@@ -41,7 +41,8 @@ type PlayErrorCode =
   | "NO_PROFILE"
   | "BAD_REQUEST"
   | "SERVER_ERROR"
-  | "METHOD_NOT_ALLOWED";
+  | "METHOD_NOT_ALLOWED"
+  | "SYS_003";
 
 // Mirrors api/config.ts PLAY_ERRORS — keep in sync.
 const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
@@ -58,6 +59,7 @@ const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: strin
   BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
+  SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
 };
 
 export type ApiRequest = {
@@ -129,6 +131,7 @@ const WARN_CODE: Record<PlayErrorCode, string> = {
   BAD_REQUEST: "VAL_001",
   SERVER_ERROR: "SYS_002",
   METHOD_NOT_ALLOWED: "VAL_001",
+  SYS_003: "SYS_003",
 };
 
 function requestId(headers: ApiRequest["headers"]): string {
@@ -477,7 +480,8 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   const rawBody = typeof req.body === "string" ? safeJson(req.body) : req.body;
   const body = (rawBody ?? {}) as { video_id?: unknown; fallback?: unknown };
   const videoId = typeof body.video_id === "string" ? body.video_id.trim() : "";
-  const fallback = body.fallback === "youtube" ? "youtube" : "";
+  const fallback =
+    body.fallback === "youtube" ? "youtube" : body.fallback === "direct" ? "direct" : "";
   if (!/^[0-9a-fA-F-]{36}$/.test(videoId)) return fail(res, "BAD_REQUEST", "video-id");
 
   const userClient = createClient(env.url, env.anonKey, {
@@ -648,6 +652,31 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     await admin.from("watch_events").delete().lt("created_at", cutoff);
   } catch {
     /* next request retries */
+  }
+
+  // Direct Drive tier (Priority 2): /api/play {fallback:"direct"} — after
+  // the full gate above (JWT + single-session + request_play view-count +
+  // entitlement). Returns the Drive file id + the browser key read from the
+  // DRIVE_BROWSER_KEY server env var. Honest notes: the key and the file id
+  // are visible in devtools once issued; the key is restricted by HTTP
+  // referrer; the watermark is the real deterrent. When nothing is usable
+  // the client falls back to the Drive iframe.
+  if (fallback === "direct") {
+    if (driveFileId === "") return fail(res, "VIDEO_MISSING", "no-drive-id");
+    const key = getEnvVar("DRIVE_BROWSER_KEY");
+    if (key === "") return fail(res, "SYS_003");
+    return res.status(200).json({
+      ok: true,
+      mode: "direct",
+      driveFileId,
+      key,
+      // Same-grant fallback: the client switches tiers without another call.
+      embedUrl: embed,
+      youtubeAvailable: youtubeVideoId !== "",
+      minutes: play.minutes,
+      watermark: { email: play.email, phoneLast4: play.phone_last4 },
+      viewsLeft: play.views_left,
+    });
   }
 
   // Worker-stream branch. FAIL-SAFE: missing or malformed env
