@@ -69,10 +69,12 @@ freshness chores (catalog hydrate, grant re-sync) hook the hashchange event.
    (d) returns `embedUrl` + minutes + watermark identity.
 3. Playback renders per source type:
    - **YouTube**: guarded custom player (API-driven, zero native chrome,
-     custom control bar, watermark, quality/speed controls).
-   - **Google Drive**: Google's sandboxed `/preview` iframe, viewer-only.
-     OUR chrome around it = watermark + poster + one fullscreen escape +
-     dismissable hints. NOTHING more, ever (see §6 — this is the trap).
+     custom control bar, watermark, quality/speed controls). Reached for
+     lessons without a Drive file and after a Direct failure.
+   - **Google Drive**: streamed through the Worker → Direct tier — viewer-only,
+     no iframe. If Direct dies, the player falls forward to YouTube.
+     Our chrome around the chain = watermark + poster + one fullscreen
+     escape + dismissable hints.
    - **mp4**: plain native video, only ever bundled seed assets.
 4. Progress: completion = video END (seek-to-end included — owner decision,
    do "fix" it back). Views burn server-side; a ~90s duplicate guard absorbs
@@ -123,14 +125,10 @@ The iron laws (full list in PRODUCT-RULES §NEVER):
    `POST /api/play` response. No other fetch, no building URLs client-side
    from admin text, no display/storage of gated URLs (the store actively
    strips gated URLs before persisting to localStorage).
-3. Drive files stay viewer-only (anyone-with-link, download OFF) and play
-   ONLY inside Google's preview frame. We cannot style/script/fix that
-   frame — not its small play button on phones, not its desktop chrome.
-   The accepted answer is: our own poster + hints + escape hatch, and
-   "PC/Chrome best" guidance when needed. If that feels limited, the
-   acceptable alternative the owner may choose is REPLACING the source
-   (e.g. a proper video host with a signed embed) — never exposing the
-   Drive file path.
+3. Drive files stay viewer-only (anyone-with-link, download OFF) and are
+   served through the Worker → Direct tier. If Direct dies, the chain
+   falls forward to YouTube — never back to a raw Drive URL in the page,
+   never an exposed file path.
 
 Before touching ANYTHING student-facing on the player/admin/urls: re-read
 PRODUCT-RULES.md. Slow down there. That file is a blocker, not advice.
@@ -207,7 +205,8 @@ PRODUCT-RULES.md. Slow down there. That file is a blocker, not advice.
 2. No student-facing URL of any gated asset. Ever. Whichever button seems
    helpful is wrong if it carries the link.
 3. Player = `ProtectedVideoPlayer.tsx`, one grant per mount from /api/play.
-4. Drive = Google's frame only; our chrome = watermark/poster/hints/escape.
+4. Chain: Worker → Direct Drive → YouTube (no iframe tier); student-facing
+   strings never mention Google's frame as a Drive tier.
 5. Watermark (email • phone) floats over EVERY playback mode,Fullscreen.
 6. Playback gates: signed in + enrolled + views remaining; single session.
 7. Completion = end-of-video; progress = parts; server overrides local.

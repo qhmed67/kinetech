@@ -1,10 +1,17 @@
 /* CORS/origin policy and byte-range response headers.
  *
  * Hotlink policy: when an Origin or Referer IS present it must match
- * ALLOWED_ORIGINS (exact or with `*`). When neither is present we allow the
- * request — HTML media elements are no-cors requests and commonly omit
- * Origin, so rejecting them would break legitimate playback. The token is the
- * real gate; this policy just stops other sites embedding the Worker URL.
+ * ALLOWED_ORIGINS. When neither is present we allow the request — HTML media
+ * elements are no-cors requests and commonly omit Origin, so rejecting them
+ * would break legitimate playback; the token is the real gate. A request with
+ * no origin that is not GET/HEAD is denied (policy missing).
+ *
+ * ALLOWED_ORIGINS parsing (fail-soft): split on commas and whitespace, trim,
+ * strip one layer of surrounding quotes, strip trailing slashes, lowercase
+ * hostnames. Exact entries match scheme + host + port. Wildcard entries are
+ * matched by an anchored string matcher — `*` is any run of characters, so
+ * `https://*.vercel.app` matches any host ending in `.vercel.app` (hyphens
+ * and multiple labels included), with no regex injection.
  */
 
 export type CorsDecision = {
@@ -15,33 +22,105 @@ export type CorsDecision = {
   source: "origin" | "referer" | "none";
 };
 
-function patternToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`, "i");
+/** Normalize an origin to `scheme://host[:port]`, lowercased. Returns null for
+ *  empty/invalid values. */
+export function normalizeOriginValue(value: string): string | null {
+  const v = value.trim();
+  if (v === "") return null;
+  try {
+    const u = new URL(v);
+    if (u.protocol === "" || u.hostname === "") return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize an ALLOWED_ORIGINS entry: trim, strip a matching pair of
+ *  surrounding quotes, strip trailing slashes, lowercase scheme+host+port.
+ *  Null for entries that carry no origin. */
+export function normalizeOriginPattern(raw: string): string | null {
+  const v = raw.trim();
+  if (v === "") return null;
+  let body = v;
+  const first = body[0];
+  const last = body[body.length - 1];
+  if (body.length >= 2 && ((first === '"' && last === '"') || (first === "'" && last === "'"))) {
+    body = body.slice(1, -1).trim();
+  }
+  body = body.replace(/\/+$/, "");
+  if (body === "") return null;
+  try {
+    const u = new URL(body);
+    if (u.protocol === "" || u.hostname === "") return null;
+    return u.protocol.toLowerCase() + "//" + u.hostname.toLowerCase() + (u.port ? ":" + u.port : "");
+  } catch {
+    return null;
+  }
+}
+
+/** Anchored wildcard match. Split on "*": the value must start with the first
+ *  literal (when non-empty) and end with the last literal, with the middle
+ *  literals found in order — no regex is involved, so patterns cannot inject
+ *  anything. `*` matches any run of characters. */
+function wildcardMatch(pattern: string, value: string): boolean {
+  const parts = pattern.split("*");
+  if (parts.length === 1) return pattern === value;
+  let pos = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (i === 0) {
+      if (!value.startsWith(part)) return false;
+      pos = part.length;
+      if (i === parts.length - 1) return pos === value.length;
+    } else if (i === parts.length - 1) {
+      if (!value.endsWith(part)) return false;
+      return value.length - part.length >= pos;
+    } else {
+      const found = value.indexOf(part, pos);
+      if (found < 0) return false;
+      pos = found + part.length;
+    }
+  }
+  return true;
 }
 
 export function matchOrigin(origin: string, patterns: string[]): boolean {
-  if (origin === "") return false;
-  return patterns.some((p) => p !== "" && patternToRegExp(p).test(origin));
+  const n = normalizeOriginValue(origin);
+  return n !== null && patterns.some((p) => wildcardMatch(p, n));
+}
+
+/** Is this origin allowed by these patterns? */
+export function checkOriginAllowed(origin: string, patterns: string[]): boolean {
+  return matchOrigin(origin, patterns);
 }
 
 export function resolveCors(request: Request, allowedPatterns: string[]): CorsDecision {
   const originHeader = request.headers.get("origin");
   if (originHeader) {
+    const origin = normalizeOriginValue(originHeader);
     return {
-      allowed: matchOrigin(originHeader, allowedPatterns),
-      origin: originHeader,
+      allowed: origin !== null && matchOrigin(origin, allowedPatterns),
+      origin,
       source: "origin",
     };
   }
   const referer = request.headers.get("referer");
   if (referer) {
+    let origin: string | null = null;
     try {
-      const origin = new URL(referer).origin;
-      return { allowed: matchOrigin(origin, allowedPatterns), origin, source: "referer" };
+      origin = new URL(referer).origin;
     } catch {
-      return { allowed: false, origin: null, source: "referer" };
+      origin = null;
     }
+    return {
+      allowed: origin !== null && matchOrigin(origin, allowedPatterns),
+      origin,
+      source: "referer",
+    };
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return { allowed: false, origin: null, source: "none" };
   }
   return { allowed: true, origin: null, source: "none" };
 }

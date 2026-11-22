@@ -3,6 +3,7 @@ import {
   authFor,
   clearTokenCache,
   parseCredentials,
+  parseCredentialsDetailed,
   pickCredential,
 } from "../src/credentials";
 
@@ -37,6 +38,42 @@ describe("parseCredentials", () => {
   it("treats a missing value as an empty pool", () => {
     expect(parseCredentials(undefined)).toEqual([]);
     expect(parseCredentials("  ")).toEqual([]);
+  });
+
+  it("classifies DRIVE_CREDENTIALS shapes (non-secret)", () => {
+    const shapes = (raw: string) => parseCredentialsDetailed(raw).shape;
+    expect(shapes('[{"type":"apikey","key":"AIzaTest"}]')).toBe("array");
+    expect(shapes("AIzaTest")).toBe("bare_key");
+    expect(shapes('"AIzaTest"')).toBe("quoted");
+    expect(shapes('{"type":"apikey","key":"AIzaTest"}')).toBe("object");
+    expect(shapes('[{"type":"service_account","json":{"client_email":"sa@x.iam","private_key":"-----BEGIN-----"}}]')).toBe("array");
+    expect(shapes('not json')).toBe("invalid");
+    expect(shapes("")).toBe("invalid");
+    expect(shapes("   ")).toBe("invalid");
+    expect(shapes("[{\"type\":\"apikey\",\"key\":\"\"}]")).toBe("array");
+  });
+
+  it("accepts a bare key string with quotes or trailing newlines", () => {
+    expect(parseCredentials("AIzaTest")).toEqual([{ type: "apikey", key: "AIzaTest" }]);
+    expect(parseCredentials('"AIzaTest"')).toEqual([{ type: "apikey", key: "AIzaTest" }]);
+    expect(parseCredentials("'AIzaTest'\n")).toEqual([{ type: "apikey", key: "AIzaTest" }]);
+    expect(parseCredentials("\t[{\"type\":\"apikey\",\"key\":\"AIzaTest\"}]\n")).toEqual([
+      { type: "apikey", key: "AIzaTest" },
+    ]);
+  });
+
+  it("accepts a single object as well as an array", () => {
+    expect(parseCredentials('{"type":"apikey","key":"AIzaTest"}')).toEqual([
+      { type: "apikey", key: "AIzaTest" },
+    ]);
+    expect(
+      parseCredentials('{"type":"service_account","json":{"client_email":"sa@x","private_key":"-----BEGIN-----"}}'),
+    ).toEqual([{ type: "service_account", json: { client_email: "sa@x", private_key: "-----BEGIN-----" } }]);
+  });
+
+  it("returns no pool when a JSON shape has no enabled entries", () => {
+    expect(parseCredentials('[{"type":"apikey","key":""},{"type":"nope"}]')).toEqual([]);
+    expect(parseCredentials("{}")).toEqual([]);
   });
 });
 

@@ -40,7 +40,8 @@ export type PlayErrorCode =
   | "NO_PROFILE"
   | "BAD_REQUEST"
   | "SERVER_ERROR"
-  | "METHOD_NOT_ALLOWED";
+  | "METHOD_NOT_ALLOWED"
+  | "SYS_003";
 
 export const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
   INVALID_TOKEN: { status: 401, ar: "انتهت الجلسة — سجّل الدخول مرة أخرى.", en: "Session invalid — please sign in again." },
@@ -56,4 +57,5 @@ export const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en
   BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
+  SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
 };

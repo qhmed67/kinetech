@@ -16,6 +16,7 @@ export type Route =
   | { name: "terms" }
   | { name: "adminLogin" }
   | { name: "admin"; page: string }
+  | { name: "playerTest"; fid?: string }
   | { name: "notfound" };
 
 export function courseIndex(slug: string): number {
@@ -59,6 +60,8 @@ export function parseHash(hash: string): Route {
   if (h === "privacy") return { name: "privacy" };
   if (h === "terms") return { name: "terms" };
   if (h === "admin/login") return { name: "adminLogin" };
+  const pt = h.match(/^player-test(?:\?fid=([a-zA-Z0-9_-]+))?$/);
+  if (pt) return { name: "playerTest", fid: pt[1] ?? undefined };
   const am = h.match(/^admin(?:\/([\w/-]+))?$/);
   if (am) return { name: "admin", page: am[1] ?? "dashboard" };
   return { name: "notfound" };

@@ -41,7 +41,8 @@ type PlayErrorCode =
   | "NO_PROFILE"
   | "BAD_REQUEST"
   | "SERVER_ERROR"
-  | "METHOD_NOT_ALLOWED";
+  | "METHOD_NOT_ALLOWED"
+  | "SYS_003";
 
 // Mirrors api/config.ts PLAY_ERRORS — keep in sync.
 const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
@@ -58,6 +59,7 @@ const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: strin
   BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
+  SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
 };
 
 export type ApiRequest = {
@@ -129,6 +131,7 @@ const WARN_CODE: Record<PlayErrorCode, string> = {
   BAD_REQUEST: "VAL_001",
   SERVER_ERROR: "SYS_002",
   METHOD_NOT_ALLOWED: "VAL_001",
+  SYS_003: "SYS_003",
 };
 
 function requestId(headers: ApiRequest["headers"]): string {
@@ -318,11 +321,20 @@ function youtubeId(src: string): string | null {
 }
 
 /* ---- Worker stream grant (self-contained copy; mirrors
- * apps/web/src/lib/streamToken.ts and apps/worker-video/src/token.ts). ---- */
-const STREAM_TOKEN_VERSION = 1;
+ * apps/web/src/lib/streamToken.ts and apps/worker-video/src/token.ts).
+ *
+ * v2: the signed payload carries an AES-GCM-encrypted Drive file id, so the
+ * raw id never appears in a token a student can read. The HMAC covers the
+ * encrypted payload; the Worker decrypts. Legacy v1 tokens (plaintext fid)
+ * still verify. No token, id or URL is ever logged. ---- */
+const STREAM_TOKEN_VERSION = 2;
 const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
 
-type StreamPayload = { v: number; uid: string; fid: string; exp: number; jti: string };
+type EncryptedFid = { iv: string; ct: string };
+
+type SignedStreamTokenPayload =
+  | { v: 1; uid: string; fid: string; exp: number; jti: string }
+  | { v: 2; uid: string; efid: EncryptedFid; exp: number; jti: string };
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
@@ -330,19 +342,63 @@ function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Sign { uid, fid, exp, jti } — HMAC-SHA256, base64url. Exported so the
- *  unit tests can assert the shared TEST_VECTOR against this copy. */
-export async function signStreamToken(payload: StreamPayload, secret: string): Promise<string> {
-  if (secret === "") throw new Error("stream token: empty secret");
+async function hmacKey(secret: string) {
   const encoder = new TextEncoder();
-  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const key = await crypto.subtle.importKey(
+  return crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
+}
+
+/** Key derivation for the encrypted fid: HKDF-SHA256 with fixed salt/info. */
+async function deriveFidKey(secret: string) {
+  const encoder = new TextEncoder();
+  const hkdfKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HKDF" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: { name: "SHA-256" },
+      salt: encoder.encode("kinetech-video-stream-token-v1"),
+      info: encoder.encode("fid-aes-gcm"),
+    },
+    hkdfKey,
+    256,
+  );
+  return crypto.subtle.importKey("raw", bits, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+}
+
+/** Encrypt the Drive file id with AES-GCM (HKDF-derived key, random IV). */
+async function encryptFid(fid: string, secret: string) {
+  const encoder = new TextEncoder();
+  const key = await deriveFidKey(secret);
+  const ivBytes = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: ivBytes },
+    key,
+    encoder.encode(fid),
+  );
+  let binary = "";
+  for (const byte of new Uint8Array(ct)) binary += String.fromCharCode(byte);
+  const ctB64 = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return { iv: base64UrlEncode(ivBytes), ct: ctB64 };
+}
+
+/** Sign { uid, efid, exp, jti } — HMAC-SHA256, base64url. Exported so the
+ *  unit tests can assert the shared TEST_VECTOR against this copy. */
+export async function signStreamToken(payload: SignedStreamTokenPayload, secret: string): Promise<string> {
+  if (secret === "") throw new Error("stream token: empty secret");
+  const encoder = new TextEncoder();
+  const body = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+  const key = await hmacKey(secret);
   const signature = await crypto.subtle.sign("HMAC", key as never, encoder.encode(body));
   return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
@@ -424,7 +480,8 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   const rawBody = typeof req.body === "string" ? safeJson(req.body) : req.body;
   const body = (rawBody ?? {}) as { video_id?: unknown; fallback?: unknown };
   const videoId = typeof body.video_id === "string" ? body.video_id.trim() : "";
-  const fallback = body.fallback === "youtube" ? "youtube" : "";
+  const fallback =
+    body.fallback === "youtube" ? "youtube" : body.fallback === "direct" ? "direct" : "";
   if (!/^[0-9a-fA-F-]{36}$/.test(videoId)) return fail(res, "BAD_REQUEST", "video-id");
 
   const userClient = createClient(env.url, env.anonKey, {
@@ -574,7 +631,14 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   // The explicit columns win; until the additive migration is applied the
   // Drive id is derived from the stored link, so existing lessons keep
   // working and can use the Worker path immediately.
-  const videoRow = await readVideoStreamRow(admin, videoId);
+  // Read the row best-effort: a transient read failure must not block
+  // playback — the Drive embed path works without the stream columns.
+  let videoRow: VideoStreamRow | null = null;
+  try {
+    videoRow = await readVideoStreamRow(admin, videoId);
+  } catch {
+    videoRow = null;
+  }
   const driveFileId =
     ((videoRow?.drive_file_id ?? "").trim() || driveIdFromLink(raw));
   const youtubeVideoId =
@@ -590,28 +654,72 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     /* next request retries */
   }
 
-  if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
-    const now = Math.floor(Date.now() / 1000);
-    const exp = now + STREAM_TOKEN_TTL_SECONDS;
-    const token = await signStreamToken(
-      {
-        v: STREAM_TOKEN_VERSION,
-        uid: authData.user.id,
-        fid: driveFileId,
-        exp,
-        jti: newJti(),
-      },
-      streamSecret,
-    );
+  // Direct Drive tier (Priority 2): /api/play {fallback:"direct"} — after
+  // the full gate above (JWT + single-session + request_play view-count +
+  // entitlement). Returns the Drive file id + the browser key read from the
+  // DRIVE_BROWSER_KEY server env var. Honest notes: the key and the file id
+  // are visible in devtools once issued; the key is restricted by HTTP
+  // referrer; the watermark is the real deterrent. When nothing is usable
+  // the client falls back to the Drive iframe.
+  if (fallback === "direct") {
+    if (driveFileId === "") return fail(res, "VIDEO_MISSING", "no-drive-id");
+    const key = getEnvVar("DRIVE_BROWSER_KEY");
+    if (key === "") return fail(res, "SYS_003");
+    return res.status(200).json({
+      ok: true,
+      mode: "direct",
+      driveFileId,
+      key,
+      // Same-grant fallback: the client switches tiers without another call.
+      embedUrl: embed,
+      youtubeAvailable: youtubeVideoId !== "",
+      minutes: play.minutes,
+      watermark: { email: play.email, phoneLast4: play.phone_last4 },
+      viewsLeft: play.views_left,
+    });
+  }
+
+  // Worker-stream branch. FAIL-SAFE: missing or malformed env
+  // (STREAM_TOKEN_SECRET / VIDEO_STREAM_WORKER_URL), a signing error or any
+  // other failure degrades to the existing Drive embed response — the
+  // branch itself never throws.
+  let workerSrc: string | null = null;
+  let workerExp = 0;
+  try {
+    if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
+      const base = new URL(workerBase); // malformed value throws → caught
+      if (base.protocol !== "https:" && base.protocol !== "http:") {
+        throw new Error("worker url is not http(s)");
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const exp = now + STREAM_TOKEN_TTL_SECONDS;
+      const token = await signStreamToken(
+        {
+          v: STREAM_TOKEN_VERSION,
+          uid: authData.user.id,
+          efid: await encryptFid(driveFileId, streamSecret),
+          exp,
+          jti: newJti(),
+        },
+        streamSecret,
+      );
+      workerSrc = workerStreamUrl(base.href, token);
+      workerExp = exp;
+    }
+  } catch {
+    workerSrc = null;
+  }
+
+  if (workerSrc !== null) {
     return res.status(200).json({
       ok: true,
       mode: "worker",
       // No Drive id in the URL: the Worker reads it from the signed token.
-      src: workerStreamUrl(workerBase, token),
+      src: workerSrc,
       // Same-grant Drive fallback: the client can switch tiers WITHOUT a
       // second /api/play (which would burn another view).
       embedUrl: embed,
-      expiresAt: new Date(exp * 1000).toISOString(),
+      expiresAt: new Date(workerExp * 1000).toISOString(),
       youtubeAvailable: youtubeVideoId !== "",
       minutes: play.minutes,
       watermark: { email: play.email, phoneLast4: play.phone_last4 },

@@ -1,22 +1,34 @@
 /* Google Drive upstream: metadata (cached once per file) and exact byte
  * ranges. No URL, key or token is ever logged.
+ *
+ * Failure taxonomy (non-secret): every result carries `reason` (+ `status`,
+ * `drive_reason` = Google's error.errors[0].reason when present):
+ *   drive_403  Drive returned 403        (quota class)
+ *   drive_429  Drive returned 429        (quota class)
+ *   drive_404  Drive returned 404
+ *   drive_5xx  Drive returned 5xx
+ *   drive_<n>  any other non-auth/non-quota status
+ *   meta_failed  meta call failed without a status (fetch throw, invalid JSON,
+ *                no size)
+ *   range_ignored  Drive returned 200 where a 206 was required
+ *   content_range_mismatch  206 Content-Range/body length ≠ requested range
+ *   empty_body  zero-byte body where a non-empty one was required
+ *   network     fetch threw / aborted (status 499 = aborted)
  */
 
 import type { DriveAuth } from "./credentials";
 
 export type DriveMeta = { size: number; mimeType: string };
 
-export type DriveRangeResult =
-  | { kind: "ok"; body: ArrayBuffer; status: number }
-  | { kind: "quota"; status: number; reason: string }
-  | { kind: "auth"; status: number }
-  | { kind: "error"; status: number; reason: string };
+export type DriveQuota = { kind: "quota"; status: number; reason: string; drive_reason: string | null };
+export type DriveAuthFailure = { kind: "auth"; status: number };
+export type DriveError = { kind: "error"; status: number; reason: string; drive_reason: string | null };
 
-export type DriveMetaResult =
-  | { kind: "ok"; meta: DriveMeta }
-  | { kind: "quota"; status: number; reason: string }
-  | { kind: "auth"; status: number }
-  | { kind: "error"; status: number; reason: string };
+type DriveFailure = DriveQuota | DriveAuthFailure | DriveError;
+
+export type DriveRangeResult = { kind: "ok"; body: ArrayBuffer; status: number } | DriveFailure;
+
+export type DriveMetaResult = { kind: "ok"; meta: DriveMeta } | DriveFailure;
 
 const API = "https://www.googleapis.com/drive/v3/files";
 const META_TTL_SECONDS = 60 * 60;
@@ -29,18 +41,18 @@ function withAuth(url: string, auth: DriveAuth): { url: string; headers: Record<
   return { url, headers: { authorization: `Bearer ${auth.token}` } };
 }
 
-function quotaReason(text: string): string {
+function googleReason(text: string): string | null {
   try {
     const json = JSON.parse(text) as {
       error?: { errors?: Array<{ reason?: string }>; status?: string };
     };
-    return json.error?.errors?.[0]?.reason ?? json.error?.status ?? "quota";
+    return json.error?.errors?.[0]?.reason ?? null;
   } catch {
-    return "quota";
+    return null;
   }
 }
 
-async function classifyFailure(res: Response): Promise<DriveRangeResult> {
+async function classifyFailure(res: Response): Promise<DriveFailure> {
   const status = res.status;
   let text = "";
   try {
@@ -48,11 +60,15 @@ async function classifyFailure(res: Response): Promise<DriveRangeResult> {
   } catch {
     /* ignore */
   }
+  const driveReason = googleReason(text);
   if (status === 401) return { kind: "auth", status };
   if (status === 403 || status === 429) {
-    return { kind: "quota", status, reason: quotaReason(text).slice(0, 80) };
+    return { kind: "quota", status, reason: status === 403 ? "drive_403" : "drive_429", drive_reason: driveReason };
   }
-  return { kind: "error", status, reason: `drive-${status}` };
+  if (status >= 500 && status < 600) {
+    return { kind: "error", status, reason: "drive_5xx", drive_reason: driveReason };
+  }
+  return { kind: "error", status, reason: `drive_${status}`, drive_reason: driveReason };
 }
 
 /** File size + mime type, cached per file for an hour. */
@@ -73,13 +89,12 @@ export async function fetchDriveMeta(
   try {
     const res = await fetchImpl(url, { headers });
     if (!res.ok) {
-      const failure = await classifyFailure(res);
-      return failure.kind === "ok" ? { kind: "error", status: res.status, reason: "meta" } : failure;
+      return classifyFailure(res);
     }
     const json = (await res.json()) as { mimeType?: string; size?: string };
     const size = Number(json.size ?? NaN);
     if (!Number.isFinite(size) || size <= 0) {
-      return { kind: "error", status: 502, reason: "no-size" };
+      return { kind: "error", status: 502, reason: "meta_failed", drive_reason: null };
     }
     const meta: DriveMeta = {
       size,
@@ -88,7 +103,7 @@ export async function fetchDriveMeta(
     metaCache.set(fileId, { meta, at: now });
     return { kind: "ok", meta };
   } catch {
-    return { kind: "error", status: 502, reason: "meta-fetch" };
+    return { kind: "error", status: 502, reason: "meta_failed", drive_reason: null };
   }
 }
 
@@ -123,16 +138,33 @@ export async function fetchDriveRange(
         } catch {
           /* ignore */
         }
-        return { kind: "error", status: 200, reason: "range-ignored" };
+        return { kind: "error", status: 200, reason: "range_ignored", drive_reason: null };
+      }
+    }
+    if (res.status === 206) {
+      const cr = res.headers.get("content-range");
+      if (cr !== null) {
+        const m = /^bytes (\d+)-(\d+)\/\d+$/.exec(cr.trim());
+        if (!m || Number(m[2]) - Number(m[1]) + 1 !== expected) {
+          try {
+            await res.body?.cancel();
+          } catch {
+            /* ignore */
+          }
+          return { kind: "error", status: 206, reason: "content_range_mismatch", drive_reason: null };
+        }
       }
     }
     const body = await res.arrayBuffer();
+    if (body.byteLength !== expected) {
+      return { kind: "error", status: res.status, reason: "content_range_mismatch", drive_reason: null };
+    }
     return { kind: "ok", body, status: res.status };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return { kind: "error", status: 499, reason: "aborted" };
+      return { kind: "error", status: 499, reason: "network", drive_reason: null };
     }
-    return { kind: "error", status: 502, reason: "range-fetch" };
+    return { kind: "error", status: 502, reason: "network", drive_reason: null };
   }
 }
 

@@ -7,6 +7,7 @@ Agents: when you add a failure path, add its row in the same change. When debugg
 |---|---|---|---|---|
 | SYS_001 | Unhandled exception | presentation error handler | bug | find stack in logs by correlation_id, then reproduce with a test |
 | SYS_002 | Config invalid or missing at startup | config loader | missing env var | compare env with `.env.example` |
+| SYS_003 | Direct tier: DRIVE_BROWSER_KEY not set | api/play.ts | server env var missing on the deployment | set DRIVE_BROWSER_KEY and redeploy |
 | VAL_001 | Request validation failed | presentation | bad client input | `ctx.fields` lists the invalid fields |
 | AUTH_001 | Not authenticated | auth middleware | missing/expired token | check token expiry; clock skew |
 | AUTH_002 | Not authorized | application | permission rule | check role/permission rule in the use case |

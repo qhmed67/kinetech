@@ -7,19 +7,21 @@ import { signStreamToken as signRefresh } from "../../api/playback/stream-refres
  *  assertions fail if any copy drifts from the shared vector. */
 describe("stream token copies", () => {
   it("api/play signs the shared vector", async () => {
-    const token = await signPlay(TEST_VECTOR.payload, TEST_VECTOR.secret);
-    expect(token).toBe(TEST_VECTOR.token);
+    expect(await signPlay(TEST_VECTOR.payload, TEST_VECTOR.secret)).toBe(TEST_VECTOR.token);
   });
 
   it("api/playback/stream-refresh signs the shared vector", async () => {
-    const token = await signRefresh(TEST_VECTOR.payload, TEST_VECTOR.secret);
-    expect(token).toBe(TEST_VECTOR.token);
+    expect(await signRefresh(TEST_VECTOR.payload, TEST_VECTOR.secret)).toBe(TEST_VECTOR.token);
   });
 
   it("the shared verifier accepts both copies", async () => {
     const a = await signPlay(TEST_VECTOR.payload, TEST_VECTOR.secret);
     const b = await signRefresh(TEST_VECTOR.payload, TEST_VECTOR.secret);
-    expect(await verifyStreamToken(a, TEST_VECTOR.secret)).not.toBeNull();
-    expect(await verifyStreamToken(b, TEST_VECTOR.secret)).not.toBeNull();
+    const outA = await verifyStreamToken(a, TEST_VECTOR.secret);
+    const outB = await verifyStreamToken(b, TEST_VECTOR.secret);
+    expect(outA.ok).toBe(true);
+    expect(outB.ok).toBe(true);
+    if (outA.ok) expect(outA.payload.fid).toBe(TEST_VECTOR.fid);
+    if (outB.ok) expect(outB.payload.fid).toBe(TEST_VECTOR.fid);
   });
 });
