@@ -13,7 +13,7 @@ import {
   setWorkerFailMarker,
   workerFailAgeMs,
 } from "../lib/workerFailMarker";
-import { tierAfterGrant, tierAfterDirectFailure } from "../lib/playerTiers";
+import { tierAfterGrant, tierAfterDirectFailure, isDriveLessonEmbed } from "../lib/playerTiers";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -53,6 +53,10 @@ type PlayGrant = {
   expiresAt?: string;
   /** Whether a YouTube fallback exists for this lesson. */
   youtubeAvailable?: boolean;
+  /** The lesson's source is a Google Drive file (decided once, from the
+   *  initial grant). It stays true after the YouTube swap so the player keeps
+   *  using the Drive-lesson branches instead of the plain <video> one. */
+  isDrive?: boolean;
   /** Direct Drive tier (Priority 2): set by the /api/play fallback=direct
    *  response. The key is served by the server from DRIVE_BROWSER_KEY. */
   driveFileId?: string;
@@ -321,6 +325,9 @@ export function ProtectedVideoPlayer({
           src: typeof body.src === "string" ? body.src : undefined,
           expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
           youtubeAvailable: body.youtubeAvailable === true,
+          // Decided here, once, from the ORIGINAL embed. The chain later swaps
+          // embedUrl for a YouTube link; isDrive must survive that swap.
+          isDrive: isDriveLessonEmbed(body.embedUrl, extractYoutubeId(body.embedUrl)),
         });
         const workerActive = body.mode === "worker" && typeof body.src === "string";
         const freshMarker = isWorkerFailFresh(videoId);
@@ -353,12 +360,18 @@ export function ProtectedVideoPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId, loadDirect]);
 
+  // isYt is derived from the LIVE grant, so a Drive lesson changes classification
+  // once loadYoutubeFallback swaps in the youtube-nocookie embed.
   const embedUrl = grant?.embedUrl ?? null;
   const isYt = embedUrl !== null && extractYoutubeId(embedUrl) !== null;
-  const isDrive = embedUrl !== null && !isYt && isDriveSource(embedUrl);
+  // "Drive lesson" is a property of the LESSON (the grant opened a Drive
+  // source), never of the current embed: after the YouTube swap the embed is a
+  // YouTube link, and re-deriving it from the embed would drop the lesson into
+  // the plain `!isYt` native <video> branch and break playback.
+  const isDrive = grant?.mode !== "worker" && grant?.mode !== "direct" && (grant?.isDrive === true || (embedUrl !== null && !isYt && isDriveSource(embedUrl)));
   // A Drive lesson. The Drive URL never reaches the DOM — the chain renders
-  // it via Worker or Direct, and YouTube after Direct dies (the render
-  // branch below). Non-YouTube non-Drive embeds are natively playable.
+  // it via Worker or Direct, and via YouTube once Direct dies (the YouTube
+  // render branch below). Non-YouTube non-Drive embeds are natively playable.
   const nativelyPlayable = embedUrl !== null && !isYt && !isDrive;
 
   // ---- Tier fallback chain: Worker → Direct → YouTube ---------------------
@@ -426,21 +439,27 @@ export function ProtectedVideoPlayer({
 
   // Direct died on a Drive lesson that has a YouTube version: fetch the
   // YouTube embed now. One attempt per lesson — the chain is forward-only
-  // and never loops.
+  // and never loops. ytBusy keeps the error screen off while the fetch runs
+  // (without it the player flips to "Video unavailable" before the embed
+  // lands).
+  const [ytBusy, setYtBusy] = useState(false);
   const ytFetchRef = useRef(false);
   useEffect(() => {
     if (tier !== "youtube" || !isDrive || !grant?.youtubeAvailable || isYt) return;
     if (ytFetchRef.current) return;
     ytFetchRef.current = true;
-    void loadYoutubeFallback();
+    setYtBusy(true);
+    void loadYoutubeFallback().finally(() => setYtBusy(false));
   }, [tier, isDrive, grant, isYt, loadYoutubeFallback]);
 
-  // A Drive lesson that can only be played by YouTube and has none: error.
-  // (Without a YouTube version there is nothing left to try — the Drive tier
-  // is gone.)
+  // The chain has run out of tiers.
+  //  - No YouTube version to fall to: error.
+  //  - YouTube version exists but its embed could not be fetched: error.
+  // Only reached once the fetch settled, never while it is still in flight.
   useEffect(() => {
-    if (tier === "youtube" && isDrive && !grant?.youtubeAvailable) setFailed(true);
-  }, [tier, isDrive, grant]);
+    if (tier !== "youtube" || !isDrive || ytBusy) return;
+    if (!grant?.youtubeAvailable || !isYt) setFailed(true);
+  }, [tier, isDrive, ytBusy, isYt, grant]);
 
   // The native shell floats the student's identity over the playback. The
   // page already knows it from the server grant, so it hands it over — the

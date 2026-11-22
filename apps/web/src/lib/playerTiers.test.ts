@@ -3,6 +3,7 @@ import {
   tierAfterGrant,
   tierAfterWorkerFailure,
   tierAfterDirectFailure,
+  isDriveLessonEmbed,
 } from "./playerTiers";
 
 describe("tierAfterGrant", () => {
@@ -29,5 +30,27 @@ describe("tierAfterWorkerFailure", () => {
 describe("tierAfterDirectFailure", () => {
   it("goes straight to YouTube — the chain ends there", () => {
     expect(tierAfterDirectFailure()).toBe("youtube");
+  });
+});
+
+describe("isDriveLessonEmbed", () => {
+  const driveEmbed = "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz01234/preview";
+
+  it("classifies a Drive preview embed as a Drive lesson", () => {
+    expect(isDriveLessonEmbed(driveEmbed, null)).toBe(true);
+  });
+
+  it("classifies a YouTube embed as NOT a Drive lesson", () => {
+    expect(
+      isDriveLessonEmbed("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ).toBe(false);
+  });
+
+  it("classifies a legacy mp4 seed as NOT a Drive lesson", () => {
+    expect(isDriveLessonEmbed("https://cdn.example.com/lesson.mp4", null)).toBe(false);
+  });
+
+  it("classifies a null embed as NOT a Drive lesson", () => {
+    expect(isDriveLessonEmbed(null, null)).toBe(false);
   });
 });
