@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { workerFailAgeMs } from "../lib/workerFailMarker";
+import { isNativeApp } from "../native";
 import "./workerPlayer.css";
 
 /** Same state machine the parent orchestrator owns (Worker → Direct → YouTube). */
@@ -70,6 +71,8 @@ export function WorkerVideoPlayer({
   useEffect(() => {
     cbRef.current = { onProgress, onSeeked, onDuration, onEnded, onFatal, onWorkerHealthy };
   });
+  const expandCollapseRef = useRef({ onExpand, onCollapse, playerState });
+  expandCollapseRef.current = { onExpand, onCollapse, playerState };
 
   const [currentSrc, setCurrentSrc] = useState(src);
   const currentSrcRef = useRef(src);
@@ -219,9 +222,9 @@ export function WorkerVideoPlayer({
       ],
       settings: ["speed"],
       speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-      // Native shell: the page owns expansion (Path B), so Plyr's fullscreen
-      // stays off. Web: Plyr's normal fullscreen is used.
-      fullscreen: { enabled: !native, fallback: true, iosNative: false },
+      // Native shell: expand/collapse is owned by the page state machine.
+      // Web: Plyr's normal fullscreen is used.
+      fullscreen: { enabled: true, fallback: !native, iosNative: false },
       hideControls: true,
       clickToPlay: true,
       keyboard: { focused: true, global: false },
@@ -229,6 +232,14 @@ export function WorkerVideoPlayer({
       invertTime: false,
       displayDuration: true,
     });
+    if (native) {
+      player.on("enterfullscreen", () => {
+        try { (player.fullscreen as any).exit?.(); } catch {}
+        const { onExpand, onCollapse, playerState: ps } = expandCollapseRef.current;
+        if (ps === "expanded" || ps === "expanding") onCollapse();
+        else onExpand();
+      });
+    }
     plyrRef.current = player;
     return () => {
       try {
