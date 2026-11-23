@@ -990,6 +990,11 @@ export function ProtectedVideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(() => {
+    if (native) {
+      if (playerState === "expanded" || playerState === "expanding") collapse();
+      else if (playerState === "inline") expand();
+      return;
+    }
     const el = boxRef.current;
     if (!el) return;
     try {
@@ -998,7 +1003,7 @@ export function ProtectedVideoPlayer({
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [native, playerState, expand, collapse]);
 
   const blockKeys = useCallback((e: React.KeyboardEvent) => {
     const k = e.key;
