@@ -62,6 +62,7 @@ type Cfg = {
   playRow?: Record<string, unknown> | null;
   rpcError?: { message: string } | null;
   sourceRow?: { src_url: string } | null;
+  videoRow?: Record<string, unknown> | null;
 };
 
 function clients(c: Cfg = {}) {
@@ -86,6 +87,29 @@ function clients(c: Cfg = {}) {
         return chain({
           data: c.sessionRow === undefined ? { session_id: "sess-1" } : c.sessionRow,
           error: c.sessionError ?? null,
+        });
+      }
+      if (table === "profiles") {
+        return chain({
+          data: { banned: false, email: "s@e.c", phone: "0123456789", role: "student" },
+          error: null,
+        });
+      }
+      if (table === "enrollments") {
+        return chain({ data: { user_id: "u1" }, error: null });
+      }
+      if (table === "videos") {
+        // readVideoStreamRow: full select succeeds when there is a row.
+        return chain({
+          data: c.videoRow === undefined
+            ? {
+                course_id: "c1",
+                mins: 10,
+                drive_file_id: "ABC123_xyz",
+                youtube_video_id: "dQw4w9WgXcQ",
+              }
+            : c.videoRow,
+          error: null,
         });
       }
       if (table === "video_sources") {
@@ -242,6 +266,58 @@ describe("POST /api/play success shape", () => {
     const { res, seen } = resCapture();
     await handler(req("11111111-1111-1111-1111-111111111111"), res);
     expect((seen.payload as { embedUrl: string }).embedUrl).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+  });
+
+  // A fallback must NEVER burn a view: the initial grant already counted the
+  // playback session. This used to run after request_play, so a Worker failure
+  // consumed another view on every retry.
+  it("fallback:direct does not call request_play and returns the key", async () => {
+    process.env.DRIVE_BROWSER_KEY = "test-browser-key";
+    const { userMock } = clients();
+    const { res, seen } = resCapture();
+    const r = req("11111111-1111-1111-1111-111111111111") as unknown as {
+      body: Record<string, unknown>;
+    };
+    r.body = { video_id: "11111111-1111-1111-1111-111111111111", fallback: "direct" };
+    await handler(r as never, res);
+    const p = seen.payload as Record<string, unknown>;
+    expect(seen.code).toBe(200);
+    expect(p.mode).toBe("direct");
+    expect(p.driveFileId).toBe("ABC123_xyz");
+    expect(p.key).toBe("test-browser-key");
+    // The view-count RPC must not run on a fallback.
+    expect(userMock.rpc).not.toHaveBeenCalled();
+    delete process.env.DRIVE_BROWSER_KEY;
+  });
+
+  it("fallback:youtube does not call request_play", async () => {
+    const { userMock } = clients({
+      sourceRow: { src_url: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    const { res, seen } = resCapture();
+    const r = req("11111111-1111-1111-1111-111111111111") as unknown as {
+      body: Record<string, unknown>;
+    };
+    r.body = { video_id: "11111111-1111-1111-1111-111111111111", fallback: "youtube" };
+    await handler(r as never, res);
+    expect(seen.code).toBe(200);
+    expect((seen.payload as { mode: string }).mode).toBe("youtube");
+    expect(userMock.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fallback:direct fails closed when the browser key is not configured", async () => {
+    delete process.env.DRIVE_BROWSER_KEY;
+    clients();
+    const { res, seen } = resCapture();
+    const r = req("11111111-1111-1111-1111-111111111111") as unknown as {
+      body: Record<string, unknown>;
+    };
+    r.body = { video_id: "11111111-1111-1111-1111-111111111111", fallback: "direct" };
+    await handler(r as never, res);
+    // SYS_003 is a configuration failure (503), and it fails CLOSED: no id, no key.
+    expect(seen.code).toBe(503);
+    expect((seen.payload as { code: string }).code).toBe("SYS_003");
+    expect(seen.payload as unknown as Record<string, unknown>).not.toHaveProperty("key");
   });
 
   // The worker branch used to fail silently: a bare `catch {}` made a missing

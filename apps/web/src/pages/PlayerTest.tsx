@@ -294,15 +294,62 @@ function PlayerTestVideo({ src }: { src: string }) {
   );
 }
 
-export function PlayerTestPage({ fid: fidParam }: { fid?: string }) {
-  const key = import.meta.env.VITE_DRIVE_BROWSER_KEY ?? "";
-  if (key.trim() === "") {
-    return (
-      <PlayerTestShell
-        message="VITE_DRIVE_BROWSER_KEY is not set on this environment — set it on the Vercel Preview project and redeploy to enable this page."
-      />
-    );
+const TEST_KEY_STORAGE = "kt-drive-test-key";
+
+function readStoredKey(): string {
+  try {
+    return sessionStorage.getItem(TEST_KEY_STORAGE) ?? "";
+  } catch {
+    return "";
   }
+}
+
+/** Ask for the key in the page. Nothing is read from the build, so no key can
+ *  be inlined into any bundle: the tester supplies it for this tab session only
+ *  and it is never written to localStorage or the URL. */
+function PlayerTestKeyPrompt({ onKey }: { onKey: (k: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-black p-4" aria-label="player test">
+      <form
+        className="w-full max-w-lg rounded-xl border border-white/10 bg-black p-6 text-sm text-white"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const k = value.trim();
+          if (k === "") return;
+          try {
+            sessionStorage.setItem(TEST_KEY_STORAGE, k);
+          } catch {
+            /* storage unavailable — still usable for this render */
+          }
+          onKey(k);
+        }}
+      >
+        <p className="mb-3 font-bold">Drive API key for the player test</p>
+        <p className="mb-4 text-white/70">
+          Paste a Drive-restricted API key. It stays in this tab session only and is never part of
+          any bundle.
+        </p>
+        <input
+          type="password"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="AIza..."
+          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 outline-none"
+          aria-label="Drive API key"
+        />
+        <button type="submit" className="btn btn-primary mt-4 w-full">
+          Open the player
+        </button>
+      </form>
+    </main>
+  );
+}
+
+export function PlayerTestPage({ fid: fidParam }: { fid?: string }) {
+  const [key, setKey] = useState<string>(() => readStoredKey());
+  if (key.trim() === "") return <PlayerTestKeyPrompt onKey={setKey} />;
   const fid = (fidParam ?? PLAYER_TEST_FILE_ID).trim() || PLAYER_TEST_FILE_ID;
   const src = directDriveUrl(fid, key);
   if (!src) {

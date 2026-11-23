@@ -469,6 +469,56 @@ export function embedUrlFor(src: string): string | null {
   return null;
 }
 
+/** Read-only gate shared by BOTH fallback branches.
+ *
+ *  A fallback must never consume a view: the initial grant already counted
+ *  this playback session. It still enforces everything else — profile, ban,
+ *  and enrolment (admins bypass enrolment) — so a fallback can never be used
+ *  to reach a lesson the student is not entitled to.
+ */
+type FallbackGate =
+  | { ok: true; videoRow: VideoStreamRow; email: string; phone: string }
+  | { ok: false; code: PlayErrorCode; detail?: string };
+
+async function fallbackGate(
+  admin: AdminDb,
+  userId: string,
+  videoId: string,
+): Promise<FallbackGate> {
+  const videoRow = await readVideoStreamRow(admin, videoId);
+  if (!videoRow) return { ok: false, code: "NOT_FOUND" };
+  const { data: prof, error: profErr } = await admin
+    .from("profiles")
+    .select("banned,email,phone,role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profErr) return { ok: false, code: "SERVER_ERROR", detail: "profile-read" };
+  const profile = (prof ?? null) as {
+    banned?: boolean;
+    email?: string;
+    phone?: string;
+    role?: string;
+  } | null;
+  if (!profile) return { ok: false, code: "NO_PROFILE" };
+  if (profile.banned === true) return { ok: false, code: "BANNED" };
+  if (profile.role !== "admin") {
+    const { data: enrolment, error: enrErr } = await admin
+      .from("enrollments")
+      .select("user_id")
+      .eq("user_id", userId)
+      .eq("course_id", videoRow.course_id ?? "")
+      .maybeSingle();
+    if (enrErr) return { ok: false, code: "SERVER_ERROR", detail: "enrolment-read" };
+    if (!enrolment) return { ok: false, code: "NOT_ENROLLED" };
+  }
+  return {
+    ok: true,
+    videoRow,
+    email: typeof profile.email === "string" ? profile.email : "",
+    phone: typeof profile.phone === "string" ? profile.phone : "",
+  };
+}
+
 async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED", "method");
   const env = readEnv();
@@ -539,52 +589,60 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   // entitlement + ban check. The id is returned only here, never in the
   // initial response, HTML or a bundle.
   if (fallback === "youtube") {
-    const videoRow = await readVideoStreamRow(admin, videoId);
-    if (!videoRow) return fail(res, "NOT_FOUND");
-    const { data: prof, error: profErr } = await admin
-      .from("profiles")
-      .select("banned,email,phone,role")
-      .eq("id", authData.user.id)
-      .maybeSingle();
-    if (profErr) return fail(res, "SERVER_ERROR", "profile-read");
-    const profile = (prof ?? null) as {
-      banned?: boolean;
-      email?: string;
-      phone?: string;
-      role?: string;
-    } | null;
-    if (!profile) return fail(res, "NO_PROFILE");
-    if (profile.banned === true) return fail(res, "BANNED");
-    if (profile.role !== "admin") {
-      const { data: enrolment, error: enrErr } = await admin
-        .from("enrollments")
-        .select("user_id")
-        .eq("user_id", authData.user.id)
-        .eq("course_id", videoRow.course_id ?? "")
-        .maybeSingle();
-      if (enrErr) return fail(res, "SERVER_ERROR", "enrolment-read");
-      if (!enrolment) return fail(res, "NOT_ENROLLED");
-    }
+    const g = await fallbackGate(admin, authData.user.id, videoId);
+    if (!g.ok) return fail(res, g.code, g.detail);
     const { data: fbSrcRow } = await admin
       .from("video_sources")
       .select("src_url")
       .eq("video_id", videoId)
       .maybeSingle();
     const fbRaw = ((fbSrcRow as { src_url?: string } | null)?.src_url ?? "").trim();
-    const yt = ((videoRow.youtube_video_id ?? "").trim() || youtubeId(fbRaw) || "");
+    const yt = ((g.videoRow.youtube_video_id ?? "").trim() || youtubeId(fbRaw) || "");
     if (yt === "") return fail(res, "VIDEO_MISSING", "no-youtube");
     return res.status(200).json({
       ok: true,
       mode: "youtube",
       embedUrl: `https://www.youtube-nocookie.com/embed/${yt}`,
       youtubeVideoId: yt,
-      minutes: typeof videoRow.mins === "number" ? videoRow.mins : 0,
+      minutes: typeof g.videoRow.mins === "number" ? g.videoRow.mins : 0,
       watermark: {
-        email: typeof profile.email === "string" ? profile.email : "",
-        phoneLast4:
-          typeof profile.phone === "string" && profile.phone.length > 0
-            ? profile.phone.slice(-4)
-            : "",
+        email: g.email,
+        phoneLast4: g.phone.length > 0 ? g.phone.slice(-4) : "",
+      },
+      viewsLeft: 0,
+    });
+  }
+
+  // ---- Direct Drive fallback: also READ-ONLY ------------------------------
+  // This used to sit AFTER request_play, so every Worker failure burned
+  // another view: one lesson click could consume the whole cap and then be
+  // rejected by the very check that was supposed to protect it. It now runs
+  // before the view-counting RPC, with the same read-only gate as YouTube.
+  if (fallback === "direct") {
+    const g = await fallbackGate(admin, authData.user.id, videoId);
+    if (!g.ok) return fail(res, g.code, g.detail);
+    const { data: dsSrcRow } = await admin
+      .from("video_sources")
+      .select("src_url")
+      .eq("video_id", videoId)
+      .maybeSingle();
+    const dsRaw = ((dsSrcRow as { src_url?: string } | null)?.src_url ?? "").trim();
+    const driveId = ((g.videoRow.drive_file_id ?? "").trim() || driveIdFromLink(dsRaw));
+    if (driveId === "") return fail(res, "VIDEO_MISSING", "no-drive-id");
+    const key = getEnvVar("DRIVE_BROWSER_KEY");
+    if (key === "") return fail(res, "SYS_003");
+    return res.status(200).json({
+      ok: true,
+      mode: "direct",
+      driveFileId: driveId,
+      key,
+      // Same-grant fallback: the client switches tiers without another call.
+      embedUrl: embedUrlFor(dsRaw) ?? undefined,
+      youtubeAvailable: ((g.videoRow.youtube_video_id ?? "").trim() || youtubeId(dsRaw) || "") !== "",
+      minutes: typeof g.videoRow.mins === "number" ? g.videoRow.mins : 0,
+      watermark: {
+        email: g.email,
+        phoneLast4: g.phone.length > 0 ? g.phone.slice(-4) : "",
       },
       viewsLeft: 0,
     });
@@ -652,31 +710,6 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     await admin.from("watch_events").delete().lt("created_at", cutoff);
   } catch {
     /* next request retries */
-  }
-
-  // Direct Drive tier (Priority 2): /api/play {fallback:"direct"} — after
-  // the full gate above (JWT + single-session + request_play view-count +
-  // entitlement). Returns the Drive file id + the browser key read from the
-  // DRIVE_BROWSER_KEY server env var. Honest notes: the key and the file id
-  // are visible in devtools once issued; the key is restricted by HTTP
-  // referrer; the watermark is the real deterrent. When nothing is usable
-  // the client falls back to the Drive iframe.
-  if (fallback === "direct") {
-    if (driveFileId === "") return fail(res, "VIDEO_MISSING", "no-drive-id");
-    const key = getEnvVar("DRIVE_BROWSER_KEY");
-    if (key === "") return fail(res, "SYS_003");
-    return res.status(200).json({
-      ok: true,
-      mode: "direct",
-      driveFileId,
-      key,
-      // Same-grant fallback: the client switches tiers without another call.
-      embedUrl: embed,
-      youtubeAvailable: youtubeVideoId !== "",
-      minutes: play.minutes,
-      watermark: { email: play.email, phoneLast4: play.phone_last4 },
-      viewsLeft: play.views_left,
-    });
   }
 
   // Worker-stream branch. FAIL-SAFE: missing or malformed env

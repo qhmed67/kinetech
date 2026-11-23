@@ -17,14 +17,23 @@ try {
 // NOTE: test tooling lives in vitest.config.ts on purpose — vite.config.ts
 // must not import dev-only packages, or production installs (devDeps pruned,
 // e.g. Vercel) fail before the build even starts.
-export default defineConfig({
-  define: {
-    __BUILD_HASH__: JSON.stringify(buildHash),
-  },
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './src'),
+export default defineConfig(() => {
+  const appEnv = process.env.VERCEL_ENV || 'development'
+
+  return {
+    define: {
+      __BUILD_HASH__: JSON.stringify(buildHash),
+      // "production" | "preview" | "development" — lets dev/preview-only routes
+      // fold away at build time. No credential is injected here: the
+      // player-test page asks for its key at runtime instead, so no key can
+      // ever reach a bundle.
+      __APP_ENV__: JSON.stringify(appEnv),
     },
-  },
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '@': path.resolve(import.meta.dirname, './src'),
+      },
+    },
+  }
 })
