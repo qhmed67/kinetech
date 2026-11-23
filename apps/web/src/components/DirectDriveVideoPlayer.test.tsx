@@ -26,6 +26,45 @@ async function dispatchError() {
   });
 }
 
+describe("DirectDriveVideoPlayer — box and overlays", () => {
+  it("keeps a non-zero box: every child is absolute, so the root needs a height", () => {
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} />);
+    const root = document.querySelector(".pvp-direct") as HTMLElement;
+    expect(root).toBeTruthy();
+    // Regression: without a height the Direct tier collapsed to 0px and the
+    // video looked like it had disappeared, with no fallback triggered.
+    expect(root.className).toContain("aspect-video");
+  });
+
+  it("renders the identity watermark above the video", () => {
+    render(
+      <DirectDriveVideoPlayer
+        src={SRC}
+        onFatal={vi.fn()}
+        native={false}
+        watermark={<div data-testid="wm">student@example.com</div>}
+      />,
+    );
+    expect(document.querySelector('[data-testid="wm"]')).toBeTruthy();
+    expect(document.body.textContent ?? "").toContain("student@example.com");
+  });
+
+  it("never shows the diagnostic strip to a student", () => {
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} />);
+    // The strip only exists with ?pvpdebug=1. Its markers must be absent.
+    expect(document.body.textContent ?? "").not.toContain("readyState");
+    expect(document.body.textContent ?? "").not.toContain("networkState");
+  });
+
+  it("shows the diagnostic strip when debug is on", async () => {
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 700));
+    });
+    expect(document.body.textContent ?? "").toContain("readyState");
+  });
+});
+
 describe("DirectDriveVideoPlayer", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -65,7 +104,8 @@ describe("DirectDriveVideoPlayer", () => {
 
   it("shows the last failure reason in the debug strip", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 403 })));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} />);
+    // The strip is debug-only now, so the test must opt in.
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn />);
     await dispatchError();
     await act(async () => {
       await new Promise((r) => setTimeout(r, 700));

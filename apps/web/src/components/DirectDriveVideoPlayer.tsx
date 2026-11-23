@@ -1,6 +1,6 @@
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { directSrcHost } from "../lib/driveBrowser";
 import "./directPlayer.css";
 
@@ -17,9 +17,19 @@ type DirectPlayerProps = {
   /** The chain is switching away — never used by the video itself. */
   onFatal: (reason: string) => void;
   native: boolean;
+  /** Identity watermark — REQUIRED by the product rules on every tier. */
+  watermark?: ReactNode;
+  /** ?pvpdebug=1 only: the diagnostic strip must never show to a student. */
+  debugOn?: boolean;
 };
 
-export function DirectDriveVideoPlayer({ src, onFatal, native }: DirectPlayerProps) {
+export function DirectDriveVideoPlayer({
+  src,
+  onFatal,
+  native,
+  watermark,
+  debugOn = false,
+}: DirectPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const failedRef = useRef(false);
   const onFatalRef = useRef(onFatal);
@@ -165,7 +175,10 @@ export function DirectDriveVideoPlayer({ src, onFatal, native }: DirectPlayerPro
   return (
     <div
       dir="ltr"
-      className="pvp-direct relative w-full overflow-hidden rounded-[20px] outline-none select-none"
+      /* aspect-video is NOT cosmetic: every child is absolutely positioned, so
+         without an explicit box the container has zero height and the player
+         is invisible — which reads to a student as "the video disappeared". */
+      className="pvp-direct relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none"
       style={{ background: "#000" }}
       aria-label="Protected video player"
     >
@@ -178,28 +191,31 @@ export function DirectDriveVideoPlayer({ src, onFatal, native }: DirectPlayerPro
         disablePictureInPicture
         onContextMenu={(e) => e.preventDefault()}
       />
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: 8,
-          left: 8,
-          zIndex: 100000,
-          pointerEvents: "none",
-          background: "rgba(0,0,0,0.85)",
-          color: "#fff",
-          fontSize: 10,
-          fontFamily: "monospace",
-          padding: 4,
-          maxWidth: 420,
-          whiteSpace: "pre",
-        }}
-      >
-        {Object.entries(dbg)
-          .filter(([, v]) => v !== undefined && v !== null && v !== "")
-          .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
-          .join("\n")}
-      </div>
+      {watermark}
+      {debugOn && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            zIndex: 100000,
+            pointerEvents: "none",
+            background: "rgba(0,0,0,0.85)",
+            color: "#fff",
+            fontSize: 10,
+            fontFamily: "monospace",
+            padding: 4,
+            maxWidth: 420,
+            whiteSpace: "pre",
+          }}
+        >
+          {Object.entries(dbg)
+            .filter(([, v]) => v !== undefined && v !== null && v !== "")
+            .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+            .join("\n")}
+        </div>
+      )}
     </div>
   );
 }

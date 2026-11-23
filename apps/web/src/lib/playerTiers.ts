@@ -176,3 +176,20 @@ export function isDriveLessonEmbed(embedUrl: string | null, youtubeId: string | 
   if (youtubeId !== null) return false;
   return /drive\.google\.com/.test(embedUrl);
 }
+
+/** Whether the CURRENT lesson is a Drive lesson — a property of the lesson,
+ *  not of whichever tier is active or what the embed currently holds.
+ *
+ *  Prefer the flag captured at grant time. The embed fallback exists only for
+ *  grants created before that flag existed. It must NOT look at `mode`: an
+ *  earlier version excluded mode "worker"/"direct", which made a Drive lesson
+ *  look non-Drive exactly while the Worker or Direct tier was active — so
+ *  Worker→Direct was skipped and a failed Direct lesson fell into the raw
+ *  `<video src=drive-preview-URL>` branch and rendered nothing.
+ */
+export function lessonIsDrive(grantIsDrive: boolean | undefined, embedUrl: string | null): boolean {
+  if (grantIsDrive === true) return true;
+  if (embedUrl === null) return false;
+  if (/youtube(-nocookie)?\.com/.test(embedUrl)) return false;
+  return /drive\.google\.com/.test(embedUrl);
+}
