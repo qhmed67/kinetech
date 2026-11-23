@@ -200,6 +200,63 @@ async function withLogging(req: ApiRequest, res: ApiResponse, fn: (s: ApiRespons
 
 type Env = { url: string; anonKey: string; serviceKey: string };
 
+/** Minimal shape of service-role/DB client used by helpers. */
+type AdminDb = { from: (table: string) => any };
+
+// ---- app_settings: video_worker_enabled (server-side, service-role only) ----
+// Fail-safe: missing row or DB read failure => Worker ENABLED (current behavior).
+// Cache is per serverless instance; toggle propagation may take up to TTL.
+const WORKER_ENABLED_KEY = "video_worker_enabled";
+const WORKER_ENABLED_TTL_MS = 20_000;
+let workerEnabledCache: { value: boolean; at: number } | null = null;
+
+async function readWorkerEnabled(admin: AdminDb): Promise<boolean> {
+  const now = Date.now();
+  if (workerEnabledCache && now - workerEnabledCache.at < WORKER_ENABLED_TTL_MS) {
+    return workerEnabledCache.value;
+  }
+  try {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", WORKER_ENABLED_KEY)
+      .maybeSingle();
+    if (error) {
+      emit("warn", "api.play.worker_flag_read_failed", "worker flag read failed; fail-safe enabled", {
+        route: ROUTE,
+        reason: "db_error",
+      }, { code: "SYS_002", type: "DbError", message: "app_settings read failed" });
+      workerEnabledCache = { value: true, at: now };
+      return true;
+    }
+    if (!data) {
+      emit("warn", "api.play.worker_flag_missing", "worker flag missing; fail-safe enabled", {
+        route: ROUTE,
+        reason: "missing_row",
+      }, { code: "SYS_002", type: "ConfigMissing", message: "app_settings row missing" });
+      workerEnabledCache = { value: true, at: now };
+      return true;
+    }
+    const raw = (data as { value?: unknown }).value;
+    const enabled = !(
+      raw && typeof raw === "object" && (raw as { enabled?: unknown }).enabled === false
+    );
+    workerEnabledCache = { value: enabled, at: now };
+    return enabled;
+  } catch {
+    emit("warn", "api.play.worker_flag_read_failed", "worker flag read failed; fail-safe enabled", {
+      route: ROUTE,
+      reason: "exception",
+    }, { code: "SYS_002", type: "DbError", message: "app_settings read exception" });
+    workerEnabledCache = { value: true, at: now };
+    return true;
+  }
+}
+
+export function _resetWorkerEnabledCacheForTests(): void {
+  workerEnabledCache = null;
+}
+
 // No process/Buffer/@types/node here on purpose: Vercel's function pipeline
 // has repeatedly failed to resolve node types, killing every invocation.
 // globalThis + string ops typecheck under any lib >= ES2020.
@@ -425,9 +482,6 @@ type VideoStreamRow = {
   youtube_video_id?: string | null;
 };
 
-/** Minimal shape of the service-role client used by the helper below (keeps
- *  the self-contained copy independent of the library's generic defaults). */
-type AdminDb = { from: (table: string) => any };
 
 /** Read the lesson row, tolerating a database where migration
  *  20261122_video_stream_fallbacks.sql has not been applied yet. */
@@ -716,10 +770,18 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   // (STREAM_TOKEN_SECRET / VIDEO_STREAM_WORKER_URL), a signing error or any
   // other failure degrades to the existing Drive embed response — the
   // branch itself never throws.
+  // Admin toggle: when video_worker_enabled is false, skip Worker entirely.
+  // Missing row / DB read failure => enabled (fail-safe, logged in readWorkerEnabled).
   let workerSrc: string | null = null;
   let workerExp = 0;
+  const workerEnabled = await readWorkerEnabled(admin);
   try {
-    if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
+    if (!workerEnabled) {
+      emit("info", "api.play.worker_disabled", "worker tier disabled by app setting", {
+        route: ROUTE,
+        hasDriveFileId: driveFileId !== "",
+      });
+    } else if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
       const base = new URL(workerBase); // malformed value throws → caught
       if (base.protocol !== "https:" && base.protocol !== "http:") {
         throw new TypeError("worker url is not http(s)");
