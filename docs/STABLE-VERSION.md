@@ -4,9 +4,10 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 ## Web
 
-- **Last stable (web + mobile shell):** tag `stable-2026-11-21`, SHA `cf4b0b58e97eaecb2241be81f25a1443e72c41c2`, date 2026-11-21, branch `feat/mobile-screens` (pushed). `main` is 3 commits behind this tag, so Vercel production still serves the older build until `main` is fast-forwarded.
-- Verified (2026-11-21): mobile `tsc --noEmit` clean; web `tsc -b` + `vite build` green; `test:unit` 197/197 (171 web + 7 playback-token + 6 video-source + 13 worker); `oxlint` 0 errors (pre-existing warnings only); `expo export --platform android` bundle OK (1162 modules); `bash scripts/verify.sh full` → VERIFY OK.
-- Contents: offline downloads removed (shell pill, `/downloads` screen, `offline=1` player branch, web "Save offline" button); shell blocks entry when the server is unreachable (launch probe + Retry + foreground re-check); optional-native-module fallbacks so the shell runs in Expo Go.
+- **Last stable (web + mobile shell):** tag `stable-2026-11-23`, SHA `598e17ae7cc061faec90c01565d99be326cb435a`, date 2026-11-23, branch `main`. This is the owner-declared most stable build.
+- Verified (2026-11-23): PR #45 CI [45216691712](https://github.com/qhmed67/kinetech/actions/runs/45216691712) — Unit (Vitest) pass, E2E (Playwright) pass, Vercel preview pass. Main CI after merge [45222164421](https://github.com/qhmed67/kinetech/actions/runs/45222164421) — success. Local full gate not run this session (Node 18.19.1; repo requires Node 24).
+- Contents: native expanded-player scroll lock (ref-counted `useScrollLock` while native expanded/transitioning), expanded containers hardened with `100dvh`/`overscroll-behavior: contain`/control-safe `touch-action`, RN WebView `scrollEnabled/bounces` disabled while expanded; Direct Drive native fullscreen click capture fix and test-prop fix from earlier 78224ec.
+- Previous stable: tag `stable-2026-11-21`, SHA `cf4b0b58e97eaecb2241be81f25a1443e72c41c2`, date 2026-11-21, branch `feat/mobile-screens` (pushed).
 - Previous stable: tag `web-stable-v1.0.0-pre-mobile`, SHA `6e67bf0286bfde937ce85fa88d646679d8eed9b8`, date 2026-10-19, branch `main`, Vercel deployment: production Ready 2026-10-19 03:45 GMT+3 (dpl from `91ba6a3`, plus baseline doc commits `ee832f4`, `6e67bf0`).
 - Verified: Node 24 install→lint (warnings only, baseline)→`tsc -b` clean→`test:unit` 119/119→`vite build` green.
 - Earlier baselines: `stable-2026-10-19` @ `91ba6a36c0d32c6b2e5890c8bc9229ba456870a8`, `stable-2026-10-16` @ `4d563a9ce51594061643d42ec7147c81458a994e` (branch `stable`).
@@ -21,7 +22,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 - **Owner task list:** `docs/mobile/OWNER-TASKS.md` (private, untracked) — every step that needs the owner, in order, with the exact commands.
 - **Architecture (2026-11-11):** hybrid shell — the web app is the only UI (WebView), native owns the player/protection/storage. Plan: `2027-architecture.md`. The React Native UI rewrite is CANCELLED; the port is archived under tag `mobile-rn-ui-port` / branch `backup/mobile-rn-ui-port` (SHA `785d081`). `apps/mobile` is now the empty shell scaffold (EAS project `3d9573b0-bdc0-4f3a-bfa6-8829c092707f`).
-- **Last stable (web + mobile shell):** tag `stable-2026-11-21`, SHA `cf4b0b58e97eaecb2241be81f25a1443e72c41c2`, date 2026-11-21, branch `feat/mobile-screens` (pushed). Same gates as the Web entry above; Android bundle exported from this commit.
+- **Last stable (web + mobile shell):** tag `stable-2026-11-23`, SHA `598e17ae7cc061faec90c01565d99be326cb435a`, date 2026-11-23, branch `main`. Same CI gates as Web entry above.
 - Runs in Expo Go (JS only): `npm run dev:go -w @kinetech/mobile`. The `KinetechSecurity` native module is unavailable there, so risk checks report safe defaults; only a development build (`npx expo run:android` / EAS) exercises them.
 - Previous stable: tag `mobile-stable-v1.0.0`, SHA `051e06f`, date 2026-11-11, branch `main`. Verified: mobile `tsc --noEmit` clean; mobile jest 9/9; web `tsc -b` clean; `test:unit` 119/119; `vite build` green; hex grep clean outside tokens.
 - Phase 6b–8 (verified, merged to main): SHA `051e06f`, date 2026-11-11, branch `main`. EAS profiles; dashboard/courses/watch screens restored; auth consolidated (authDb.ts + AuthProvider); ErrorBoundary + offline banner; token-only colors; mobile tests 9/9.
@@ -36,7 +37,7 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 ## Supabase schema
 
 - Compatible through migrations `20261041` (applied 2026-10-19 per owner). New migrations are additive files only.
-- At `stable-2026-11-21`: `20261112_video_source.sql` and `20261113_playback_devices.sql` — UNVERIFIED whether applied; `20261120_app_logs.sql` still NOT applied (owner must run it in the Supabase SQL editor).
+- At `stable-2026-11-23`: unchanged from `stable-2026-11-21` (no new migrations). `20261112_video_source.sql` and `20261113_playback_devices.sql` — UNVERIFIED whether applied; `20261120_app_logs.sql` still NOT applied (owner must run it in the Supabase SQL editor).
 
 ## Vercel project settings (Web)
 
@@ -49,7 +50,8 @@ Tags, SHAs, dates, build IDs, rollback commands only. History is append-only.
 
 | Date | Deliverable | Tag | SHA |
 |---|---|---|---|
-| 2026-11-21 | Web + mobile shell (stable) | `stable-2026-11-21` | `cf4b0b58e97eaecb2241be81f25a1443e72c41c2` |
+| 2026-11-23 | Web + mobile shell (stable) | `stable-2026-11-23` | `598e17ae7cc061faec90c01565d99be326cb435a` |
+| 2026-11-21 | Web + mobile shell (previous stable) | `stable-2026-11-21` | `cf4b0b58e97eaecb2241be81f25a1443e72c41c2` |
 | 2026-11-11 | Hybrid-shell architecture switch (RN UI cancelled) | `mobile-rn-ui-port` (archive) | `785d081` (archived port) / `399fe21` (plan) |
 | 2026-11-11 | Mobile web-parity port (Phase 10) | — | `d0df240` (merge) / `5f73024` |
 | 2026-11-11 | Mobile (Phases 6b–8) | — | `051e06f` |
