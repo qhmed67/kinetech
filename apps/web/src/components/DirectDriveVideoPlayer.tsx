@@ -3,6 +3,7 @@ import "plyr/dist/plyr.css";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { directSrcHost } from "../lib/driveBrowser";
 import "./directPlayer.css";
+import type { WorkerPlayerState } from "./WorkerVideoPlayer";
 
 /** The Direct Drive tier: Plyr around a real <video> whose src is the Drive
  *  API URL (no Worker, no token, no auth, no Supabase). Diagnoses failures
@@ -21,6 +22,10 @@ type DirectPlayerProps = {
   watermark?: ReactNode;
   /** ?pvpdebug=1 only: the diagnostic strip must never show to a student. */
   debugOn?: boolean;
+  playerState: WorkerPlayerState;
+  onExpand: () => void;
+  onCollapse: () => void;
+  safeInsets: () => { top: number; right: number; bottom: number; left: number };
 };
 
 export function DirectDriveVideoPlayer({
@@ -29,9 +34,16 @@ export function DirectDriveVideoPlayer({
   native,
   watermark,
   debugOn = false,
+  playerState,
+  onExpand,
+  onCollapse,
+  safeInsets,
 }: DirectPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
   const failedRef = useRef(false);
+  const expandCollapseRef = useRef({ onExpand, onCollapse, playerState });
+  expandCollapseRef.current = { onExpand, onCollapse, playerState };
   const onFatalRef = useRef(onFatal);
   const readyRef = useRef(false);
   const canplayAtRef = useRef(0);
@@ -79,12 +91,21 @@ export function DirectDriveVideoPlayer({
     const player = new Plyr(el, {
       controls: ["play-large", "play", "progress", "current-time", "mute", "volume", "settings", "fullscreen"],
       settings: ["speed"],
-      speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-      fullscreen: { enabled: !native, fallback: true, iosNative: false },
+      // Native shell: expand/collapse is owned by the page state machine.
+      // Web: Plyr's normal fullscreen is used.
+      fullscreen: { enabled: true, fallback: !native, iosNative: false },
       hideControls: false,
       clickToPlay: true,
       keyboard: { focused: true, global: false },
     });
+    if (native) {
+      player.on("enterfullscreen", () => {
+        try { (player.fullscreen as any).exit?.(); } catch {}
+        const { onExpand, onCollapse, playerState: ps } = expandCollapseRef.current;
+        if (ps === "expanded" || ps === "expanding") onCollapse();
+        else onExpand();
+      });
+    }
     return () => {
       try {
         player.destroy();
@@ -172,14 +193,30 @@ export function DirectDriveVideoPlayer({
     return () => window.clearInterval(id);
   }, [src, lastFailure, probe]);
 
+  const expanded = playerState === "expanded";
+  const insets = safeInsets();
+
   return (
     <div
+      ref={boxRef}
       dir="ltr"
       /* aspect-video is NOT cosmetic: every child is absolutely positioned, so
          without an explicit box the container has zero height and the player
          is invisible — which reads to a student as "the video disappeared". */
-      className="pvp-direct relative aspect-video w-full overflow-hidden rounded-[20px] outline-none select-none"
-      style={{ background: "#000" }}
+      className={`pvp pvp-direct relative w-full overflow-hidden outline-none select-none ${
+        expanded ? "pvp-expanded fixed inset-0 z-[70] bg-black" : "aspect-video rounded-[20px] bg-black"
+      }`}
+      style={
+        expanded
+          ? {
+              background: "#000",
+              paddingTop: insets.top,
+              paddingRight: insets.right,
+              paddingBottom: insets.bottom,
+              paddingLeft: insets.left,
+            }
+          : { background: "#000" }
+      }
       aria-label="Protected video player"
     >
       <video

@@ -1252,6 +1252,10 @@ export function ProtectedVideoPlayer({
         native={native}
         watermark={watermark}
         debugOn={debugOn}
+        playerState={playerState}
+        onExpand={expand}
+        onCollapse={collapse}
+        safeInsets={safeInsets}
       />,
     );
   }
