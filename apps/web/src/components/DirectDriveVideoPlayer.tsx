@@ -203,7 +203,7 @@ export function DirectDriveVideoPlayer({
       /* aspect-video is NOT cosmetic: every child is absolutely positioned, so
          without an explicit box the container has zero height and the player
          is invisible — which reads to a student as "the video disappeared". */
-      className={`pvp pvp-direct relative w-full overflow-hidden outline-none select-none ${
+      className={`pvp pvp-direct${native ? " pvp-native" : ""} relative w-full overflow-hidden outline-none select-none ${
         expanded ? "pvp-expanded fixed inset-0 z-[70] bg-black" : "aspect-video rounded-[20px] bg-black"
       }`}
       style={

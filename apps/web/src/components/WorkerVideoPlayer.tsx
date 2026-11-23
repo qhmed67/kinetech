@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { workerFailAgeMs } from "../lib/workerFailMarker";
-import { isNativeApp } from "../native";
 import "./workerPlayer.css";
 
 /** Same state machine the parent orchestrator owns (Worker → Direct → YouTube). */
@@ -419,7 +418,7 @@ export function WorkerVideoPlayer({
     <div
       ref={wrapRef}
       dir="ltr"
-      className={`pvp pvp-worker relative w-full overflow-hidden outline-none select-none ${
+      className={`pvp pvp-worker${native ? " pvp-native" : ""} relative w-full overflow-hidden outline-none select-none ${
         expanded ? "rounded-none" : "aspect-video rounded-[20px]"
       }`}
       style={
