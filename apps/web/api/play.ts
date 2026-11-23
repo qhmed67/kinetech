@@ -689,7 +689,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     if (driveFileId !== "" && workerBase !== "" && streamSecret !== "") {
       const base = new URL(workerBase); // malformed value throws → caught
       if (base.protocol !== "https:" && base.protocol !== "http:") {
-        throw new Error("worker url is not http(s)");
+        throw new TypeError("worker url is not http(s)");
       }
       const now = Math.floor(Date.now() / 1000);
       const exp = now + STREAM_TOKEN_TTL_SECONDS;
@@ -705,9 +705,28 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
       );
       workerSrc = workerStreamUrl(base.href, token);
       workerExp = exp;
+    } else {
+      // Not configured — say WHICH side is missing. Previously this fell through
+      // silently and every caller saw only mode:"embed", which made a missing or
+      // malformed env var indistinguishable from a signing failure.
+      emit("info", "api.play.worker_skipped", "worker tier not configured", {
+        route: ROUTE,
+        hasDriveFileId: driveFileId !== "",
+        hasWorkerUrl: workerBase !== "",
+        hasSecret: streamSecret !== "",
+      });
     }
-  } catch {
+  } catch (e) {
     workerSrc = null;
+    // Non-secret diagnosis only: the error class name plus presence booleans.
+    // A bare `catch {}` here hid a malformed VIDEO_STREAM_WORKER_URL (new URL()
+    // throws) behind the same mode:"embed" a missing var produces.
+    emit("warn", "api.play.worker_failed", "worker tier could not be signed", {
+      route: ROUTE,
+      reason: (e as { name?: string })?.name ?? "error",
+      hasWorkerUrl: workerBase !== "",
+      hasSecret: streamSecret !== "",
+    });
   }
 
   if (workerSrc !== null) {

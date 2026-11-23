@@ -18,6 +18,10 @@ import {
 
 const WA = "https://wa.me/201042031062";
 
+/** Upper bound on resolving a lesson's DB row id. Past this the page shows a
+ *  retryable error instead of an empty skeleton that never resolves. */
+const RESOLVE_TIMEOUT_MS = 12_000;
+
 function StatusIcon({ state }: { state: "current" | "done" | "locked" | "todo" }) {
   if (state === "locked")
     return (
@@ -347,6 +351,7 @@ export function Watch({  slug,
   // plus terminal play states surfaced by the player.
   const [videoId, setVideoId] = useState<string | null>(null);
   const [resolving, setResolving] = useState(true);
+  const [resolveFailed, setResolveFailed] = useState(false);
   const [playErr, setPlayErr] = useState<PlayDenied | null>(null);
   const [playKey, setPlayKey] = useState(0);
   const [sessionDead, setSessionDead] = useState(false);
@@ -380,6 +385,7 @@ export function Watch({  slug,
     setSessionDead(false);
     setVideoId(null);
     setResolving(true);
+    setResolveFailed(false);
     if (!course || !isSupabaseConfigured()) {
       setResolving(false);
       return;
@@ -399,19 +405,33 @@ export function Watch({  slug,
     setOpen(video);
     window.scrollTo(0, 0);
     let alive = true;
+    // A resolve that never settles used to leave `resolving` stuck true forever:
+    // the page kept rendering the empty pulse skeleton (a blank box where the
+    // player belongs) and swallowed the error, so a student saw a dead page and
+    // a view was already burned by /api/play. Bound it and surface a real state.
+    const settle = window.setTimeout(() => {
+      if (!alive) return;
+      alive = false;
+      setResolveFailed(true);
+      setResolving(false);
+    }, RESOLVE_TIMEOUT_MS);
     void import("../lib/db/examsDb")
       .then((m) => m.videoIdBySlug(course.slug, at))
       .then((id) => {
-        if (alive) {
-          setVideoId(id);
-          setResolving(false);
-        }
+        if (!alive) return;
+        window.clearTimeout(settle);
+        setVideoId(id);
+        setResolving(false);
       })
       .catch(() => {
-        if (alive) setResolving(false);
+        if (!alive) return;
+        window.clearTimeout(settle);
+        setResolveFailed(true);
+        setResolving(false);
       });
     return () => {
       alive = false;
+      window.clearTimeout(settle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, video]);
@@ -737,11 +757,22 @@ export function Watch({  slug,
                   style={{ borderColor: "var(--kt-line)" }}
                 >
                   <p className="font-bold" style={{ fontFamily: "var(--font-display)" }}>
-                    No video attached yet
+                    {resolveFailed ? w.resolveFailT : w.noVideoT}
                   </p>
                   <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-                    Send the video file to attach it here.
+                    {resolveFailed ? w.resolveFailD : w.noVideoD}
                   </p>
+                  {resolveFailed && (
+                    <div className="mt-5 flex flex-wrap justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setRefreshKey((k) => k + 1)}
+                        className="btn btn-secondary"
+                      >
+                        {w.retryBtn}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <ProtectedVideoPlayer
