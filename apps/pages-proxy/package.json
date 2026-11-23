@@ -1,0 +1,10 @@
+{
+  "name": "kinetech-pages-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Pages Function that fronts the kinetech video Worker so media can be served from a *.pages.dev hostname.",
+  "scripts": {
+    "deploy": "wrangler pages deploy public --project-name kinetech-pages-proxy"
+  }
+}
