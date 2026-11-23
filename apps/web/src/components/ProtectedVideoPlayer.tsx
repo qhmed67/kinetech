@@ -4,6 +4,7 @@ import { useLang } from "./lang";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { log } from "../lib/logger";
+import { useScrollLock } from "../lib/useScrollLock";
 import { WorkerVideoPlayer } from "./WorkerVideoPlayer";
 import { DirectDriveVideoPlayer } from "./DirectDriveVideoPlayer";
 import { directDriveUrl } from "../lib/driveBrowser";
@@ -524,6 +525,10 @@ export function ProtectedVideoPlayer({
 
   // ---- Native shell (Expo Go) expand/collapse state machine ----------------
   const [playerState, setPlayerState] = useState<PlayerState>("inline");
+  const playerStateRef = useRef<PlayerState>("inline");
+  useEffect(() => { playerStateRef.current = playerState; }, [playerState]);
+  // Lock page scroll while the native overlay is expanded/transitioning.
+  useScrollLock(native && playerState !== "inline");
   const [coverOn, setCoverOn] = useState(false);
   const [coverFadeOut, setCoverFadeOut] = useState(false);
   const seqRef = useRef(0);
@@ -591,7 +596,9 @@ export function ProtectedVideoPlayer({
 
   // Native → page: the shell asks us to collapse (hardware back button).
   const collapse = useCallback(() => {
-    if (playerState === "inline" || playerState === "collapsing") return;
+    const ps = playerStateRef.current;
+    if (ps === "inline" || ps === "collapsing") return;
+    playerStateRef.current = "collapsing";
     const seq = ++seqRef.current;
     setPlayerState("collapsing");
     sendPlayerFullscreen(false);
@@ -601,6 +608,7 @@ export function ProtectedVideoPlayer({
       // Collapse finishes when the WebView is back to portrait: flip the
       // shell to inline.
       if (window.innerWidth > window.innerHeight === false) {
+        playerStateRef.current = "inline";
         setPlayerState("inline");
         debugRef.current.inlineExpectationMet = isInlineExpectationMet();
         finish();
@@ -613,6 +621,7 @@ export function ProtectedVideoPlayer({
       requestAnimationFrame(poll);
     };
     const finish = () => {
+      playerStateRef.current = "inline";
       setPlayerState("inline");
       // Compare the restored inline rect against the pre-expand baseline.
       const box0 = boxRef.current;
@@ -642,7 +651,9 @@ export function ProtectedVideoPlayer({
   }, [playerState, sendPlayerFullscreen]);
 
   const expand = useCallback(() => {
-    if (playerState !== "inline") return;
+    const ps = playerStateRef.current;
+    if (ps !== "inline") return;
+    playerStateRef.current = "expanding";
     const seq = ++seqRef.current;
     setPlayerState("expanding");
     setCoverOn(true);
@@ -660,11 +671,13 @@ export function ProtectedVideoPlayer({
         // Re-measure now: the shell is full-window by the time we flip to
         // "expanded" — the frame fit follows the real box.
         measureContainer();
+        playerStateRef.current = "expanded";
         setPlayerState("expanded");
         return;
       }
       if (Date.now() - start > 1500) {
         measureContainer();
+        playerStateRef.current = "expanded";
         setPlayerState("expanded");
         return;
       }

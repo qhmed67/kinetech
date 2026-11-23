@@ -210,14 +210,24 @@ video::-webkit-media-controls-fullscreen-button { display: none !important; }
    into a black full-window backdrop; the iframe inside is laid out wider and
    scaled down by ProtectedVideoPlayer so every Drive control fits. */
 .pvp-expanded {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
   z-index: 9999;
   background: #000;
   border-radius: 0;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+.pvp-expanded .plyr__controls,
+.pvp-expanded .plyr__controls * {
+  touch-action: manipulation;
+}
+.pvp-expanded .plyr__controls input[type="range"],
+.pvp-expanded .plyr__progress input[type="range"],
+.pvp-expanded .plyr__volume input[type="range"] {
+  touch-action: pan-x;
 }
 
 /* Guarded player frame: force the embed to exactly fill its mount in every

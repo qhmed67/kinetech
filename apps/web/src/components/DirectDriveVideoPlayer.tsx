@@ -221,6 +221,10 @@ export function DirectDriveVideoPlayer({
         expanded
           ? {
               background: "#000",
+              width: "100vw",
+              height: "100dvh",
+              overscrollBehavior: "contain",
+              touchAction: "none",
               paddingTop: insets.top,
               paddingRight: insets.right,
               paddingBottom: insets.bottom,

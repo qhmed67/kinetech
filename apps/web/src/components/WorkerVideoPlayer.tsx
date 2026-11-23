@@ -419,11 +419,11 @@ export function WorkerVideoPlayer({
       ref={wrapRef}
       dir="ltr"
       className={`pvp pvp-worker${native ? " pvp-native" : ""} relative w-full overflow-hidden outline-none select-none ${
-        expanded ? "rounded-none" : "aspect-video rounded-[20px]"
+        expanded ? "pvp-expanded rounded-none" : "aspect-video rounded-[20px]"
       }`}
       style={
         expanded
-          ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, background: "#000" }
+          ? { position: "fixed", inset: 0, width: "100vw", height: "100dvh", zIndex: 9999, background: "#000", overscrollBehavior: "contain", touchAction: "none" }
           : { background: "#000" }
       }
       onContextMenu={(e) => e.preventDefault()}
