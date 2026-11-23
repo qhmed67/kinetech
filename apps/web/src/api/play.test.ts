@@ -244,6 +244,48 @@ describe("POST /api/play success shape", () => {
     expect((seen.payload as { embedUrl: string }).embedUrl).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
   });
 
+  // The worker branch used to fail silently: a bare `catch {}` made a missing
+  // env var, a malformed VIDEO_STREAM_WORKER_URL and a signing failure all
+  // produce the same mode:"embed" with no way to tell them apart.
+  it("stays on mode:embed when the worker env is absent", async () => {
+    delete process.env.VIDEO_STREAM_WORKER_URL;
+    delete process.env.STREAM_TOKEN_SECRET;
+    clients();
+    const { res, seen } = resCapture();
+    await handler(req("11111111-1111-1111-1111-111111111111"), res);
+    expect(seen.code).toBe(200);
+    expect((seen.payload as { mode: string }).mode).toBe("embed");
+  });
+
+  it("does not throw when VIDEO_STREAM_WORKER_URL is malformed", async () => {
+    process.env.VIDEO_STREAM_WORKER_URL = "Hpl]d,st67_"; // not a URL
+    process.env.STREAM_TOKEN_SECRET = "test-secret";
+    clients();
+    const { res, seen } = resCapture();
+    await handler(req("11111111-1111-1111-1111-111111111111"), res);
+    // Degrades to the existing embed response rather than failing the request.
+    expect(seen.code).toBe(200);
+    expect((seen.payload as { mode: string }).mode).toBe("embed");
+    delete process.env.VIDEO_STREAM_WORKER_URL;
+    delete process.env.STREAM_TOKEN_SECRET;
+  });
+
+  it("issues mode:worker when both env vars are usable", async () => {
+    process.env.VIDEO_STREAM_WORKER_URL = "https://w.example.workers.dev";
+    process.env.STREAM_TOKEN_SECRET = "test-secret";
+    clients();
+    const { res, seen } = resCapture();
+    await handler(req("11111111-1111-1111-1111-111111111111"), res);
+    const p = seen.payload as Record<string, unknown>;
+    expect(seen.code).toBe(200);
+    expect(p.mode).toBe("worker");
+    expect(String(p.src)).toMatch(/^https:\/\/w\.example\.workers\.dev\/v\?t=/);
+    // The Drive file id must never reach the URL.
+    expect(String(p.src)).not.toContain("ABC123_xyz");
+    delete process.env.VIDEO_STREAM_WORKER_URL;
+    delete process.env.STREAM_TOKEN_SECRET;
+  });
+
   it("404s when no source row exists", async () => {
     clients({ sourceRow: null });
     const { res, seen } = resCapture();
