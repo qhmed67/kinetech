@@ -23,6 +23,10 @@ declare global {
   interface Window {
     __KT_NATIVE__?: boolean;
     __KT_NATIVE_VERSION__?: number;
+    /** Installed app version, injected by the native shell (semver). */
+    __KT_APP_VERSION__?: string;
+    /** "android" | "ios" — injected by the native shell. */
+    __KT_APP_PLATFORM__?: string;
     ReactNativeWebView?: { postMessage: (message: string) => void };
   }
 }
@@ -37,6 +41,23 @@ export function isNativeApp(): boolean {
 export function hasNativeUserAgent(): boolean {
   if (typeof navigator === "undefined") return false;
   return navigator.userAgent.includes(NATIVE_UA_MARK);
+}
+
+/**
+ * Installed native app version, as injected by the shell into the page.
+ * Empty string when the shell did not inject one (older builds).
+ */
+export function nativeAppVersion(): string {
+  if (typeof window === "undefined") return "";
+  const v = window.__KT_APP_VERSION__;
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/** "android" | "ios" as injected by the shell; empty in a browser. */
+export function nativeAppPlatform(): string {
+  if (typeof window === "undefined") return "";
+  const p = window.__KT_APP_PLATFORM__;
+  return typeof p === "string" ? p.trim().toLowerCase() : "";
 }
 
 /** Send a message to the native shell. Returns false when not in the shell. */

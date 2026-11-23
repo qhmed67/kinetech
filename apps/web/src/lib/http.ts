@@ -3,6 +3,7 @@
 // Never logs the body, headers, auth token or a URL's query string.
 
 import { log, newCorrelationId, withCorrelation } from "./logger";
+import { nativeAppPlatform, nativeAppVersion } from "../native";
 
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const id = newCorrelationId();
@@ -23,6 +24,13 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
     response = await withCorrelation(id, () => {
       const headers = new Headers(init.headers);
       headers.set("x-request-id", id);
+      // Native app identity: the server compares the version against the
+      // minimum supported version. Absent in a browser and in shells built
+      // before this feature — an absent header never blocks anyone.
+      const appVersion = nativeAppVersion();
+      const appPlatform = nativeAppPlatform();
+      if (appVersion) headers.set("x-app-version", appVersion);
+      if (appPlatform) headers.set("x-app-platform", appPlatform);
       return fetch(input, { ...init, headers });
     });
     return response;

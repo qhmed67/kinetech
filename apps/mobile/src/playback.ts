@@ -8,6 +8,8 @@
 
 import { parsePlaybackResult, type PlaybackResult } from "@kinetech/bridge";
 import { ENV } from "./env";
+import { APP_VERSION } from "./config";
+import { Platform } from "react-native";
 
 export type { PlaybackResult };
 
@@ -24,6 +26,10 @@ async function post(
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
         "x-kt-device-id": deviceId,
+        // The server compares these against the minimum supported version.
+        // Older builds simply omit them — that never blocks anyone.
+        "x-app-version": APP_VERSION,
+        "x-app-platform": Platform.OS,
       },
       body: JSON.stringify({ video_id: videoId }),
     });

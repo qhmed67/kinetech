@@ -19,3 +19,17 @@ export const ALLOWED_ORIGINS = [WEB_ORIGIN];
 
 /** Deep-link scheme of the shell (app.json). */
 export const APP_SCHEME = "kinetech";
+
+/**
+ * Version of THIS app build, reported to the server so the owner can retire
+ * an old build ("min supported version") without shipping a new server
+ * first.
+ *
+ * Bump it with every release. It must stay a plain semver string
+ * ("1.2.0"); the server compares it numerically.
+ *
+ * NOTE: it is deliberately a constant instead of a runtime constant
+ * (expo-constants / nativeApplicationVersion) so no new dependency and no
+ * lockfile change is needed for it.
+ */
+export const APP_VERSION = "1.0.0";

@@ -7,6 +7,7 @@ import { CoursesList } from "./CoursesList";
 import { CourseForm } from "./CourseForm";
 import { ServicesEditor } from "./ServicesEditor";
 import { Diagnostics } from "./Diagnostics";
+import { Settings } from "./Settings";
 
 function Home() {
   const { t } = useLang();
@@ -96,6 +97,13 @@ export function AdminApp({ page }: { page: string }) {
     return (
       <AdminShell active="grading">
         <Grading />
+      </AdminShell>
+    );
+  }
+  if (page === "settings") {
+    return (
+      <AdminShell active="settings">
+        <Settings />
       </AdminShell>
     );
   }

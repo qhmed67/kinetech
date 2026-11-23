@@ -66,10 +66,15 @@ export function handleWebMessage(raw: string, url: string): boolean {
  * Script injected into the page so the web can receive native → web
  * messages. It only parses JSON and dispatches a DOM event.
  */
-export const RECEIVER_SCRIPT = `
+export function receiverScript(version: string, platform: string): string {
+  const v = JSON.stringify(version);
+  const p = JSON.stringify(platform);
+  return `
 (function () {
   if (window.__KT_NATIVE__) return;
   window.__KT_NATIVE__ = true;
+  window.__KT_APP_VERSION__ = ${v};
+  window.__KT_APP_PLATFORM__ = ${p};
   window.__KT_RECV__ = function (payload) {
     try {
       var message = JSON.parse(payload);
@@ -79,6 +84,9 @@ export const RECEIVER_SCRIPT = `
 })();
 true;
 `;
+}
+
+
 
 /** Build the script that pushes one native → web message into the page. */
 export function nativeToWebScript(payload: unknown): string {

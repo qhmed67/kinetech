@@ -26,8 +26,8 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { lockAsync, OrientationLock } from "expo-screen-orientation";
-import { ALLOWED_ORIGINS, WEB_URL } from "../src/config";
-import { handleWebMessage, onWebMessage, RECEIVER_SCRIPT } from "../src/bridge";
+import { ALLOWED_ORIGINS, APP_VERSION, WEB_URL } from "../src/config";
+import { handleWebMessage, onWebMessage, receiverScript } from "../src/bridge";
 import {
   getEnvironmentRisk,
   isScreenCaptured,
@@ -298,7 +298,9 @@ export default function Shell() {
             allowsFullscreenVideo={false}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
-            injectedJavaScriptBeforeContentLoaded={RECEIVER_SCRIPT + safeAreaScript(insets)}
+            injectedJavaScriptBeforeContentLoaded={
+              receiverScript(APP_VERSION, Platform.OS) + safeAreaScript(insets)
+            }
             onLoadStart={onLoadStart}
             onMessage={onMessage}
             onScroll={onScroll}
