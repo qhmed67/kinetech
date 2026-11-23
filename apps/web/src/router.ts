@@ -1,4 +1,5 @@
 import { courseExists } from "./store";
+import { isNonProductionBuild } from "./appEnv";
 
 export const COURSE_SLUGS = ["python-data", "robotics", "solidworks"] as const;
 
@@ -60,7 +61,11 @@ export function parseHash(hash: string): Route {
   if (h === "privacy") return { name: "privacy" };
   if (h === "terms") return { name: "terms" };
   if (h === "admin/login") return { name: "adminLogin" };
-  const pt = h.match(/^player-test(?:\?fid=([a-zA-Z0-9_-]+))?$/);
+  // Dev/preview only: on a production build this route does not exist, so a
+  // student cannot open the unauthenticated Drive test page (or read its key).
+  const pt = isNonProductionBuild()
+    ? h.match(/^player-test(?:\?fid=([a-zA-Z0-9_-]+))?$/)
+    : null;
   if (pt) return { name: "playerTest", fid: pt[1] ?? undefined };
   const am = h.match(/^admin(?:\/([\w/-]+))?$/);
   if (am) return { name: "admin", page: am[1] ?? "dashboard" };

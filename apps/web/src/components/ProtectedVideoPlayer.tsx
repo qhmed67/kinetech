@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { bridgeOn, bridgeSend, isNativeApp } from "../native";
 import { useLang } from "./lang";
 import { apiFetch } from "../lib/http";
@@ -13,7 +13,15 @@ import {
   setWorkerFailMarker,
   workerFailAgeMs,
 } from "../lib/workerFailMarker";
-import { tierAfterGrant, tierAfterDirectFailure, isDriveLessonEmbed } from "../lib/playerTiers";
+import {
+  INITIAL_TIER_STATE,
+  tierReducer,
+  nextTierAfterFailure,
+  isDriveLessonEmbed,
+  isTerminal,
+  type LessonTier,
+  type TierEvent,
+} from "../lib/playerTiers";
 import {
   YT_STATE,
   extractYoutubeId,
@@ -57,15 +65,14 @@ type PlayGrant = {
    *  initial grant). It stays true after the YouTube swap so the player keeps
    *  using the Drive-lesson branches instead of the plain <video> one. */
   isDrive?: boolean;
+  /** Agent: views left after the grant, for the debug strip only. */
+  viewsLeft?: number;
   /** Direct Drive tier (Priority 2): set by the /api/play fallback=direct
    *  response. The key is served by the server from DRIVE_BROWSER_KEY. */
   driveFileId?: string;
   directKey?: string;
   directSrc?: string;
 };
-
-/** Playback tier chain: Worker → Direct Drive → YouTube. */
-type Tier = "worker" | "direct" | "youtube";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -136,8 +143,15 @@ export function ProtectedVideoPlayer({
 
   // Play grant from the server; null until /api/play answers.
   const [grant, setGrant] = useState<PlayGrant | null>(null);
-  // Active playback tier. Worker → Direct → YouTube, forward-only.
-  const [tier, setTier] = useState<Tier>("youtube");
+  // Active playback tier, driven ONLY by the reducer in lib/playerTiers.
+  // Worker → Direct → YouTube → terminal, forward-only. The component never
+  // picks the next tier itself: it reports outcomes and renders what the
+  // machine names, so a tier cannot be skipped or silently stranded.
+  const [tierState, dispatchTier] = useReducer(tierReducer, INITIAL_TIER_STATE);
+  const tier: LessonTier = tierState.tier;
+  // Every /api/play call is counted so the debug strip can show how many grants
+  // a single lesson consumed (the "several calls per click" symptom).
+  const playCallsRef = useRef(0);
   // Terminal (denied/session-dead): parent takes over the area.
   const [over, setOver] = useState(false);
   const [ready, setReady] = useState(false);
@@ -199,13 +213,15 @@ export function ProtectedVideoPlayer({
    *  no-view-count call. Returns the Drive file id + the browser key
    *  (from the DRIVE_BROWSER_KEY server env var). On any failure the
    *  chain falls to YouTube via tierAfterDirectFailure(). */
-  const loadDirect = useCallback(async () => {
+  const loadDirect = useCallback(
+    async (opts: { canDirect: boolean; youtubeAvailable: boolean }) => {
     const token = await getAccessToken();
     if (!token) {
-      setTier(tierAfterDirectFailure());
+      dispatchTier({ type: "TIER_FAILED", reason: "no_token", ...opts });
       return;
     }
     try {
+      playCallsRef.current += 1;
       const r = await apiFetch("/api/play", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -221,7 +237,8 @@ export function ProtectedVideoPlayer({
       const directSrc =
         body && body.mode === "direct" ? directDriveUrl(body.driveFileId ?? "", body.key ?? "") : null;
       if (!r.ok || !body || body.mode !== "direct" || directSrc === null) {
-        setTier(tierAfterDirectFailure());
+        const reason = !r.ok ? `direct_http_${r.status}` : "direct_unavailable";
+        dispatchTier({ type: "TIER_FAILED", reason, ...opts });
         return;
       }
       log("warn", "player.tier_fallback", "worker tier failed — direct drive", {
@@ -233,11 +250,14 @@ export function ProtectedVideoPlayer({
           ? { ...g, mode: "direct", driveFileId: body.driveFileId, directKey: body.key, directSrc }
           : g,
       );
-      setTier("direct");
+      // The grant now carries a playable Direct src; the machine transition
+      // already happened when the Worker failed, so there is nothing to set.
     } catch {
-      setTier(tierAfterDirectFailure());
+      dispatchTier({ type: "TIER_FAILED", reason: "direct_network", ...opts });
     }
-  }, [videoId]);
+    },
+    [videoId],
+  );
 
   // Grant fetch: exactly one /api/play per mount. AbortController (not a
   // ref guard) handles React StrictMode double-effects: the first request
@@ -247,7 +267,6 @@ export function ProtectedVideoPlayer({
     const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
     let alive = true;
     setGrant(null);
-    setTier("youtube");
     setOver(false);
     setReady(false);
     setFailed(false);
@@ -282,6 +301,7 @@ export function ProtectedVideoPlayer({
           cbRef.current.onSessionDead();
           return;
         }
+        playCallsRef.current += 1;
         const r = await apiFetch("/api/play", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -325,18 +345,32 @@ export function ProtectedVideoPlayer({
           src: typeof body.src === "string" ? body.src : undefined,
           expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
           youtubeAvailable: body.youtubeAvailable === true,
+          viewsLeft: typeof (body as { viewsLeft?: unknown }).viewsLeft === "number"
+            ? (body as { viewsLeft: number }).viewsLeft
+            : undefined,
           // Decided here, once, from the ORIGINAL embed. The chain later swaps
           // embedUrl for a YouTube link; isDrive must survive that swap.
           isDrive: isDriveLessonEmbed(body.embedUrl, extractYoutubeId(body.embedUrl)),
         });
         const workerActive = body.mode === "worker" && typeof body.src === "string";
         const freshMarker = isWorkerFailFresh(videoId);
-        if (workerActive && freshMarker) {
-          // Fresh worker-fail marker: skip straight to Direct.
-          setTier("direct");
-          void loadDirect();
-        } else {
-          setTier(tierAfterGrant({ workerMode: workerActive, workerSrc: workerActive, markerFresh: false }));
+        const hasDriveFile = isDriveLessonEmbed(body.embedUrl, extractYoutubeId(body.embedUrl));
+        const youtubeAvailable = body.youtubeAvailable === true;
+        // ONE decision, from the machine. A Drive lesson without a Worker
+        // grant now starts on Direct instead of jumping to YouTube.
+        const g: TierEvent = {
+          type: "GRANT",
+          workerMode: workerActive,
+          workerSrc: workerActive,
+          markerFresh: freshMarker,
+          hasDriveFile,
+          youtubeAvailable,
+        };
+        const startTier = tierReducer(INITIAL_TIER_STATE, g).tier;
+        dispatchTier(g);
+        if (startTier === "direct") {
+          // Direct needs a separate (read-only) grant for the key + file id.
+          void loadDirect({ canDirect: hasDriveFile, youtubeAvailable });
         }
       } catch {
         if (alive) setFailed(true);
@@ -383,6 +417,7 @@ export function ProtectedVideoPlayer({
       return;
     }
     try {
+      playCallsRef.current += 1;
       const r = await apiFetch("/api/play", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -402,7 +437,8 @@ export function ProtectedVideoPlayer({
       });
       const ytEmbed = body.embedUrl;
       setGrant((g) => (g ? { ...g, embedUrl: ytEmbed, mode: "embed" } : g));
-      setTier("youtube");
+      // The machine is already on the youtube tier; the embed arriving is
+      // what makes that tier renderable (isYt below).
     } catch {
       setFailed(true);
     }
@@ -417,11 +453,14 @@ export function ProtectedVideoPlayer({
       // Mark the Worker as failing: later lessons skip straight to Direct.
       // (The marker is cleared when the Worker is healthy again.)
       setWorkerFailMarker(videoId);
-      // Direct if available, else YouTube — loadDirect applies
-      // tierAfterDirectFailure() when direct is unavailable.
-      void loadDirect();
+      // The machine decides the next tier (Direct when the lesson has a Drive
+      // file, YouTube otherwise, terminal only when nothing is left).
+      const opts = { canDirect: isDrive, youtubeAvailable: grant?.youtubeAvailable === true };
+      dispatchTier({ type: "TIER_FAILED", reason, ...opts });
+      const next = nextTierAfterFailure("worker", opts);
+      if (next === "direct") void loadDirect(opts);
     },
-    [videoId, loadDirect],
+    [videoId, loadDirect, isDrive, grant],
   );
 
   /** Direct Drive tier died (video.error, 403/429, or no canplay) → YouTube. */
@@ -432,9 +471,14 @@ export function ProtectedVideoPlayer({
         ctx: { from: "direct", to: "youtube", reason },
       });
       debugRef.current.lastTierFailure = { from: "direct", to: "youtube", reason };
-      setTier("youtube");
+      dispatchTier({
+        type: "TIER_FAILED",
+        reason,
+        canDirect: false,
+        youtubeAvailable: grant?.youtubeAvailable === true,
+      });
     },
-    [],
+    [grant],
   );
 
   // Direct died on a Drive lesson that has a YouTube version: fetch the
@@ -973,17 +1017,101 @@ export function ProtectedVideoPlayer({
     }
   }, [togglePlay]);
 
+  // Wrap a non-shell branch so the debug strip survives it too. The strip must
+  // never disappear on failure — that is exactly when it is needed.
+  const withDebug = (node: React.ReactNode) =>
+    debugOn ? (
+      <div className="relative w-full">
+        {node}
+        {debugOverlay}
+      </div>
+    ) : (
+      node
+    );
+
+  // Debug overlay (?pvpdebug=1, native only).
+  const debugOverlay = debugOn ? (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: 8,
+        left: 8,
+        zIndex: 100000,
+        pointerEvents: "none",
+        background: "rgba(0,0,0,0.85)",
+        color: "#fff",
+        fontSize: 10,
+        fontFamily: "monospace",
+        padding: 4,
+        maxWidth: 420,
+        whiteSpace: "pre",
+      }}
+    >
+      {`tier: ${tierState.history.length === 0 ? "pending" : tierState.tier}`}
+      {"\n"}{`tierHistory: ${tierState.history.map((h) => h.tier).join(" → ") || "-"}`}
+      {"\n"}{`tierReason: ${tierState.reason ?? "-"}`}
+      {"\n"}{`playCalls: ${playCallsRef.current}`}
+      {"\n"}{`viewsLeft: ${grant?.viewsLeft ?? "-"}`}
+      {"\n"}{Object.entries(debugRef.current).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n")}
+      {workerFailAgeMs(videoId) !== null && (
+        <span style={{ pointerEvents: "auto" }}>
+          {"\n"}workerFailMarker set {(workerFailAgeMs(videoId)! / 60000).toFixed(1)} min ago{" "}
+          <button
+            type="button"
+            onClick={() => {
+              clearWorkerFailMarker(videoId);
+              dispatchTier({
+                type: "RETRY",
+                workerMode: grant?.mode === "worker",
+                workerSrc: true,
+                hasDriveFile: isDrive,
+                youtubeAvailable: grant?.youtubeAvailable === true,
+              });
+            }}
+            style={{ color: "#3BBCD9", background: "none", border: 0, cursor: "pointer", padding: 0 }}
+          >
+            Clear
+          </button>
+        </span>
+      )}
+    </div>
+  ) : null;
+
   if (over) return null;
 
-  if (failed) {
-    return (
+  // Terminal: the machine ran out of tiers. This is the ONLY state where the
+  // player is replaced by an error card (with Retry) — never a blank box.
+  if (failed || isTerminal(tierState)) {
+    return withDebug(
       <div
-        className="grid aspect-video w-full place-items-center rounded-[20px] border p-8 text-center"
+        className="relative grid aspect-video w-full place-items-center rounded-[20px] border p-8 text-center"
         style={{ borderColor: "var(--kt-line)", background: "#000" }}
         role="alert"
       >
-        <p className="font-bold text-white">Video unavailable right now — try again in a moment.</p>
-      </div>
+        <div>
+          <p className="font-bold text-white">{t.watch.playerFailT}</p>
+          <p className="mt-1 text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
+            {t.watch.playerFailD}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setFailed(false);
+              dispatchTier({
+                type: "RETRY",
+                workerMode: grant?.mode === "worker",
+                workerSrc: true,
+                hasDriveFile: isDrive,
+                youtubeAvailable: grant?.youtubeAvailable === true,
+              });
+            }}
+            className="btn btn-primary mt-4"
+          >
+            {t.watch.retryBtn}
+          </button>
+        </div>
+      </div>,
     );
   }
 
@@ -1063,44 +1191,6 @@ export function ProtectedVideoPlayer({
     />
   );
 
-  // Debug overlay (?pvpdebug=1, native only).
-  const debugOverlay = debugOn ? (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "fixed",
-        top: 8,
-        left: 8,
-        zIndex: 100000,
-        pointerEvents: "none",
-        background: "rgba(0,0,0,0.85)",
-        color: "#fff",
-        fontSize: 10,
-        fontFamily: "monospace",
-        padding: 4,
-        maxWidth: 420,
-        whiteSpace: "pre",
-      }}
-    >
-      {Object.entries(debugRef.current).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join("\n")}
-      {workerFailAgeMs(videoId) !== null && (
-        <span style={{ pointerEvents: "auto" }}>
-          {"\n"}workerFailMarker set {(workerFailAgeMs(videoId)! / 60000).toFixed(1)} min ago{" "}
-          <button
-            type="button"
-            onClick={() => {
-              clearWorkerFailMarker(videoId);
-              setTier("worker");
-            }}
-            style={{ color: "#3BBCD9", background: "none", border: 0, cursor: "pointer", padding: 0 }}
-          >
-            Clear
-          </button>
-        </span>
-      )}
-    </div>
-  ) : null;
-
   // Grant pending: spinner, no URL anywhere yet.
   if (!grant || !embedUrl) {
     return shell(
@@ -1119,7 +1209,7 @@ export function ProtectedVideoPlayer({
      no Drive id). It is the first choice whenever the lesson has a Drive
      file; on failure the parent falls forward to Direct, then YouTube. */
   if (tier === "worker" && grant.src) {
-    return (
+    return withDebug(
       <WorkerVideoPlayer
         src={grant.src}
         expiresAt={grant.expiresAt}
@@ -1142,7 +1232,7 @@ export function ProtectedVideoPlayer({
         }}
         onWorkerHealthy={() => clearWorkerFailMarker(videoId)}
         onFatal={onWorkerFatal}
-      />
+      />,
     );
   }
 
@@ -1150,7 +1240,9 @@ export function ProtectedVideoPlayer({
      — no Worker, no token, no auth, no Supabase. Resolved by loadDirect
      from /api/play {fallback:"direct"}. */
   if (tier === "direct" && grant.directSrc) {
-    return <DirectDriveVideoPlayer src={grant.directSrc} onFatal={onDirectFatal} native={native} />;
+    return withDebug(
+      <DirectDriveVideoPlayer src={grant.directSrc} onFatal={onDirectFatal} native={native} />,
+    );
   }
   if (tier === "direct") {
     return shell(
@@ -1165,10 +1257,12 @@ export function ProtectedVideoPlayer({
     );
   }
 
-  // YouTube tier: the chain ends here. YouTube lessons render the YouTube
-  // web player below; a Drive lesson whose Direct tier died shows the
-  // spinner while the YouTube embed is fetched (the fallback effect above).
-  if (tier === "youtube" && isDrive) {
+  // YouTube tier: the chain ends here. A Drive lesson whose Direct tier died
+  // shows the spinner ONLY until the YouTube embed arrives; once isYt the
+  // render falls through to the YouTube player below. (Returning the spinner
+  // while isYt — the previous `tier === "youtube" && isDrive` condition — made
+  // the YouTube tier unreachable: the embed landed and the spinner stayed.)
+  if (tier === "youtube" && isDrive && !isYt && !failed) {
     return shell(
       <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(0,0,0,0.55)" }} aria-label="loading">
         <span
