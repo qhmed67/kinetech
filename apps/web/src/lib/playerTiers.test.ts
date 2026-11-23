@@ -8,6 +8,7 @@ import {
   tierAfterDirectFailure,
   tierAfterWorkerFailure,
   isDriveLessonEmbed,
+  lessonIsDrive,
   type TierState,
 } from "./playerTiers";
 
@@ -180,5 +181,33 @@ describe("isDriveLessonEmbed", () => {
   it("classifies a legacy mp4 seed and a null embed as NOT a Drive lesson", () => {
     expect(isDriveLessonEmbed("https://cdn.example.com/lesson.mp4", null)).toBe(false);
     expect(isDriveLessonEmbed(null, null)).toBe(false);
+  });
+});
+
+describe("lessonIsDrive — the lesson kind must not change with the active tier", () => {
+  const drivePreview = "https://drive.google.com/file/d/ABC123/preview";
+  const ytEmbed = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ";
+
+  it("stays true for a Drive lesson while the Worker tier is active", () => {
+    // Regression: the old expression excluded mode "worker", so Worker→Direct
+    // was skipped because canDirect was computed from a false isDrive.
+    expect(lessonIsDrive(true, drivePreview)).toBe(true);
+  });
+
+  it("stays true after the grant switches to the Direct tier", () => {
+    expect(lessonIsDrive(true, drivePreview)).toBe(true);
+  });
+
+  it("stays true after the embed was swapped for the YouTube fallback", () => {
+    // Otherwise a failed Direct lesson fell into <video src=drive-preview>,
+    // which plays nothing — the player looked like it had disappeared.
+    expect(lessonIsDrive(true, ytEmbed)).toBe(true);
+  });
+
+  it("falls back to the embed for pre-flag grants", () => {
+    expect(lessonIsDrive(undefined, drivePreview)).toBe(true);
+    expect(lessonIsDrive(undefined, ytEmbed)).toBe(false);
+    expect(lessonIsDrive(undefined, "https://cdn.example.com/a.mp4")).toBe(false);
+    expect(lessonIsDrive(undefined, null)).toBe(false);
   });
 });

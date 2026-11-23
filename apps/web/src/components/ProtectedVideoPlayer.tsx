@@ -18,6 +18,7 @@ import {
   tierReducer,
   nextTierAfterFailure,
   isDriveLessonEmbed,
+  lessonIsDrive,
   isTerminal,
   type LessonTier,
   type TierEvent,
@@ -26,7 +27,6 @@ import {
   YT_STATE,
   extractYoutubeId,
   formatClock,
-  isDriveSource,
   loadYoutubeApi,
   obfuscateId,
   useRotatingSession,
@@ -402,7 +402,7 @@ export function ProtectedVideoPlayer({
   // source), never of the current embed: after the YouTube swap the embed is a
   // YouTube link, and re-deriving it from the embed would drop the lesson into
   // the plain `!isYt` native <video> branch and break playback.
-  const isDrive = grant?.mode !== "worker" && grant?.mode !== "direct" && (grant?.isDrive === true || (embedUrl !== null && !isYt && isDriveSource(embedUrl)));
+  const isDrive = lessonIsDrive(grant?.isDrive, embedUrl);
   // A Drive lesson. The Drive URL never reaches the DOM — the chain renders
   // it via Worker or Direct, and via YouTube once Direct dies (the YouTube
   // render branch below). Non-YouTube non-Drive embeds are natively playable.
@@ -1241,7 +1241,13 @@ export function ProtectedVideoPlayer({
      from /api/play {fallback:"direct"}. */
   if (tier === "direct" && grant.directSrc) {
     return withDebug(
-      <DirectDriveVideoPlayer src={grant.directSrc} onFatal={onDirectFatal} native={native} />,
+      <DirectDriveVideoPlayer
+        src={grant.directSrc}
+        onFatal={onDirectFatal}
+        native={native}
+        watermark={watermark}
+        debugOn={debugOn}
+      />,
     );
   }
   if (tier === "direct") {
