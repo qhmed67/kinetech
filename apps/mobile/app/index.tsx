@@ -302,7 +302,8 @@ export default function Shell() {
             onLoadStart={onLoadStart}
             onMessage={onMessage}
             onScroll={onScroll}
-            scrollEnabled
+            scrollEnabled={!playerExpanded}
+            bounces={!playerExpanded}
             onLoadEnd={() => setRefreshing(false)}
             onNavigationStateChange={(nav) => setCanGoBack(nav.canGoBack)}
             onShouldStartLoadWithRequest={(request) => {
