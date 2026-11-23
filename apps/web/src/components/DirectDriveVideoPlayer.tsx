@@ -98,6 +98,14 @@ export function DirectDriveVideoPlayer({
       clickToPlay: true,
       keyboard: { focused: true, global: false },
     });
+    let fsBtn: HTMLElement | null = null;
+    const onFsClick = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const { onExpand, onCollapse, playerState: ps } = expandCollapseRef.current;
+      if (ps === "expanded" || ps === "expanding") onCollapse();
+      else onExpand();
+    };
     if (native) {
       player.on("enterfullscreen", () => {
         try { (player.fullscreen as any).exit?.(); } catch {}
@@ -105,8 +113,11 @@ export function DirectDriveVideoPlayer({
         if (ps === "expanded" || ps === "expanding") onCollapse();
         else onExpand();
       });
+      fsBtn = (player.elements as any)?.container?.querySelector?.('[data-plyr="fullscreen"]') as HTMLElement | null;
+      fsBtn?.addEventListener("click", onFsClick, { capture: true });
     }
     return () => {
+      fsBtn?.removeEventListener("click", onFsClick, { capture: true } as any);
       try {
         player.destroy();
       } catch {

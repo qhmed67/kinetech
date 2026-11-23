@@ -51,7 +51,11 @@ describe("DirectDriveVideoPlayer — box and overlays", () => {
         src={SRC}
         onFatal={vi.fn()}
         native={false}
-        watermark={<div data-testid="wm" playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })}>student@example.com</div>}
+        watermark={<div data-testid="wm">student@example.com</div>}
+        playerState="normal"
+        onExpand={vi.fn()}
+        onCollapse={vi.fn()}
+        safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })}
       />,
     );
     expect(document.querySelector('[data-testid="wm"]')).toBeTruthy();
