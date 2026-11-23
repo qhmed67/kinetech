@@ -200,9 +200,11 @@ html[dir="rtl"] .hero-script{font-family:var(--font-display);transform:none}
    so fullscreen goes through the watermarked container (double-click). */
 video::-webkit-media-controls-fullscreen-button { display: none !important; }
 
-/* Native WebView shell: Plyr fullscreen is routed through expand/collapse;
-   hide the button so it cannot appear as a misplaced overlay. Web keeps it. */
-.pvp-native .plyr__control--fullscreen { display: none !important; }
+/* Native WebView shell: Plyr fullscreen is routed through expand/collapse.
+   Keep the control in the controls bar, but hide any stray fullscreen control
+   rendered outside the controls bar (misplaced overlay). */
+.pvp-native .plyr__controls [data-plyr="fullscreen"] { display: inline-flex !important; }
+.pvp-native [data-plyr="fullscreen"]:not(.plyr__controls__item) { display: none !important; }
 
 /* Native shell, expanded Drive preview (apps/mobile): the player shell turns
    into a black full-window backdrop; the iframe inside is laid out wider and

@@ -3,6 +3,15 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DirectDriveVideoPlayer } from "./DirectDriveVideoPlayer";
 
 const SRC = "https://www.googleapis.com/drive/v3/files/f1?alt=media&key=AIzaTest&supportsAllDrives=true";
+const BASE_PROPS = {
+  src: SRC,
+  onFatal: vi.fn(),
+  native: false,
+  playerState: "normal" as const,
+  onExpand: vi.fn(),
+  onCollapse: vi.fn(),
+  safeInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+};
 
 beforeAll(() => {
   // jsdom has no TextTrack; Plyr's constructor calls Object.isTrack(textTrack).
@@ -28,7 +37,7 @@ async function dispatchError() {
 
 describe("DirectDriveVideoPlayer — box and overlays", () => {
   it("keeps a non-zero box: every child is absolute, so the root needs a height", () => {
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     const root = document.querySelector(".pvp-direct") as HTMLElement;
     expect(root).toBeTruthy();
     // Regression: without a height the Direct tier collapsed to 0px and the
@@ -42,7 +51,7 @@ describe("DirectDriveVideoPlayer — box and overlays", () => {
         src={SRC}
         onFatal={vi.fn()}
         native={false}
-        watermark={<div data-testid="wm">student@example.com</div>}
+        watermark={<div data-testid="wm" playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })}>student@example.com</div>}
       />,
     );
     expect(document.querySelector('[data-testid="wm"]')).toBeTruthy();
@@ -50,14 +59,14 @@ describe("DirectDriveVideoPlayer — box and overlays", () => {
   });
 
   it("never shows the diagnostic strip to a student", () => {
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     // The strip only exists with ?pvpdebug=1. Its markers must be absent.
     expect(document.body.textContent ?? "").not.toContain("readyState");
     expect(document.body.textContent ?? "").not.toContain("networkState");
   });
 
   it("shows the diagnostic strip when debug is on", async () => {
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 700));
     });
@@ -73,7 +82,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("calls onFatal with drive_403 when the probe returns 403", async () => {
     const onFatal = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 403 })));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     expect(onFatal).toHaveBeenCalledWith("drive_403");
   });
@@ -81,7 +90,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("calls onFatal with drive_429 when the probe returns 429", async () => {
     const onFatal = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 429 })));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     expect(onFatal).toHaveBeenCalledWith("drive_429");
   });
@@ -89,7 +98,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("calls onFatal with error for any other Drive status", async () => {
     const onFatal = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 502 })));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     expect(onFatal).toHaveBeenCalledWith("error");
   });
@@ -97,7 +106,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("calls onFatal with network when the probe rejects", async () => {
     const onFatal = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network"); }));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     expect(onFatal).toHaveBeenCalledWith("network");
   });
@@ -105,7 +114,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("shows the last failure reason in the debug strip", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 403 })));
     // The strip is debug-only now, so the test must opt in.
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={vi.fn()} native={false} debugOn  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     await act(async () => {
       await new Promise((r) => setTimeout(r, 700));
@@ -116,7 +125,7 @@ describe("DirectDriveVideoPlayer", () => {
   it("never loops: onFatal is idempotent", async () => {
     const onFatal = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 403 })));
-    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false} />);
+    render(<DirectDriveVideoPlayer src={SRC} onFatal={onFatal} native={false}  playerState="normal" onExpand={vi.fn()} onCollapse={vi.fn()} safeInsets={() => ({ top: 0, right: 0, bottom: 0, left: 0 })} />);
     await dispatchError();
     await dispatchError();
     expect(onFatal).toHaveBeenCalledTimes(1);
