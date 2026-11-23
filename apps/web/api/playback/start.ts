@@ -134,7 +134,8 @@ type PlaybackErrorCode =
   | "DEVICE_LIMIT"
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
-  | "BAD_REQUEST";
+  | "BAD_REQUEST"
+  | "APP_001";
 
 const PLAYBACK_ERRORS: Record<PlaybackErrorCode, { status: number; ar: string; en: string }> = {
   INVALID_TOKEN: { status: 401, ar: "انتهت الجلسة — سجّل الدخول مرة أخرى.", en: "Session invalid — please sign in again." },
@@ -152,6 +153,7 @@ const PLAYBACK_ERRORS: Record<PlaybackErrorCode, { status: number; ar: string; e
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
   BAD_REQUEST: { status: 400, ar: "طلب غير صالح.", en: "Bad request." },
+  APP_001: { status: 426, ar: "هذا الإصدار من التطبيق لم يعد مدعومًا. حدّث التطبيق للمتابعة.", en: "This app version is no longer supported. Update the app to continue." },
 };
 
 export type ApiRequest = {
@@ -225,6 +227,7 @@ const WARN_CODE: Record<PlaybackErrorCode, string> = {
   SERVER_ERROR: "SYS_002",
   METHOD_NOT_ALLOWED: "VAL_001",
   BAD_REQUEST: "VAL_001",
+  APP_001: "APP_001",
 };
 
 function requestId(headers: ApiRequest["headers"]): string {
@@ -388,6 +391,69 @@ function base64UrlToBinary(input: string): string | null {
     return out;
   } catch {
     return null;
+  }
+}
+
+// ---- app_settings: native_gate (server-side, service-role only) ----
+// Fail-open: a missing/unreadable gate never blocks a student.
+type NativeGate = {
+  gate_enabled: boolean;
+  min_supported_version: string;
+  force_update: boolean;
+  message_ar: string;
+  message_en: string;
+};
+const NATIVE_GATE_DEFAULT: NativeGate = {
+  gate_enabled: true,
+  min_supported_version: "0.0.0",
+  force_update: false,
+  message_ar: "",
+  message_en: "",
+};
+let nativeGateCache: { value: NativeGate; at: number } | null = null;
+const NATIVE_GATE_TTL_MS = 20_000;
+
+function parseSemver(v: string): [number, number, number] | null {
+  const m = String(v).trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function isVersionBelow(version: string, min: string): boolean {
+  const a = parseSemver(version);
+  const b = parseSemver(min);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return true;
+    if (a[i] > b[i]) return false;
+  }
+  return false;
+}
+function normalizeNativeGate(v: unknown): NativeGate {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return NATIVE_GATE_DEFAULT;
+  const r = v as Record<string, unknown>;
+  return {
+    gate_enabled: typeof r.gate_enabled === "boolean" ? r.gate_enabled : NATIVE_GATE_DEFAULT.gate_enabled,
+    min_supported_version: typeof r.min_supported_version === "string" ? r.min_supported_version : NATIVE_GATE_DEFAULT.min_supported_version,
+    force_update: typeof r.force_update === "boolean" ? r.force_update : NATIVE_GATE_DEFAULT.force_update,
+    message_ar: typeof r.message_ar === "string" ? r.message_ar : NATIVE_GATE_DEFAULT.message_ar,
+    message_en: typeof r.message_en === "string" ? r.message_en : NATIVE_GATE_DEFAULT.message_en,
+  };
+}
+async function nativeGateFromDb(admin: { from: (t: string) => any }): Promise<NativeGate> {
+  const now = Date.now();
+  if (nativeGateCache && now - nativeGateCache.at < NATIVE_GATE_TTL_MS) return nativeGateCache.value;
+  try {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", "native_gate")
+      .maybeSingle();
+    if (error || !data) return NATIVE_GATE_DEFAULT;
+    const gate = normalizeNativeGate((data as { value?: unknown }).value);
+    nativeGateCache = { value: gate, at: now };
+    return gate;
+  } catch {
+    return NATIVE_GATE_DEFAULT;
   }
 }
 
@@ -556,6 +622,21 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   const ip = headerFirst(req.headers, "x-forwarded-for").split(",")[0].trim();
   // The device id rides along in the audit row (no schema change needed).
   const ua = `${headerFirst(req.headers, "user-agent").slice(0, 400)} kt-device`.slice(0, 500);
+
+  // ---- Native app version gate (fail-open on config read errors) ---------
+  const appPlatform = headerFirst(req.headers, "x-app-platform").toLowerCase().trim();
+  const appVersion = headerFirst(req.headers, "x-app-version").trim();
+  if (appPlatform === "android" || appPlatform === "ios") {
+    const gate = await nativeGateFromDb(admin);
+    if (gate.gate_enabled && gate.force_update && isVersionBelow(appVersion, gate.min_supported_version)) {
+      emit("warn", "app_gate.blocked", "native app version below minimum", {
+        route: ROUTE, appPlatform, appVersion, min: gate.min_supported_version,
+      }, { code: "APP_001", type: "AppUpdateRequired", message: "native app version below minimum" });
+      const ar = gate.message_ar.trim() || PLAYBACK_ERRORS.APP_001.ar;
+      const en = gate.message_en.trim() || PLAYBACK_ERRORS.APP_001.en;
+      return res.status(426).json({ ok: false, code: "APP_001", ar, en, correlation_id: REQ.getStore() ?? null });
+    }
+  }
 
   // Single-session gate — same rule as api/play.ts.
   const { data: sess, error: sessError } = await admin

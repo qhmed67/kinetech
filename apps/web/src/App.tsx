@@ -26,6 +26,7 @@ import { wireStoreSync } from "./store";
 import { AdminLogin } from "./admin/AdminLogin";
 import { AdminApp } from "./admin/AdminApp";
 import { PlayerTestPage } from "./pages/PlayerTest";
+import { AppUpdateRequired } from "./components/AppUpdateRequired";
 
 function syncDoc(lang: Lang) {
   document.documentElement.lang = lang;
@@ -200,6 +201,10 @@ export default function App() {
 
   return (
     <LangContext.Provider value={ctx}>
+      {/* Blocking "update required" screen — WEB layer, so an old native
+          shell still renders it (it loads this web app from Vercel).
+          Fail-open: it never shows without a known, too-old client version. */}
+      <AppUpdateRequired />
       {isAdminRoute ? (
         <div className="langfade" style={{ opacity: fading ? 0 : 1 }} aria-busy={fading}>
           {route.name === "adminLogin" && <AdminLogin />}

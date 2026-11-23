@@ -4,6 +4,7 @@ import { useLang } from "./lang";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { log } from "../lib/logger";
+import { notifyUpdateRequired } from "../lib/appGate";
 import { useScrollLock } from "../lib/useScrollLock";
 import { WorkerVideoPlayer } from "./WorkerVideoPlayer";
 import { DirectDriveVideoPlayer } from "./DirectDriveVideoPlayer";
@@ -323,6 +324,19 @@ export function ProtectedVideoPlayer({
         if (!alive) return;
         if (!r.ok || !body || body.ok !== true || typeof body.embedUrl !== "string") {
           const code = typeof body?.code === "string" ? body.code : "";
+          if (r.status === 426 || code === "APP_001") {
+            // The app build is older than the minimum supported version:
+            // show the web-layer update screen (hosted on Vercel, so even an
+            // old shell renders the new screen).
+            notifyUpdateRequired({
+              ar: typeof body?.ar === "string" ? body.ar : "",
+              en: typeof body?.en === "string" ? body.en : "",
+              minSupportedVersion:
+                typeof (body as { min_supported_version?: unknown } | null)?.min_supported_version === "string"
+                  ? String((body as { min_supported_version?: string }).min_supported_version)
+                  : "",
+            });
+          }
           if (r.status === 401 || code === "SESSION_MISMATCH" || code === "INVALID_TOKEN") {
             setOver(true);
             cbRef.current.onSessionDead();

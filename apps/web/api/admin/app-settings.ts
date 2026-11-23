@@ -11,7 +11,31 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "@supabase/supabase-js";
 
 const ROUTE = "/api/admin/app-settings";
-const ALLOWED_KEYS = new Set(["video_worker_enabled"]);
+const ALLOWED_KEYS = new Set(["video_worker_enabled", "native_gate"]);
+
+type NativeGate = {
+  gate_enabled: boolean;
+  min_supported_version: string;
+  force_update: boolean;
+  message_ar: string;
+  message_en: string;
+};
+
+const DEFAULT_NATIVE_GATE: NativeGate = {
+  gate_enabled: true,
+  min_supported_version: "0.0.0",
+  force_update: false,
+  message_ar: "",
+  message_en: "",
+};
+
+function isValidSemver(v: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(v.trim());
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
 
 type Code = "BAD_REQUEST" | "FORBIDDEN" | "NOT_FOUND" | "SERVER_ERROR" | "METHOD_NOT_ALLOWED" | "INVALID_TOKEN";
 const ERR: Record<Code, { status: number; ar: string; en: string }> = {
@@ -214,9 +238,10 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
       .maybeSingle();
     if (error) return fail(res, "SERVER_ERROR", "settings-read");
     if (!data) {
-      // Missing row => fail-safe default (Worker enabled). Report explicitly.
+      // Missing row => fail-safe defaults. Report explicitly.
+      const defaultValue = key === "native_gate" ? DEFAULT_NATIVE_GATE : { enabled: true };
       return res.status(200).json({
-        ok: true, key, value: { enabled: true }, updated_at: null, updated_by: null, updated_by_name: null, missing: true,
+        ok: true, key, value: defaultValue, updated_at: null, updated_by: null, updated_by_name: null, missing: true,
       });
     }
     const row = data as { key: string; value: unknown; updated_at: string | null; updated_by: string | null };
@@ -232,52 +257,51 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   }
 
   // POST/PUT: write setting. Validate value shape per key.
-  if (key === "video_worker_enabled") {
-    const parsed = parseWorkerEnabledValue(body.value);
-    if (!parsed) return fail(res, "BAD_REQUEST", "value-shape");
+  const writeSetting = async (parsed: unknown, logExtra: Record<string, unknown>) => {
     const { data: oldRow, error: readErr } = await admin
       .from("app_settings")
       .select("value,updated_at,updated_by")
       .eq("key", key)
       .maybeSingle();
-    if (readErr) return fail(res, "SERVER_ERROR", "settings-read-before-write");
+    if (readErr) return fail(res, "SERVER_ERROR", "settings-read");
+    const oldValue = (oldRow as { value: unknown } | null)?.value ?? null;
 
-    const oldValue = (oldRow as { value?: unknown } | null)?.value ?? null;
-    const nowIso = new Date().toISOString();
-    const { data: upserted, error: writeErr } = await admin
+    const { data: upserted, error: upsertErr } = await admin
       .from("app_settings")
-      .upsert(
-        { key, value: parsed, updated_at: nowIso, updated_by: authData.user.id },
-        { onConflict: "key" },
-      )
+      .upsert({
+        key,
+        value: parsed,
+        updated_at: new Date().toISOString(),
+        updated_by: authData.user.id,
+      }, { onConflict: "key" })
       .select("key,value,updated_at,updated_by")
       .single();
-    if (writeErr) return fail(res, "SERVER_ERROR", "settings-write");
+    if (upsertErr || !upserted) return fail(res, "SERVER_ERROR", "settings-write");
 
-    // Audit row (who/when/old->new). Best-effort but important; log failure.
     const { error: auditErr } = await admin.from("app_settings_audit").insert({
       key,
       old_value: oldValue,
       new_value: parsed,
       changed_by: authData.user.id,
-      changed_at: nowIso,
+      changed_at: new Date().toISOString(),
       source: "admin-api",
     });
     if (auditErr) {
-      emit("warn", "api.admin.settings_audit_failed", "settings audit insert failed", {
+      emit("warn", "settings.audit.fail", "app_settings_audit insert failed", {
         route: ROUTE, key,
-      }, { code: "SYS_002", type: "DbError", message: "app_settings_audit insert failed" });
+      }, { code: "SYS_002", type: "DbError", message: auditErr.message });
     }
-
-    emit("info", "api.admin.settings_updated", "setting updated", {
-      route: ROUTE, key, enabled: parsed.enabled,
+    emit("info", "settings.write", "app_settings updated", {
+      route: ROUTE, key, ...logExtra, by: authData.user.id,
     });
 
     const row = upserted as { key: string; value: unknown; updated_at: string; updated_by: string | null };
     let updatedByName: string | null = null;
-    const { data: p } = await admin.from("profiles").select("name,email").eq("id", authData.user.id).maybeSingle();
-    const prof = p as { name?: string | null; email?: string | null } | null;
-    updatedByName = (prof?.name || prof?.email || null) as string | null;
+    if (row.updated_by) {
+      const { data: p } = await admin.from("profiles").select("name,email").eq("id", row.updated_by).maybeSingle();
+      const prof = p as { name?: string | null; email?: string | null } | null;
+      updatedByName = (prof?.name || prof?.email || null) as string | null;
+    }
     return res.status(200).json({
       ok: true,
       key: row.key,
@@ -287,6 +311,26 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
       updated_by: row.updated_by,
       updated_by_name: updatedByName,
     });
+  };
+
+  if (key === "video_worker_enabled") {
+    const parsed = parseWorkerEnabledValue(body.value);
+    if (!parsed) return fail(res, "BAD_REQUEST", "value-shape");
+    return writeSetting(parsed, { enabled: parsed.enabled });
+  }
+
+  if (key === "native_gate") {
+    if (!isRecord(body.value)) return fail(res, "BAD_REQUEST", "value-shape");
+    const raw = body.value as Record<string, unknown>;
+    const gate: NativeGate = {
+      gate_enabled: typeof raw.gate_enabled === "boolean" ? raw.gate_enabled : DEFAULT_NATIVE_GATE.gate_enabled,
+      min_supported_version: typeof raw.min_supported_version === "string" ? raw.min_supported_version.trim() : DEFAULT_NATIVE_GATE.min_supported_version,
+      force_update: typeof raw.force_update === "boolean" ? raw.force_update : DEFAULT_NATIVE_GATE.force_update,
+      message_ar: typeof raw.message_ar === "string" ? raw.message_ar : DEFAULT_NATIVE_GATE.message_ar,
+      message_en: typeof raw.message_en === "string" ? raw.message_en : DEFAULT_NATIVE_GATE.message_en,
+    };
+    if (!isValidSemver(gate.min_supported_version)) return fail(res, "BAD_REQUEST", "invalid-semver");
+    return writeSetting(gate, { gate_enabled: gate.gate_enabled, force_update: gate.force_update, min_supported_version: gate.min_supported_version });
   }
 
   return fail(res, "BAD_REQUEST", "unsupported-key");

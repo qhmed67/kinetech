@@ -10,6 +10,7 @@ Agents: when you add a failure path, add its row in the same change. When debugg
 | SYS_003 | Direct tier: DRIVE_BROWSER_KEY not set | api/play.ts | server env var missing on the deployment | set DRIVE_BROWSER_KEY and redeploy |
 | VAL_001 | Request validation failed | presentation | bad client input | `ctx.fields` lists the invalid fields |
 | AUTH_001 | Not authenticated | auth middleware | missing/expired token | check token expiry; clock skew |
+| APP_001 | Native app version below minimum supported version | `api/play.ts` | client sent X-App-Version below native_gate.min_supported_version while force_update enabled | check app_settings.native_gate; confirm client headers; raise min only after new native build is released |
 | AUTH_002 | Not authorized | application | permission rule | check role/permission rule in the use case |
 | DB_001 | Database unavailable / timeout | infrastructure repo | connection pool, DB down | check DB health, pool size, slow query log |
 | EXT_001 | External API failed | infrastructure client | provider outage, timeout, bad credentials | check provider status, `ctx.status`, retry policy |

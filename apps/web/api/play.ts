@@ -42,7 +42,8 @@ type PlayErrorCode =
   | "BAD_REQUEST"
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
-  | "SYS_003";
+  | "SYS_003"
+  | "APP_001";
 
 // Mirrors api/config.ts PLAY_ERRORS — keep in sync.
 const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
@@ -60,6 +61,7 @@ const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: strin
   SERVER_ERROR: { status: 500, ar: "خطأ في الخادم — حاول مجددًا.", en: "Server error — please retry." },
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
   SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
+  APP_001: { status: 426, ar: "هذا الإصدار من التطبيق لم يعد مدعومًا. حدّث التطبيق للمتابعة.", en: "This app version is no longer supported. Update the app to continue." },
 };
 
 export type ApiRequest = {
@@ -132,6 +134,7 @@ const WARN_CODE: Record<PlayErrorCode, string> = {
   SERVER_ERROR: "SYS_002",
   METHOD_NOT_ALLOWED: "VAL_001",
   SYS_003: "SYS_003",
+  APP_001: "APP_001",
 };
 
 function requestId(headers: ApiRequest["headers"]): string {
@@ -255,6 +258,76 @@ async function readWorkerEnabled(admin: AdminDb): Promise<boolean> {
 
 export function _resetWorkerEnabledCacheForTests(): void {
   workerEnabledCache = null;
+}
+
+// ---- app_settings: native_gate (server-side, service-role only) ----
+type NativeGate = {
+  gate_enabled: boolean;
+  min_supported_version: string;
+  force_update: boolean;
+  message_ar: string;
+  message_en: string;
+};
+const NATIVE_GATE_DEFAULT: NativeGate = {
+  gate_enabled: true,
+  min_supported_version: "0.0.0",
+  force_update: false,
+  message_ar: "",
+  message_en: "",
+};
+let nativeGateCache: { value: NativeGate; at: number } | null = null;
+const NATIVE_GATE_TTL_MS = 20_000;
+
+function parseSemver(v: string): [number, number, number] | null {
+  const m = String(v).trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function isVersionBelow(version: string, min: string): boolean {
+  const a = parseSemver(version);
+  const b = parseSemver(min);
+  if (!a || !b) return false; // fail-open on invalid
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return true;
+    if (a[i] > b[i]) return false;
+  }
+  return false;
+}
+function normalizeNativeGate(v: unknown): NativeGate {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return NATIVE_GATE_DEFAULT;
+  const r = v as Record<string, unknown>;
+  return {
+    gate_enabled: typeof r.gate_enabled === "boolean" ? r.gate_enabled : NATIVE_GATE_DEFAULT.gate_enabled,
+    min_supported_version: typeof r.min_supported_version === "string" ? r.min_supported_version : NATIVE_GATE_DEFAULT.min_supported_version,
+    force_update: typeof r.force_update === "boolean" ? r.force_update : NATIVE_GATE_DEFAULT.force_update,
+    message_ar: typeof r.message_ar === "string" ? r.message_ar : NATIVE_GATE_DEFAULT.message_ar,
+    message_en: typeof r.message_en === "string" ? r.message_en : NATIVE_GATE_DEFAULT.message_en,
+  };
+}
+
+async function nativeGateFromDb(admin: AdminDb): Promise<NativeGate> {
+  const now = Date.now();
+  if (nativeGateCache && now - nativeGateCache.at < NATIVE_GATE_TTL_MS) return nativeGateCache.value;
+  try {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", "native_gate")
+      .maybeSingle();
+    if (error || !data) {
+      // Fail-open: missing/unreadable gate must not lock users out.
+      return NATIVE_GATE_DEFAULT;
+    }
+    const gate = normalizeNativeGate((data as { value?: unknown }).value);
+    nativeGateCache = { value: gate, at: now };
+    return gate;
+  } catch {
+    return NATIVE_GATE_DEFAULT;
+  }
+}
+
+export function _resetNativeGateCacheForTests(): void {
+  nativeGateCache = null;
 }
 
 // No process/Buffer/@types/node here on purpose: Vercel's function pipeline
@@ -634,6 +707,21 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
       /* audit best-effort */
     }
     return fail(res, "SESSION_MISMATCH");
+  }
+
+  // ---- Native app gate (fail-open on config read errors) -----------------
+  const appPlatform = headerFirst(req.headers, "x-app-platform").toLowerCase().trim();
+  const appVersion = headerFirst(req.headers, "x-app-version").trim();
+  if (appPlatform === "android" || appPlatform === "ios") {
+    const gate = await nativeGateFromDb(admin);
+    if (gate.gate_enabled && gate.force_update && isVersionBelow(appVersion, gate.min_supported_version)) {
+      const ar = gate.message_ar.trim() || PLAY_ERRORS.APP_001.ar;
+      const en = gate.message_en.trim() || PLAY_ERRORS.APP_001.en;
+      emit("warn", "app_gate.blocked", "native app version below minimum", {
+        route: ROUTE, appPlatform, appVersion, min: gate.min_supported_version,
+      }, { code: "APP_001", type: "AppUpdateRequired", message: "native app version below minimum" });
+      return res.status(426).json({ ok: false, code: "APP_001", ar, en, correlation_id: REQ.getStore() ?? null, min_supported_version: gate.min_supported_version });
+    }
   }
 
   // ---- YouTube fallback: a separate, READ-ONLY call -----------------------
