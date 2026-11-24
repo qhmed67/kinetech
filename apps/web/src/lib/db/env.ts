@@ -2,10 +2,16 @@
    pulling @supabase/supabase-js into the main bundle. */
 
 export function getSupabaseEnv(): { url: string; key: string } {
-  const env = import.meta.env as Record<string, string | undefined>;
-  const url = env.VITE_SUPABASE_URL ?? "";
+  // Read every variable as a MEMBER of import.meta.env, never the object
+  // itself: Vite serializes a bare `import.meta.env` into the bundle as a
+  // whole object, which ships EVERY VITE_* variable of the build scope —
+  // including retired ones (the VITE_DRIVE_BROWSER_KEY Google key did leak
+  // into the preview bundle that way). Member access inlines only the two
+  // public values below, so nothing else can ever reach the browser.
+  const url = import.meta.env.VITE_SUPABASE_URL ?? "";
   // Canonical name first, legacy alias as fallback. Never hardcode either.
-  const key = env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+  const key =
+    import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
   return { url, key };
 }
 
