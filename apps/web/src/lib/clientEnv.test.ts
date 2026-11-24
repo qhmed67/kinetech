@@ -34,6 +34,47 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
+/** Strip comments (a comment may name a variable — it must not count as a
+ *  read of it). Strings are kept, so a "//" inside a URL is not a comment. */
+function stripComments(source: string): string {
+  let out = "";
+  let i = 0;
+  let quote: string | null = null;
+  while (i < source.length) {
+    const c = source[i];
+    if (quote) {
+      out += c;
+      if (c === "\\") {
+        out += source[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
 const PUBLIC_VITE_VARS = [
   "VITE_SUPABASE_URL",
   "VITE_SUPABASE_ANON_KEY",
@@ -49,14 +90,29 @@ describe("client bundle never carries a Drive key", () => {
   });
 
   it("exposes only the three public Supabase variables to the browser", () => {
-    const envModule = readFileSync(join(SRC, "lib", "db", "env.ts"), "utf8");
+    const envModule = stripComments(readFileSync(join(SRC, "lib", "db", "env.ts"), "utf8"));
     const names = [...envModule.matchAll(/(VITE_[A-Z0-9_]+)/g)].map((m) => m[1]);
     expect([...new Set(names)].sort()).toEqual([...PUBLIC_VITE_VARS].sort());
   });
 
+  it("never reads import.meta.env as a whole object", () => {
+    // Vite serializes a BARE `import.meta.env` into the bundle as the whole
+    // environment object — which ships every VITE_* variable of the build
+    // scope (that is how the retired VITE_DRIVE_BROWSER_KEY Google key
+    // reached the preview bundle). Only member access may be used.
+    for (const file of sourceFiles(SRC)) {
+      const text = stripComments(readFileSync(file, "utf8"));
+      const bare = [...text.matchAll(/import\.meta\.env(?!\.)/g)];
+      expect({ file: file.replace(`${WEB_ROOT}/`, ""), hits: bare.length }).toEqual({
+        file: file.replace(`${WEB_ROOT}/`, ""),
+        hits: 0,
+      });
+    }
+  });
+
   it("never mentions a browser key variable anywhere in the source", () => {
     const offenders = sourceFiles(SRC).filter((f) => {
-      const text = readFileSync(f, "utf8");
+      const text = stripComments(readFileSync(f, "utf8"));
       return (
         text.includes("VITE_DRIVE_BROWSER_KEY") ||
         /AIza[0-9A-Za-z_-]{20,}/.test(text) ||
