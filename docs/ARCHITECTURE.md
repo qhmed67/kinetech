@@ -1,6 +1,9 @@
 # Architecture — rules, not a tour
 Loaded in EVERY session. Keep under ~120 lines. Fill the module map via `/bootstrap`.
 
+> The system tour (components, play sequence, env map, failure modes, runbook)
+> lives in [`docs/SYSTEM.md`](SYSTEM.md).
+
 ## Shape
 ```
 presentation + infrastructure  ──►  application  ──►  domain
