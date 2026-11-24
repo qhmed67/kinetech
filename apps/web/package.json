@@ -11,6 +11,7 @@
     "dev": "vite",
     "prebuild": "node scripts/gen-supabase-config.cjs",
     "build": "tsc -b && vite build",
+    "postbuild": "node scripts/check-bundle-secrets.cjs",
     "lint": "oxlint",
     "preview": "vite preview",
     "test:unit": "vitest run",

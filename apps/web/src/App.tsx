@@ -25,7 +25,6 @@ import { parseHash, type Route } from "./router";
 import { wireStoreSync } from "./store";
 import { AdminLogin } from "./admin/AdminLogin";
 import { AdminApp } from "./admin/AdminApp";
-import { PlayerTestPage } from "./pages/PlayerTest";
 import { AppUpdateRequired } from "./components/AppUpdateRequired";
 
 function syncDoc(lang: Lang) {
@@ -232,7 +231,6 @@ export default function App() {
         {route.name === "contact" && <ContactPage />}
         {route.name === "privacy" && <Privacy />}
         {route.name === "terms" && <Terms />}
-        {route.name === "playerTest" && <PlayerTestPage fid={route.fid} />}
         {route.name === "notfound" && <NotFound />}
         <Footer />
       </div>
