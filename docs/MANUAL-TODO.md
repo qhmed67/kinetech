@@ -15,7 +15,7 @@
 
 ## TL;DR — الحالة الحقيقية دلوقتي (2026-11-24)
 
-1. كل الشغل البرمجي اتدمج: `main` = `7fd78fc`، والـ PRs #46 و #47 و #48 **كلهم MERGED**، ومفيش أي PR مفتوح.
+1. كل الشغل البرمجي اتدمج: `main` = `f54a9db` (آخر merge = PR #49 — التوثيق)، والـ PRs #46 و #47 و #48 و #49 **كلهم MERGED**، ومفيش أي PR مفتوح.
 2. **Production** شغال على `https://kinetechtest.vercel.app`، ومنسوب headers جديدة اتأكدت من بره: `x-content-type-options: nosniff`، `x-frame-options: SAMEORIGIN`، `referrer-policy: strict-origin-when-cross-origin`، `permissions-policy: …, fullscreen=(self)`.
 3. الـ JS bundle في الإنتاج **نضيف**: مفيش أي string يبدأ بـ `AIza` (مفتاح Google) ومفيش أي اسم متغيّر `VITE_*` — غير رابط Supabase + `sb_publishable…` (عادي ومتوقع).
 4. `app_settings.video_worker_enabled = {enabled:false}` — طبقة الـ Worker **مقفولة**، واللي شغال فعليًا هو **Direct Drive ثم YouTube** بس.
@@ -25,6 +25,8 @@
 8. `app_settings.native_gate = {gate_enabled:true, min_supported_version:"0.0.0", force_update:false}` — مفيش حد متمنع من الـ update.
 9. الـ Worker اللي بيخدم R2 اسمه `kinetech-video` **مش موجود أصلًا** على حساب Cloudflare (error 10007). الموجود بس هو prototype اسمه `kinetech-video-test` (بيخدم من Google Drive وبيستخدم مفتاح اختبار).
 10. يعني: **التشغيل المتاح = Direct Drive → YouTube**، والـ R2 rollout هو شغل Phase 5 (الشرح الكامل في `docs/R2-WORKER-SETUP.md`).
+11. **جدول `app_logs` فيه صفوف `env=dev` بس** (كل الـ 2777 صف، مفيش صف واحد من الإنتاج). أخطاء الإنتاج تُقرأ من **سجلات Vercel**: Vercel → `kinetechtest` → **Logs** — مش من `app_logs`.
+12. 4 برانشات قديمة لسه على الـ remote وفيها شغل مش مندمج: اتعملها **archive tags** (مش merge، مش delete) — شوف PHASE 9 (آخر الفصول).
 
 ---
 
@@ -34,7 +36,7 @@
 
 - [ ] **قرّر: هل مفتاح Google يعتبر مكشوف (leaked)؟** — **المكان:** نفس الشاشة + Google Cloud Console → APIs & Services → Credentials. — **ليه:** لو `VITE_DRIVE_BROWSER_KEY` كان موجود على **Production** وقت ما النسخة القديمة كانت منشورة، فالمفتاح كان داخل `assets/env-*.js` على موقع عام → يُعتبر **مكشوف** ولازم يتعمله rotate. لو كان موجود على **Preview** بس، فالمخاطرة أقل (الـ preview كان محمي بـ SSO) برضه الأفضل تعمل rotate واحد نظيف في Phase 1 وتخلص. — **التأكد:** قرار مكتوب: **مكشوف** أو **مش مكشوف**. — `CAUTION` — **الرجوع:** المفتاح القديم بيشتغل لحد ما تحذفه من Google Cloud (يعني Phase 1 هيقياس لو حذفته قبل ما تظبط `DRIVE_BROWSER_KEY` الجديد).
 
-- [ ] **نظّف الـ PRs** — **المكان:** `gh pr list --state all` (أو GitHub → Pull requests). — **ليه:** #46 (Task 1+2) و #47 (Task 3) و #48 (headers + guard + docs) **كلهم MERGED**. مفيش PR مفتوح ولا برانش قديم محتاج إغلاق غلط. — **التأكد:** `gh pr list --state open` يطلع **فاضي**. بعد ما تتأكد، تقدر تحذف البرانش: `git push origin --delete feat/plan-v2-tasks` (اختياري، مش لازم). — `SAFE` — **الرجوع:** البرانش لسه موجود على الـ remote لحد ما تحذفه.
+- [ ] **نظّف الـ PRs** — **المكان:** `gh pr list --state all` (أو GitHub → Pull requests). — **ليه:** #46 (Task 1+2) و #47 (Task 3) و #48 (headers + guard + docs) و #49 (قائمة المهام) **كلهم MERGED**. مفيش PR مفتوح ولا برانش قديم محتاج إغلاق غلط. — **التأكد:** `gh pr list --state open` يطلع **فاضي**. بعد ما تتأكد، تقدر تحذف البرانش: `git push origin --delete feat/plan-v2-tasks` (اختياري، مش لازم). — `SAFE` — **الرجوع:** البرانش لسه موجود على الـ remote لحد ما تحذفه.
 
 - [ ] **فاتح الـ verify guard** — **المكان:** `ALLOW_TEST_CHANGES=1 bash scripts/verify.sh full` من جوه الـ repo + Node 24: `export PATH="$HOME/.nvm/versions/node/v24.22.2/bin:$PATH"`. — **ليه:** الـ guard `guard: tests not weakened` بيشتكي من حذف `PlayerTest.test.tsx` (حذف أنت وافق عليه). الـ bypass **بتاعك** هو اللي يقدر يعمله، مش الوكيل. — **التأكد:** آخر سطر `VERIFY OK (… checks, mode=full)`. ملاحظة: بعد ما #48 اتدمج بقى الـ diff ضد `main` مستندات بس، والـ guard بيعدّي من غير bypass (اتأكدنا: `VERIFY OK` على البرانش ده). — `SAFE` — **الرجوع:** مفيش.
 
@@ -69,7 +71,7 @@
 
 ## PHASE 2 — التحقق على الإنتاج بحساب طالب حقيقي (الدمج خلص فعلًا)
 
-> الدمج خلص فعلًا (#46، #47، #48 — `main` = `7fd78fc`، و Production اتنشر من `main`). البنود دي **تحقق** على الإنتاج المنشور، مش دمج جديد.
+> الدمج خلص فعلًا (#46، #47، #48، #49 — `main` = `f54a9db`، و Production اتنشر من `main`). البنود دي **تحقق** على الإنتاج المنشور، مش دمج جديد.
 
 - [ ] **الدرس يشتغل من حساب طالب** — **المكان:** `https://kinetechtest.vercel.app` → Dashboard → درس → تشغيل. — **ليه:** لازم نتأكد إن السلسلة (Direct → YouTube) شغالة بعد تغييرات اليوم، وإن `viewsLeft` بيتنقص صح. — **التأكد:** الفيديو شغال + في الـ Network tab رد `/api/play` فيه `mode` صحيح. — `SAFE` — **الرجوع:** مفيش.
 
@@ -99,7 +101,7 @@
 
 - [ ] **قرار `session_limits`: log-only ولا enforce؟** — **المكان:** Admin → Settings → **"Concurrent sessions & devices"**. — **ليه:** دلوقتي `mode="log"` (تسجيل بس، مفيش منع). لو هتعمل enforce، لازم تبص على الأرقام الأول. — **التأكد (قبل التغيير):** بص على السجلات:
  - `npm run logs -- --source db --level warn --route /api/play --since 24h` (محتاج `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` في env المحلي؛ لو مش عندكهم، استخدم الـ SQL اللي تحته في Supabase → SQL Editor — نفس النتيجة) — الـ event بالظبط اسمه **`api.play.session_limit`** (level `warn`) وبيبقى فيه `ctx.reason` = `sessions` أو `devices`، والـ error code = `AUTH_003` (جلسات) أو `AUTH_004` (أجهزة).
- - أو SQL مباشرة (الجدول `app_logs` موجود وشغال):
+ - أو SQL مباشرة (الجدول `app_logs` موجود وشغال — بس **لحد دلوقتي كل صفوفه `env=dev`**؛ أخطاء الإنتاج تُقرأ من Vercel → `kinetechtest` → **Logs**):
  ```sql
  select ctx->>'reason' as reason, ctx->>'liveSessions' as sessions, ctx->>'liveDevices' as devices, count(*)
    from app_logs
@@ -165,14 +167,37 @@
 
 - [ ] **تأكد إن مفيش حاجة تانية ماسكه القيم القديمة** — **المكان:** `grep -rn "sbp_\|AIza\|GRANT_SECRET\|STREAM_TOKEN_SECRET" --exclude-dir=node_modules --exclude-dir=.git . | grep -v "^\./docs/"` (ودوّر على مكان السطر لو ظهر) + راجع env vars على Vercel/Cloudflare/Supabase. — **ليه:** بتدور على أي بقايا للـ tokens القديمة في ملفات أو إعدادات. — **التأكد:** مفيش نتايج خارج الـ docs. — `SAFE` — **الرجوع:** مفيش.
 
-- [ ] **نظّف الـ junk** (كله ignored، والحذر إنك متحذفش حاجة الـ owner محتاجها) — **المكان/الأوامر:**
- ```
- git worktree remove .verify-wt # worktree قديم على commit 0908f52
- git worktree prune # ينضّف الـ worktrees المسجّلة والمتخليّة عنها
- rm -rf .fixbackup .pages-proxy-hold .playwright-mcp .live.html .live2.html .prod-index.html head.bin new_head.bin
- # الفيديوهات: GazaStrip1.mp4 GazaStrip1_720.mp4 (اسأل نفسك قبل الحذف)
- ```
- — **ليه:** ملفات تجريب/سكراشبت ما ليها أي لازمة، وفيها مفاتيح ومقاطع. — **التأكد:** `git worktree list` يطلع من غير `.verify-wt`، و`ls` ما لقاش الملفات. **الملفات دي متتبعة أصلاً في `.gitignore` فحذفها مش يأثر على الـ repo.** — `SAFE` — **الرجوع:** مفيش (كلها ملفات محلية مالهاش قيمة). — **ملاحظة:** `newPLanV2.md` و `problem-v1.md` و `scripts/merge-pr39-if-green.sh` **لسه visible في git status** (مش ignored) — لو عايزهم في الريبو أضفهم بـ `git add`، أو خلّيهم عندك.
+- [ ] **نظّف الـ junk** — **قاعدة قبل أي حذف:** كل حاجة تحت موجودة في `.gitignore` (يعني **مش متتبعة** في git) → حذفها **مش بيأثر على الريبو**، واللي **متتبّع** في git **مينفعش** يتحذف هنا. اتأكد بـ `git status` الأول.
+
+  **آمن تتحذفه (سكراشبت ومخرجات مولّدة، كله ignored):**
+  ```
+  rm -rf .fixbackup .freebuff .pages-proxy-hold .playwright-mcp
+  rm -f .live.html .live2.html .prod-index.html head.bin new_head.bin
+  rm -rf apps/web/test-results          # مخرجات Playwright
+  rm -rf apps/mobile/.expo               # cache
+  rm -rf backend/video-worker/.wrangler  # state محلي — بيتولّد تاني
+  rm -f apps/web/public/supabase-config.js  # ملف متولّد (gen-supabase-config.cjs) وقيمه فاضية
+  ```
+  — **ليه:** ملفات مولّدة/مؤقتة، مالها أي لازمة، ومفيش منها أي tracked file. — **التأكد:** `ls` ما لقاش الملفات + `git status` نضيف. — `SAFE` — **الرجوع:** مفيش (بتتولّد تاني).
+
+  **الـ worktree القديم (داخل الريبو):**
+  ```
+  git worktree remove .verify-wt          # قديم، detached عند 0908f52
+  git worktree prune                     # ينضّف الـ worktrees المسجّلة والمتخليّة عنها
+  ```
+  — لو رفض الأمر الأول ( فيه تغييرات غير متتبعة)، **اتأكد الأول** وبعدين `git worktree remove --force .verify-wt`. — `SAFE` — **الرجوع:** `git worktree add .verify-wt 0908f52`.
+
+  **خلّيه (مالك أو إعدادات أدوات — متحذفش):**
+  - `AGENTS.md` — دليل المشروع بتاعك (ignored، بس هو المرجع؛ **خلّيه**).
+  - `docs/mobile/` — دوكمنتدشن local خاصة بيك (ignored؛ **خلّيه**).
+  - `.agents/` و `.opencode/` و `opencode.json` و `skills-lock.json` — إعدادات أدواتك (ignored؛ **خلّيه**).
+  - `react-native-plan-full.md` — خطتك (ignored؛ **خلّيه**).
+  - `apps/mobile/.env` — إعدادات الموبايل المحلية (`EXPO_PUBLIC_*` بس، مفيش مفتاح Google؛ **خلّيه**).
+  - `/home/ahmed/.sesori/worktrees/kinetech-4f698349/gray-capybara` — **worktree بتاع أداة تانية** خارج الريبو (detached عند `81acdf6`): سيبه كما هو، ما تمسحوش غير لما تأكد إن الأداة مش شغالة.
+  - `GazaStrip1.mp4` و `GazaStrip1_720.mp4` — مقاطع اختبار: **قرارك** (احذفهم أو خلّيهم).
+  - `newPLanV2.md` و `problem-v1.md` و `scripts/merge-pr39-if-green.sh` — **ملفاتك أنت**، ولسه **مش ignored** (بتظهر في `git status`): لو عايزهم في الريبو أضفهم بـ `git add`، أو خلّيهم عندك. **ما يمسحش من غير قرار.**
+
+  — **ليه:** بننضّف اللي هو مولّد/مؤقت، وبنترك اللي مالك. — **التأكد:** `git worktree list` من غير `.verify-wt` + `git status --ignored` يبقى نضيف إلا اللي قرارك بيخلّيه. — `SAFE` — **الرجوع:** الملفات المولّدة بتتولّد تاني، واللي خلّيناه ما اتمسحش.
 
 - [ ] **لو هتسلّمني توكنات جديد بعدين** — **المكان:** GitHub tokens + Vercel + Supabase + Cloudflare. — **ليه:** الأفضل توكنات قصيرة العمر ومحدودة الصلاحية. — **التأكد:** كل توكن جديد scope محدود (read/write على اللي محتاجه بس) + expiry قريب. — `SAFE` — **الرجوع:** تلغيه من الـ dashboard.
 
@@ -182,7 +207,7 @@
 
 ### 8.1 رجوع الـ merge نفسه
 
-- [ ] **رجوع الكود بتاع آخر merge** — **المكان:** GitHub → PR #48 → **⋯** → **Revert** → Review → **Revert pull request**. (أو `git revert -m 1 <merge-commit>` + push على برانش جديد + PR.) — **ليه:** آخر merge كان #48 (`7fd78fc`) وفيه headers + guard + إصلاح الـ env. الرجوع بيرجّع السلوك القديم بالكامل. — **التأكد:** الـ deployment الجديد **Ready** والـ headers رجعت/اختفت حسب reverted content. — `CAUTION` — **الرجوع:** اعمل revert للـ revert.
+- [ ] **رجوع الكود بتاع آخر merge** — **المكان:** GitHub → PR #49 → **⋯** → **Revert** → Review → **Revert pull request**. (أو `git revert -m 1 f54a9db` + push على برانش جديد + PR.) — **ليه:** آخر merge هو **#49** (`f54a9db`) وهو **توثيق فقط** (قائمة المهام) — رجوعه **مش** بيأثر على الكود. لو عايز ترجّع **سلوك** (الـ headers + الـ guard + إصلاح الـ env) → **PR #48** (`7fd78fc`) هو الهدف، وهو لسه valid revert target. — **التأكد:** الـ deployment الجديد **Ready** والـ headers رجعت/اختفت حسب reverted content. — `CAUTION` — **الرجوع:** اعمل revert للـ revert.
 
 - [ ] **أو انشر الـ deployment القديم على طول** — **المكان:** Vercel → Deployments → اختر deployment قديم (قبل الـ merge) → **⋯** → **Promote to Production**. — **ليه:** أسرع رجوع وقت، من غير ما تلمس الـ git. — **التأكد:** الـ production بيرجع للنسخة القديمة (الـ etag/الـ content بيتغيّر). — `CAUTION` — **الرجوع:** Promote أي deployment تاني.
 
@@ -210,9 +235,26 @@
 
 - [ ] **لو migration اتعطلت أثناء التطبيق** — **المكان:** Supabase → SQL Editor → شوف الرسالة. — **ليه:** الـ SQL بتاع الـ migration idempotent (يتنفذ تاني من غير مشكلة) فيمكن تعيد تشغيله. — **التأكد:** الـ error بيختفي والجداول/الصفوف موجودة (`select key,value from app_settings order by key;`). — `CAUTION` — **الرجوع:** ملوش — الـ migrations idempotent.
 
+## PHASE 9 — احسمها بعدين (مؤرشف، مش مدموج)
+
+4 برانشات قديمة من شغل سابق لسه على الـ remote، وفيها commits **مش موجودة في `main`** (`git cherry` بيقول كده). اتعملها **archive tags** — **مش اتدمجت، ومش اتمسحت**. البرانشات نفسها سابت زي ما هي.
+
+| الـ archive tag | البرانش الأصلي | الـ commit | فيه إيه |
+|---|---|---|---|
+| `archive/feat/mobile-app-bootstrap` | `feat/mobile-app-bootstrap` | `8d338dc` | 6 commits: شغل Expo bootstrap (تصغير الـ bundle + الشاشات) |
+| `archive/feat/mobile-screens` | `feat/mobile-screens` | `185fc4b` | 5 commits: شاشات الموبايل + تسجيل baseline `stable-2026-11-21` |
+| `archive/worker-video-proto` | `feat/worker-video-proto` | `2e1cbb8` | 6 commits: prototype الـ Worker → Drive → YouTube chain |
+| `archive/fix/mobile-drive-playerView` | `fix/mobile-drive-playerView` | `e7eeaf8` | 5 commits: ضبط إطار Drive جوه fullscreen |
+
+- [ ] **احسمهم لما ييجي وقتها** — **المكان:** GitHub → Tags (أو `git ls-remote --tags origin | grep archive/`). — **ليه:** الشغل القديم محفوظ كـ tags من غير ما يفضل مفتوح على الـ remote، ومتشالوش نهائيًا. — **التأكد:** الـ 4 tags موجودة على الـ remote. — `SAFE` — **الرجوع:** `git tag -d archive/<name> && git push origin :refs/tags/archive/<name>` (البرانش نفسه موجود كمان، فالشغل مش ضاع).
+- **لو decided تدمج واحد منهم:** افتح PR جديد من البرانش الأصلي (لسه موجود) أو من الـ tag — **مش من الـ main مباشرة**.
+- **مهم:** ده **مش** بيعني إن ده شغل ناقص في `main` — ده شغل **قديم** بقى متقادم من شغلات سابقة، وأغلبه ات solving بطرق تانية في `main` (زي `fix/player-tier-machine` و `fix/watch-resolve-and-worker-diag` اللي طلعوا متطابقين في المحتوى مع `main`).
+
 ---
 
 ## لو حاجة باظت — أول حاجة تشيك عليها
+
+> **مهم:** `app_logs` دلوقتي فيه صفوف **`env=dev` بس** (مفيش صف واحد من الإنتاج). أخطاء **الإنتاج** تُقرأ من **سجلات Vercel**: Vercel → project `kinetechtest` → **Logs** (lines السيرفر) — مش من `app_logs`. أمر `npm run logs -- --source db` بيفيدك للـ dev ولـ الـ client-shipped lines بس.
 
 | العَرَض | أول حاجة تشيك | الـ toggle / الرجوع |
 |---|---|---|
