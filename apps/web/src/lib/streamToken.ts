@@ -18,8 +18,48 @@
 
 export const STREAM_TOKEN_VERSION = 2 as const;
 
-/** Worker stream grants live one hour; the client refreshes before expiry. */
+/** Worker stream grants live one hour; the client refreshes before expiry.
+ *  The server may shorten or extend this via app_settings
+ *  (`stream_token_ttl_seconds`), clamped to the window below. */
 export const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
+/** Shortest / longest grant lifetime the server will sign. */
+export const STREAM_TOKEN_TTL_MIN_SECONDS = 300;
+export const STREAM_TOKEN_TTL_MAX_SECONDS = 7200;
+
+/** How long before expiry the Worker token is renewed (fixed default). */
+export const REFRESH_LEAD_MS = 5 * 60 * 1000;
+/** Never refresh earlier than this, whatever the token lifetime is. */
+export const MIN_REFRESH_LEAD_MS = 30 * 1000;
+
+/**
+ * How long before expiry the token is renewed.
+ *
+ * The lead is proportional to the token lifetime (a fifth of it), never more
+ * than the fixed 5 minutes and never less than 30 seconds — otherwise a short
+ * token (5 minutes) would be refreshed immediately and then again and again.
+ * A missing / invalid lifetime falls back to the fixed 5-minute lead.
+ */
+export function refreshLeadMs(ttlSeconds: number): number {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return REFRESH_LEAD_MS;
+  const proportional = Math.floor((ttlSeconds * 1000) / 5);
+  return Math.min(REFRESH_LEAD_MS, Math.max(MIN_REFRESH_LEAD_MS, proportional));
+}
+
+/** Clamp a configured lifetime into the window the server is willing to sign. */
+export function clampStreamTokenTtl(value: unknown): number {
+  const raw =
+    value && typeof value === "object"
+      ? (value as { seconds?: unknown }).seconds
+      : value;
+  // A missing / empty setting keeps the previous default (fail-open).
+  if (raw === null || raw === undefined || raw === "") return STREAM_TOKEN_TTL_SECONDS;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return STREAM_TOKEN_TTL_SECONDS;
+  const i = Math.floor(n);
+  if (i < STREAM_TOKEN_TTL_MIN_SECONDS) return STREAM_TOKEN_TTL_MIN_SECONDS;
+  if (i > STREAM_TOKEN_TTL_MAX_SECONDS) return STREAM_TOKEN_TTL_MAX_SECONDS;
+  return i;
+}
 
 export type EncryptedFid = { iv: string; ct: string };
 

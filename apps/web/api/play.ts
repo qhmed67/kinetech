@@ -43,7 +43,9 @@ type PlayErrorCode =
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
   | "SYS_003"
-  | "APP_001";
+  | "APP_001"
+  | "TOO_MANY_SESSIONS"
+  | "TOO_MANY_DEVICES";
 
 // Mirrors api/config.ts PLAY_ERRORS — keep in sync.
 const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
@@ -62,6 +64,8 @@ const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: strin
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
   SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
   APP_001: { status: 426, ar: "هذا الإصدار من التطبيق لم يعد مدعومًا. حدّث التطبيق للمتابعة.", en: "This app version is no longer supported. Update the app to continue." },
+  TOO_MANY_SESSIONS: { status: 403, ar: "عدد الجلسات المفتوحة تجاوز الحد المسموح. أغلق جلسات أخرى أو تواصل مع الدعم.", en: "Too many open sessions for this account. Close another session or contact support." },
+  TOO_MANY_DEVICES: { status: 403, ar: "عدد الأجهزة المفتوحة تجاوز الحد المسموح. تواصل مع الدعم.", en: "Too many devices are playing at once. Contact support." },
 };
 
 export type ApiRequest = {
@@ -135,6 +139,8 @@ const WARN_CODE: Record<PlayErrorCode, string> = {
   METHOD_NOT_ALLOWED: "VAL_001",
   SYS_003: "SYS_003",
   APP_001: "APP_001",
+  TOO_MANY_SESSIONS: "AUTH_003",
+  TOO_MANY_DEVICES: "AUTH_004",
 };
 
 function requestId(headers: ApiRequest["headers"]): string {
@@ -330,6 +336,260 @@ export function _resetNativeGateCacheForTests(): void {
   nativeGateCache = null;
 }
 
+// ---- app_settings: session limits / direct drive / stream TTL (Task 3) ----
+//
+// Every read here is FAIL-OPEN: a missing row, a malformed value or a DB
+// error falls back to the CURRENT behaviour, so a settings problem can never
+// lock a student out of a lesson.
+//
+// The limit rules below are a SELF-CONTAINED COPY of
+// apps/web/src/lib/sessionGuard.ts (Vercel's function bundler rejects
+// cross-file imports inside api/). The copy is asserted against the shared
+// module by apps/web/src/api/session-guard-copies.test.ts — if the two ever
+// drift, that test fails.
+const SESSION_LIMITS_KEY = "session_limits";
+const DIRECT_DRIVE_KEY = "direct_drive_enabled";
+const STREAM_TTL_KEY = "stream_token_ttl_seconds";
+const SETTINGS_TTL_MS = 20_000;
+
+/** Default Worker stream-grant lifetime. Kept in sync with the copies. */
+const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
+/** Shortest / longest stream-grant lifetime the server will sign. */
+const STREAM_TOKEN_TTL_MIN_SECONDS = 300;
+const STREAM_TOKEN_TTL_MAX_SECONDS = 7200;
+
+type SessionLimits = {
+  mode: "log" | "enforce";
+  maxConcurrentSessions: number;
+  maxConcurrentDevices: number;
+  heartbeatTtlMinutes: number;
+  ipBinding: boolean;
+};
+
+/** LOG-ONLY is the shipped default: observe first, block only on request. */
+const DEFAULT_SESSION_LIMITS: SessionLimits = {
+  mode: "log",
+  maxConcurrentSessions: 2,
+  maxConcurrentDevices: 3,
+  heartbeatTtlMinutes: 30,
+  ipBinding: false,
+};
+
+type SessionObservation = {
+  sessionKey: string;
+  deviceId?: string | null;
+  lastSeen: string;
+  ip?: string | null;
+};
+
+function toPositiveInt(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return i >= 1 ? i : fallback;
+}
+
+export function normalizeSessionLimits(value: unknown): SessionLimits {
+  const fallback = DEFAULT_SESSION_LIMITS;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return fallback;
+  const raw = value as Record<string, unknown>;
+  const ttl = toPositiveInt(raw.heartbeat_ttl_minutes, fallback.heartbeatTtlMinutes);
+  return {
+    mode: raw.mode === "enforce" ? "enforce" : "log",
+    maxConcurrentSessions: toPositiveInt(raw.max_concurrent_sessions, fallback.maxConcurrentSessions),
+    maxConcurrentDevices: toPositiveInt(raw.max_concurrent_devices, fallback.maxConcurrentDevices),
+    heartbeatTtlMinutes: Math.max(5, Math.min(ttl, 24 * 60)),
+    ipBinding: raw.ip_binding === true,
+  };
+}
+
+function isLiveSession(
+  observation: Pick<SessionObservation, "lastSeen">,
+  ttlMinutes: number,
+  nowMs: number = Date.now(),
+): boolean {
+  const seen = Date.parse(observation.lastSeen ?? "");
+  if (!Number.isFinite(seen)) return false;
+  return nowMs - seen < ttlMinutes * 60_000;
+}
+
+export function evaluateSessionLimits(
+  limits: SessionLimits,
+  observations: SessionObservation[],
+  current: { sessionKey: string; deviceId?: string | null; ip?: string | null },
+  nowMs: number = Date.now(),
+): {
+  allowed: boolean;
+  liveSessions: number;
+  liveDevices: number;
+  reason: "sessions" | "devices" | "ip" | null;
+  wouldBlock: boolean;
+} {
+  const live = observations.filter((o) => isLiveSession(o, limits.heartbeatTtlMinutes, nowMs));
+  const sessionKeys = new Set<string>();
+  const deviceIds = new Set<string>();
+  for (const row of live) {
+    if (row.sessionKey) sessionKeys.add(row.sessionKey);
+    const device = row.deviceId ?? "";
+    if (device) deviceIds.add(device);
+  }
+  const liveSessions = sessionKeys.size;
+  const liveDevices = deviceIds.size;
+  const base = {
+    allowed: true,
+    liveSessions,
+    liveDevices,
+    reason: null as "sessions" | "devices" | "ip" | null,
+    wouldBlock: false,
+  };
+  // IP binding is optional and OFF by default: mobile networks rotate the
+  // public IP mid-lesson, so binding would produce false positives.
+  if (limits.ipBinding && current.ip) {
+    const own = live.find((o) => o.sessionKey === current.sessionKey);
+    if (own && own.ip && own.ip !== current.ip) {
+      return { ...base, reason: "ip", allowed: limits.mode !== "enforce", wouldBlock: true };
+    }
+  }
+  if (liveSessions > limits.maxConcurrentSessions) {
+    return { ...base, reason: "sessions", allowed: limits.mode !== "enforce", wouldBlock: true };
+  }
+  if (liveDevices > limits.maxConcurrentDevices) {
+    return { ...base, reason: "devices", allowed: limits.mode !== "enforce", wouldBlock: true };
+  }
+  return base;
+}
+
+// One small cached reader for the three new keys. The cache lives per
+// serverless instance; a change may take up to SETTINGS_TTL_MS to propagate.
+const settingsCache = new Map<string, { value: unknown; at: number }>();
+
+async function readSetting(admin: AdminDb, key: string): Promise<unknown> {
+  const now = Date.now();
+  const hit = settingsCache.get(key);
+  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.value;
+  try {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+    if (error || !data) {
+      settingsCache.set(key, { value: null, at: now });
+      return null;
+    }
+    const value = (data as { value?: unknown }).value ?? null;
+    settingsCache.set(key, { value, at: now });
+    return value;
+  } catch {
+    settingsCache.set(key, { value: null, at: now });
+    return null;
+  }
+}
+
+export function _resetSettingsCacheForTests(): void {
+  settingsCache.clear();
+}
+
+/** Direct Drive tier switch. Fail-safe: a missing row means ENABLED. */
+async function readDirectDriveEnabled(admin: AdminDb): Promise<boolean> {
+  const raw = await readSetting(admin, DIRECT_DRIVE_KEY);
+  if (raw && typeof raw === "object" && (raw as { enabled?: unknown }).enabled === false) return false;
+  return true;
+}
+
+/** Clamp the configured stream-token lifetime into the allowed window. */
+function clampStreamTokenTtl(raw: unknown): number {
+  const value =
+    raw && typeof raw === "object" ? (raw as { seconds?: unknown }).seconds : raw;
+  // A missing / empty setting keeps the previous default (fail-open).
+  if (value === null || value === undefined || value === "") return STREAM_TOKEN_TTL_SECONDS;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return STREAM_TOKEN_TTL_SECONDS;
+  const i = Math.floor(n);
+  if (i < STREAM_TOKEN_TTL_MIN_SECONDS) return STREAM_TOKEN_TTL_MIN_SECONDS;
+  if (i > STREAM_TOKEN_TTL_MAX_SECONDS) return STREAM_TOKEN_TTL_MAX_SECONDS;
+  return i;
+}
+
+async function readStreamTokenTtl(admin: AdminDb): Promise<number> {
+  return clampStreamTokenTtl(await readSetting(admin, STREAM_TTL_KEY));
+}
+
+/**
+ * Concurrent session / device limit.
+ *
+ * Writes a heartbeat row for this session, counts the live sessions and
+ * devices of the account and applies the limits.
+ *
+ * LOG-ONLY by default: an over-limit account is RECORDED and LOGGED but still
+ * allowed to play. Only the explicit "enforce" mode refuses the request.
+ * Every failure (missing table, DB error, unexpected shape) is FAIL-OPEN.
+ */
+async function checkSessionLimits(
+  admin: AdminDb,
+  userId: string,
+  current: { sessionKey: string; deviceId: string | null; ip: string; kind: string },
+): Promise<{ blocked: boolean; reason: "sessions" | "devices" | "ip" | null }> {
+  const allow = { blocked: false, reason: null as "sessions" | "devices" | "ip" | null };
+  try {
+    const limits = normalizeSessionLimits(await readSetting(admin, SESSION_LIMITS_KEY));
+    const { error: upsertError } = await admin.from("play_sessions").upsert(
+      {
+        user_id: userId,
+        session_key: current.sessionKey,
+        device_id: current.deviceId,
+        kind: current.kind,
+        ip: current.ip || null,
+        last_seen: new Date().toISOString(),
+      },
+      { onConflict: "user_id,session_key" },
+    );
+    // Table missing (migration not applied yet) => the limit is skipped.
+    if (upsertError) return allow;
+    const cutoff = new Date(Date.now() - limits.heartbeatTtlMinutes * 60_000).toISOString();
+    const { data, error } = await admin
+      .from("play_sessions")
+      .select("session_key,device_id,last_seen,ip")
+      .eq("user_id", userId)
+      .gte("last_seen", cutoff);
+    if (error || !data) return allow;
+    const observations = (Array.isArray(data) ? data : []).map((row) => ({
+      sessionKey: String((row as { session_key?: unknown }).session_key ?? ""),
+      deviceId: ((row as { device_id?: unknown }).device_id ?? null) as string | null,
+      lastSeen: String((row as { last_seen?: unknown }).last_seen ?? ""),
+      ip: ((row as { ip?: unknown }).ip ?? null) as string | null,
+    }));
+    const verdict = evaluateSessionLimits(limits, observations, {
+      sessionKey: current.sessionKey,
+      deviceId: current.deviceId,
+      ip: current.ip,
+    });
+    if (verdict.wouldBlock) {
+      emit(
+        "warn",
+        "api.play.session_limit",
+        "concurrent session limit reached",
+        {
+          route: ROUTE,
+          reason: verdict.reason,
+          mode: limits.mode,
+          liveSessions: verdict.liveSessions,
+          liveDevices: verdict.liveDevices,
+        },
+        {
+          code: verdict.reason === "devices" ? "AUTH_004" : "AUTH_003",
+          type: "SessionLimit",
+          message: "concurrent session limit reached",
+        },
+      );
+    }
+    return { blocked: !verdict.allowed, reason: verdict.reason };
+  } catch {
+    // Fail-open: an unreachable table or an unexpected error never blocks.
+    return allow;
+  }
+}
+
 // No process/Buffer/@types/node here on purpose: Vercel's function pipeline
 // has repeatedly failed to resolve node types, killing every invocation.
 // globalThis + string ops typecheck under any lib >= ES2020.
@@ -458,7 +718,6 @@ function youtubeId(src: string): string | null {
  * encrypted payload; the Worker decrypts. Legacy v1 tokens (plaintext fid)
  * still verify. No token, id or URL is ever logged. ---- */
 const STREAM_TOKEN_VERSION = 2;
-const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
 
 type EncryptedFid = { iv: string; ct: string };
 
@@ -724,6 +983,26 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     }
   }
 
+  // ---- Concurrent session / device limit (Task 3) --------------------------
+  // LOG-ONLY by default: an over-limit account is recorded and logged but
+  // still allowed to play. Only the explicit "enforce" mode refuses it, and
+  // every failure inside the guard is fail-open.
+  const deviceId = headerFirst(req.headers, "x-kt-device-id").trim().toLowerCase();
+  const sessionKey = deviceId !== "" ? deviceId : sessionId;
+  const limit = await checkSessionLimits(admin, authData.user.id, {
+    sessionKey,
+    deviceId: deviceId !== "" ? deviceId : null,
+    ip,
+    kind: deviceId !== "" ? "native" : "web",
+  });
+  if (limit.blocked) {
+    return fail(
+      res,
+      limit.reason === "devices" ? "TOO_MANY_DEVICES" : "TOO_MANY_SESSIONS",
+      limit.reason ?? "limit",
+    );
+  }
+
   // ---- YouTube fallback: a separate, READ-ONLY call -----------------------
   // The client asks for this only after the Worker and Drive tiers failed.
   // It never counts a view (the initial grant already did) and never weakens
@@ -763,6 +1042,15 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   if (fallback === "direct") {
     const g = await fallbackGate(admin, authData.user.id, videoId);
     if (!g.ok) return fail(res, g.code, g.detail);
+    // Admin toggle: the Direct Drive tier can be switched off server-side.
+    // When it is off the Drive file id and the browser key are NEVER handed
+    // out — this is the branch that exposes them.
+    if (!(await readDirectDriveEnabled(admin))) {
+      emit("info", "api.play.direct_disabled", "direct drive tier disabled by app setting", {
+        route: ROUTE,
+      });
+      return fail(res, "SYS_003", "direct-disabled");
+    }
     const { data: dsSrcRow } = await admin
       .from("video_sources")
       .select("src_url")
@@ -845,6 +1133,9 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     ((videoRow?.youtube_video_id ?? "").trim() || (youtubeId(raw) ?? ""));
   const workerBase = getEnvVar("VIDEO_STREAM_WORKER_URL").replace(/\/+$/, "");
   const streamSecret = getEnvVar("STREAM_TOKEN_SECRET");
+  // Is the Direct Drive tier available right now? The client uses this to
+  // skip the tier entirely instead of asking for a grant it cannot get.
+  const directAvailable = await readDirectDriveEnabled(admin);
 
   // Retention: opportunistic 90-day purge (pg_cron may not exist on free tiers).
   try {
@@ -862,6 +1153,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   // Missing row / DB read failure => enabled (fail-safe, logged in readWorkerEnabled).
   let workerSrc: string | null = null;
   let workerExp = 0;
+  let workerTtl = STREAM_TOKEN_TTL_SECONDS;
   const workerEnabled = await readWorkerEnabled(admin);
   try {
     if (!workerEnabled) {
@@ -875,7 +1167,11 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
         throw new TypeError("worker url is not http(s)");
       }
       const now = Math.floor(Date.now() / 1000);
-      const exp = now + STREAM_TOKEN_TTL_SECONDS;
+      // Lifetime of the grant: configurable (clamped 300..7200s). It is the
+      // window in which a COPIED stream URL still works.
+      const ttl = await readStreamTokenTtl(admin);
+      const exp = now + ttl;
+      workerTtl = ttl;
       const token = await signStreamToken(
         {
           v: STREAM_TOKEN_VERSION,
@@ -922,6 +1218,8 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
       // second /api/play (which would burn another view).
       embedUrl: embed,
       expiresAt: new Date(workerExp * 1000).toISOString(),
+      ttlSeconds: workerTtl,
+      directAvailable,
       youtubeAvailable: youtubeVideoId !== "",
       minutes: play.minutes,
       watermark: { email: play.email, phoneLast4: play.phone_last4 },
@@ -933,6 +1231,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     ok: true,
     mode: "embed",
     embedUrl: embed,
+    directAvailable,
     youtubeAvailable: youtubeVideoId !== "",
     minutes: play.minutes,
     watermark: { email: play.email, phoneLast4: play.phone_last4 },

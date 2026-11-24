@@ -23,6 +23,10 @@ import { createClient } from "@supabase/supabase-js";
 
 const STREAM_TOKEN_VERSION = 2;
 const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
+const STREAM_TOKEN_TTL_MIN_SECONDS = 300;
+const STREAM_TOKEN_TTL_MAX_SECONDS = 7200;
+const STREAM_TTL_KEY = "stream_token_ttl_seconds";
+const SETTINGS_TTL_MS = 20_000;
 
 const DRIVE_FILE = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
 const DRIVE_ID_PARAM = /drive\.google\.com\/(?:open|uc)\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)/;
@@ -335,6 +339,56 @@ async function readVideoRow(
   return (basic.data ?? null) as VideoRow | null;
 }
 
+/**
+ * Lifetime of a Worker stream grant — configured in app_settings
+ * (key `stream_token_ttl_seconds`), clamped to 300..7200 seconds.
+ *
+ * FAIL-OPEN: a missing row, a malformed value or a DB read error keeps the
+ * previous default (3600s). The refresh must never fail because of a
+ * settings problem.
+ */
+let streamTtlCache: { value: number; at: number } = { value: STREAM_TOKEN_TTL_SECONDS, at: 0 };
+
+function clampStreamTokenTtl(raw: unknown): number {
+  const value =
+    raw && typeof raw === "object" ? (raw as { seconds?: unknown }).seconds : raw;
+  // A missing / empty setting keeps the previous default (fail-open).
+  if (value === null || value === undefined || value === "") return STREAM_TOKEN_TTL_SECONDS;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return STREAM_TOKEN_TTL_SECONDS;
+  const i = Math.floor(n);
+  if (i < STREAM_TOKEN_TTL_MIN_SECONDS) return STREAM_TOKEN_TTL_MIN_SECONDS;
+  if (i > STREAM_TOKEN_TTL_MAX_SECONDS) return STREAM_TOKEN_TTL_MAX_SECONDS;
+  return i;
+}
+
+async function readStreamTokenTtl(admin: { from: (table: string) => any }): Promise<number> {
+  const now = Date.now();
+  if (now - streamTtlCache.at < SETTINGS_TTL_MS) return streamTtlCache.value;
+  try {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", STREAM_TTL_KEY)
+      .maybeSingle();
+    if (error || !data) {
+      streamTtlCache = { value: STREAM_TOKEN_TTL_SECONDS, at: now };
+      return STREAM_TOKEN_TTL_SECONDS;
+    }
+    const value = clampStreamTokenTtl((data as { value?: unknown }).value);
+    streamTtlCache = { value, at: now };
+    return value;
+  } catch {
+    streamTtlCache = { value: STREAM_TOKEN_TTL_SECONDS, at: now };
+    return STREAM_TOKEN_TTL_SECONDS;
+  }
+}
+
+export function _resetStreamTtlCacheForTests(): void {
+  streamTtlCache.at = 0;
+  streamTtlCache.value = STREAM_TOKEN_TTL_SECONDS;
+}
+
 async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   if (req.method !== "POST") return fail(res, "METHOD_NOT_ALLOWED", "method");
   const url = getEnvVar("SUPABASE_URL");
@@ -413,7 +467,11 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
   if (driveFileId === "") return fail(res, "VIDEO_MISSING", "no-drive-id");
 
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + STREAM_TOKEN_TTL_SECONDS;
+  // Lifetime of the renewed grant: the same configurable window as the first
+  // grant (clamped 300..7200s). A missing row or a DB error keeps the
+  // previous default — fail-open, the refresh must never fail hard.
+  const ttl = await readStreamTokenTtl(admin);
+  const exp = now + ttl;
   const streamToken = await signStreamToken(
     { v: STREAM_TOKEN_VERSION, uid: userId, efid: await encryptFid(driveFileId, streamSecret), exp, jti: newJti() },
     streamSecret,
@@ -423,6 +481,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     ok: true,
     src: `${workerBase}/v?t=${encodeURIComponent(streamToken)}`,
     expiresAt: new Date(exp * 1000).toISOString(),
+    ttlSeconds: ttl,
     minutes: typeof videoRow.mins === "number" ? videoRow.mins : 0,
   });
 }

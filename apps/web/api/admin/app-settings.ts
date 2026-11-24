@@ -11,7 +11,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "@supabase/supabase-js";
 
 const ROUTE = "/api/admin/app-settings";
-const ALLOWED_KEYS = new Set(["video_worker_enabled", "native_gate"]);
+const ALLOWED_KEYS = new Set([
+  "video_worker_enabled",
+  "native_gate",
+  "session_limits",
+  "direct_drive_enabled",
+  "stream_token_ttl_seconds",
+]);
 
 type NativeGate = {
   gate_enabled: boolean;
@@ -28,6 +34,69 @@ const DEFAULT_NATIVE_GATE: NativeGate = {
   message_ar: "",
   message_en: "",
 };
+
+/** Concurrent session / device limit. LOG-ONLY is the shipped default. */
+type SessionLimits = {
+  mode: "log" | "enforce";
+  max_concurrent_sessions: number;
+  max_concurrent_devices: number;
+  heartbeat_ttl_minutes: number;
+  ip_binding: boolean;
+};
+
+const DEFAULT_SESSION_LIMITS: SessionLimits = {
+  mode: "log",
+  max_concurrent_sessions: 2,
+  max_concurrent_devices: 3,
+  heartbeat_ttl_minutes: 30,
+  ip_binding: false,
+};
+
+/** Worker stream-grant lifetime window (seconds). */
+const STREAM_TTL_MIN_SECONDS = 300;
+const STREAM_TTL_MAX_SECONDS = 7200;
+const DEFAULT_STREAM_TTL_SECONDS = 3600;
+
+function positiveInt(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return i >= 1 ? i : fallback;
+}
+
+/** Normalise the session_limits value so a typo can never break the server. */
+function parseSessionLimits(value: unknown): SessionLimits {
+  if (!isRecord(value)) return DEFAULT_SESSION_LIMITS;
+  const ttl = positiveInt(value.heartbeat_ttl_minutes, DEFAULT_SESSION_LIMITS.heartbeat_ttl_minutes);
+  return {
+    mode: value.mode === "enforce" ? "enforce" : "log",
+    max_concurrent_sessions: positiveInt(value.max_concurrent_sessions, DEFAULT_SESSION_LIMITS.max_concurrent_sessions),
+    max_concurrent_devices: positiveInt(value.max_concurrent_devices, DEFAULT_SESSION_LIMITS.max_concurrent_devices),
+    heartbeat_ttl_minutes: Math.max(5, Math.min(ttl, 24 * 60)),
+    // IP binding stays OFF unless the admin explicitly turns it on: mobile
+    // networks rotate the public IP mid-lesson.
+    ip_binding: value.ip_binding === true,
+  };
+}
+
+/** Clamp the stream-token lifetime into the window the server will sign. */
+function parseStreamTtl(value: unknown): { seconds: number } {
+  const raw = isRecord(value) ? value.seconds : value;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return { seconds: DEFAULT_STREAM_TTL_SECONDS };
+  const i = Math.floor(n);
+  if (i < STREAM_TTL_MIN_SECONDS) return { seconds: STREAM_TTL_MIN_SECONDS };
+  if (i > STREAM_TTL_MAX_SECONDS) return { seconds: STREAM_TTL_MAX_SECONDS };
+  return { seconds: i };
+}
+
+/** The value served for a MISSING row — the fail-safe default per key. */
+function defaultValueFor(key: string): unknown {
+  if (key === "native_gate") return DEFAULT_NATIVE_GATE;
+  if (key === "session_limits") return DEFAULT_SESSION_LIMITS;
+  if (key === "stream_token_ttl_seconds") return { seconds: DEFAULT_STREAM_TTL_SECONDS };
+  return { enabled: true };
+}
 
 function isValidSemver(v: string): boolean {
   return /^\d+\.\d+\.\d+$/.test(v.trim());
@@ -239,7 +308,7 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     if (error) return fail(res, "SERVER_ERROR", "settings-read");
     if (!data) {
       // Missing row => fail-safe defaults. Report explicitly.
-      const defaultValue = key === "native_gate" ? DEFAULT_NATIVE_GATE : { enabled: true };
+      const defaultValue = defaultValueFor(key);
       return res.status(200).json({
         ok: true, key, value: defaultValue, updated_at: null, updated_by: null, updated_by_name: null, missing: true,
       });
@@ -313,10 +382,26 @@ async function handle(req: ApiRequest, res: ApiResponse): Promise<unknown> {
     });
   };
 
-  if (key === "video_worker_enabled") {
+  if (key === "video_worker_enabled" || key === "direct_drive_enabled") {
     const parsed = parseWorkerEnabledValue(body.value);
     if (!parsed) return fail(res, "BAD_REQUEST", "value-shape");
     return writeSetting(parsed, { enabled: parsed.enabled });
+  }
+
+  if (key === "session_limits") {
+    const parsed = parseSessionLimits(body.value);
+    return writeSetting(parsed, {
+      mode: parsed.mode,
+      max_concurrent_sessions: parsed.max_concurrent_sessions,
+      max_concurrent_devices: parsed.max_concurrent_devices,
+      heartbeat_ttl_minutes: parsed.heartbeat_ttl_minutes,
+      ip_binding: parsed.ip_binding,
+    });
+  }
+
+  if (key === "stream_token_ttl_seconds") {
+    const parsed = parseStreamTtl(body.value);
+    return writeSetting(parsed, { seconds: parsed.seconds });
   }
 
   if (key === "native_gate") {

@@ -51,3 +51,19 @@ backend/video-worker/.wrangler/
 tools/upload-lesson/work/
 *.key
 *.m3u8
+
+# Local scratch / debugging artifacts (never commit)
+.fixbackup/
+.live.html
+.live2.html
+.prod-index.html
+.pages-proxy-hold/
+.playwright-mcp/
+.verify-wt/
+head.bin
+new_head.bin
+*.mp4
+!apps/web/public/assets/*.mp4
+
+# Agent session logs — they can hold access tokens (never commit)
+session-*.md

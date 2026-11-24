@@ -12,6 +12,8 @@ Agents: when you add a failure path, add its row in the same change. When debugg
 | AUTH_001 | Not authenticated | auth middleware | missing/expired token | check token expiry; clock skew |
 | APP_001 | Native app version below minimum supported version | `api/play.ts` | client sent X-App-Version below native_gate.min_supported_version while force_update enabled | check app_settings.native_gate; confirm client headers; raise min only after new native build is released |
 | AUTH_002 | Not authorized | application | permission rule | check role/permission rule in the use case |
+| AUTH_003 | Too many concurrent sessions for one account | `api/play.ts` | `session_limits` is in `enforce` mode and the live session count is above the limit | check app_settings.session_limits (mode, max_concurrent_sessions, heartbeat_ttl_minutes); the live rows are in play_sessions |
+| AUTH_004 | Too many concurrent devices for one account | `api/play.ts` | `session_limits` is in `enforce` mode and the live device count is above the limit | check app_settings.session_limits (mode, max_concurrent_devices); the live rows are in play_sessions |
 | DB_001 | Database unavailable / timeout | infrastructure repo | connection pool, DB down | check DB health, pool size, slow query log |
 | EXT_001 | External API failed | infrastructure client | provider outage, timeout, bad credentials | check provider status, `ctx.status`, retry policy |
 | LOG_001 | Log upload rate limited | `api/log.ts` | too many client batches from one IP | check client ship rate; raise window only with owner approval |
