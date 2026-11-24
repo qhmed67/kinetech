@@ -67,3 +67,7 @@ new_head.bin
 
 # Agent session logs — they can hold access tokens (never commit)
 session-*.md
+
+# Owner checklists — kept on the machine only, never committed
+docs/MANUAL-TODO.md
+docs/HANDOFF.md
