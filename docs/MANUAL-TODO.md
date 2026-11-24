@@ -98,8 +98,14 @@
 - [ ] **قرار الـ self-signup (تسجيل حساب جديد مفتوح؟)** — **المكان:** Supabase Dashboard (`zvtzhcrmqzwkifcwnbcl`) → **Authentication** → **Providers** → **Email** → **"Allow new users to sign up"**. — **ليه:** دلوقتي `disable_signup=false` (أي حد يعمل حساب) + `apps/web/public/signup.html` بيعمل signup من المتصفح. **النتيجة:** حد عايز يعيد المشاهدة يعمل حساب جديد فيلـ.reset حد الـ 3 views لكل درس. من غير signup مفتوح، الـ cap بيبقى حقيقي. — **التأكد:** الـ toggle متظبط حسب قرارك (OFF = الحسابات الجديدة متتعملش). — `CAUTION` — **الرجوع:** رجّعه ON من نفس الشاشة (لو أكتر من حساب لازم يتعمل فورًا).
 
 - [ ] **قرار `session_limits`: log-only ولا enforce؟** — **المكان:** Admin → Settings → **"Concurrent sessions & devices"**. — **ليه:** دلوقتي `mode="log"` (تسجيل بس، مفيش منع). لو هتعمل enforce، لازم تبص على الأرقام الأول. — **التأكد (قبل التغيير):** بص على السجلات:
- - `npm run logs -- --source db --level warn --since 24h` (سجلات السيرفر)
- - أو SQL مباشرة: `select event, count(*) from app_logs where event ilike '%too_many%' group by event;` (الجدول `app_logs` موجود وشغال).
+ - `npm run logs -- --source db --level warn --route /api/play --since 24h` — الـ event بالظبط اسمه **`api.play.session_limit`** (level `warn`) وبيبقى فيه `ctx.reason` = `sessions` أو `devices`، والـ error code = `AUTH_003` (جلسات) أو `AUTH_004` (أجهزة).
+ - أو SQL مباشرة (الجدول `app_logs` موجود وشغال):
+ ```sql
+ select ctx->>'reason' as reason, ctx->>'liveSessions' as sessions, ctx->>'liveDevices' as devices, count(*)
+   from app_logs
+  where event = 'api.play.session_limit' and ts > now() - interval '7 days'
+  group by 1,2,3 order by 4 desc;
+ ```
  - بص على `play_sessions` (قلب الـ guard): `select count(*) from play_sessions;` — الـ heartbeat بيكتب session/device حالية.
  - **الحدود المقترحة للبداية:** `max_concurrent_sessions = 2`، `max_concurrent_devices = 3`، `heartbeat_ttl_minutes = 30`، `ip_binding = false` (خلي `ip_binding` off على الموبايل: الشبكات بتغيّر الـ IP أثناء الدرس).
  **التأكد (بعد التغيير):** student بيحط درس من جهازين → يطلعله `TOO_MANY_SESSIONS` (403) في Network tab. — `DANGEROUS` (لو الحد صغير، طالب شرعي بيتمنع من الدرس أثناء امتحان أو timeout بعد كراش) — **الرجوع:** Admin → Settings → نفس القسم → `Mode` = **"Log only (recommended)"** → Save → يسري فورًا (الـ server بيقرأ كل 20 ثانية).
