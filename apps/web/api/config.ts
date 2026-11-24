@@ -42,7 +42,9 @@ export type PlayErrorCode =
   | "SERVER_ERROR"
   | "METHOD_NOT_ALLOWED"
   | "SYS_003"
-  | "APP_001";
+  | "APP_001"
+  | "TOO_MANY_SESSIONS"
+  | "TOO_MANY_DEVICES";
 
 export const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en: string }> = {
   INVALID_TOKEN: { status: 401, ar: "انتهت الجلسة — سجّل الدخول مرة أخرى.", en: "Session invalid — please sign in again." },
@@ -60,4 +62,6 @@ export const PLAY_ERRORS: Record<PlayErrorCode, { status: number; ar: string; en
   METHOD_NOT_ALLOWED: { status: 405, ar: "طريقة غير مسموحة.", en: "Method not allowed." },
   SYS_003: { status: 503, ar: "البث المباشر غير متاح — جرّب الفيديو العادي.", en: "Direct Drive is not enabled on this deployment — try the normal Drive player." },
   APP_001: { status: 426, ar: "هذا الإصدار من التطبيق لم يعد مدعومًا. حدّث التطبيق للمتابعة.", en: "This app version is no longer supported. Update the app to continue." },
+  TOO_MANY_SESSIONS: { status: 403, ar: "عدد الجلسات المفتوحة تجاوز الحد المسموح. أغلق جلسات أخرى أو تواصل مع الدعم.", en: "Too many open sessions for this account. Close another session or contact support." },
+  TOO_MANY_DEVICES: { status: 403, ar: "عدد الأجهزة المفتوحة تجاوز الحد المسموح. تواصل مع الدعم.", en: "Too many devices are playing at once. Contact support." },
 };

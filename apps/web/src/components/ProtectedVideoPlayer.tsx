@@ -61,6 +61,11 @@ type PlayGrant = {
   src?: string;
   /** ISO expiry of the current Worker token. */
   expiresAt?: string;
+  /** Lifetime of the current Worker token in seconds (the server decides it).
+   *  The player uses it to schedule the silent refresh before expiry. */
+  ttlSeconds?: number;
+  /** Whether the Direct Drive tier is available at all (admin toggle). */
+  directAvailable?: boolean;
   /** Whether a YouTube fallback exists for this lesson. */
   youtubeAvailable?: boolean;
   /** The lesson's source is a Google Drive file (decided once, from the
@@ -318,7 +323,8 @@ export function ProtectedVideoPlayer({
         const body = (await r.json().catch(() => null)) as {
           ok?: boolean; code?: string; ar?: string; en?: string;
           embedUrl?: string; minutes?: number; mode?: string; src?: string;
-          expiresAt?: string; youtubeAvailable?: boolean;
+          expiresAt?: string; ttlSeconds?: number; directAvailable?: boolean;
+          youtubeAvailable?: boolean;
           watermark?: { email?: string; phoneLast4?: string };
         } | null;
         if (!alive) return;
@@ -359,6 +365,7 @@ export function ProtectedVideoPlayer({
           mode: body.mode === "worker" && typeof body.src === "string" ? "worker" : "embed",
           src: typeof body.src === "string" ? body.src : undefined,
           expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined,
+          ttlSeconds: typeof body.ttlSeconds === "number" ? body.ttlSeconds : undefined,
           youtubeAvailable: body.youtubeAvailable === true,
           viewsLeft: typeof (body as { viewsLeft?: unknown }).viewsLeft === "number"
             ? (body as { viewsLeft: number }).viewsLeft
@@ -369,7 +376,11 @@ export function ProtectedVideoPlayer({
         });
         const workerActive = body.mode === "worker" && typeof body.src === "string";
         const freshMarker = isWorkerFailFresh(videoId);
-        const hasDriveFile = isDriveLessonEmbed(body.embedUrl, extractYoutubeId(body.embedUrl));
+        // The server tells us whether the Direct Drive tier exists at all.
+        // When it is switched off the chain must not even ask for it.
+        const directAvailable = body.directAvailable !== false;
+        const hasDriveFile =
+          isDriveLessonEmbed(body.embedUrl, extractYoutubeId(body.embedUrl)) && directAvailable;
         const youtubeAvailable = body.youtubeAvailable === true;
         // ONE decision, from the machine. A Drive lesson without a Worker
         // grant now starts on Direct instead of jumping to YouTube.
@@ -1245,6 +1256,7 @@ export function ProtectedVideoPlayer({
       <WorkerVideoPlayer
         src={grant.src}
         expiresAt={grant.expiresAt}
+        ttlSeconds={grant.ttlSeconds}
         videoId={videoId}
         native={native}
         watermark={watermark}

@@ -36,6 +36,70 @@ const EMPTY_GATE: GateSetting = {
   missing: false,
 };
 
+/** A simple on/off runtime flag (Worker tier, Direct tier). */
+type ToggleSetting = {
+  enabled: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  missing: boolean;
+};
+
+const EMPTY_TOGGLE: ToggleSetting = {
+  enabled: true,
+  updated_at: null,
+  updated_by: null,
+  updated_by_name: null,
+  missing: false,
+};
+
+/** Concurrent session / device limit — the shape stored in app_settings. */
+type LimitsSetting = {
+  mode: "log" | "enforce";
+  max_concurrent_sessions: number;
+  max_concurrent_devices: number;
+  heartbeat_ttl_minutes: number;
+  ip_binding: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  missing: boolean;
+};
+
+const EMPTY_LIMITS: LimitsSetting = {
+  mode: "log",
+  max_concurrent_sessions: 2,
+  max_concurrent_devices: 3,
+  heartbeat_ttl_minutes: 30,
+  ip_binding: false,
+  updated_at: null,
+  updated_by: null,
+  updated_by_name: null,
+  missing: false,
+};
+
+/** Lifetime of a Worker stream grant (the window a copied URL stays usable). */
+type TtlSetting = {
+  seconds: number;
+  updated_at: string | null;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  missing: boolean;
+};
+
+const EMPTY_TTL: TtlSetting = {
+  seconds: 3600,
+  updated_at: null,
+  updated_by: null,
+  updated_by_name: null,
+  missing: false,
+};
+
+function num(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
 export function Settings() {
   const { t } = useLang();
   const s = t.admin.settings;
@@ -49,6 +113,18 @@ export function Settings() {
   const [gateSaving, setGateSaving] = useState(false);
   const [gateError, setGateError] = useState("");
   const [gate, setGate] = useState<GateSetting>(EMPTY_GATE);
+
+  // Direct Drive tier, session limits and stream-token lifetime (Task 3).
+  const [directLoading, setDirectLoading] = useState(true);
+  const [directSaving, setDirectSaving] = useState(false);
+  const [direct, setDirect] = useState<ToggleSetting>(EMPTY_TOGGLE);
+  const [limitsLoading, setLimitsLoading] = useState(true);
+  const [limitsSaving, setLimitsSaving] = useState(false);
+  const [limits, setLimits] = useState<LimitsSetting>(EMPTY_LIMITS);
+  const [ttlLoading, setTtlLoading] = useState(true);
+  const [ttlSaving, setTtlSaving] = useState(false);
+  const [ttl, setTtl] = useState<TtlSetting>(EMPTY_TTL);
+  const [extraError, setExtraError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -115,6 +191,73 @@ export function Settings() {
         if (alive) setGateError(s.loadError);
       } finally {
         if (alive) setGateLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [s.loadError]);
+
+  // Load the three Task 3 rows in one go (one request per key).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          if (alive) { setDirectLoading(false); setLimitsLoading(false); setTtlLoading(false); }
+          return;
+        }
+        const read = async (key: string) => {
+          const r = await apiFetch(`/api/admin/app-settings?key=${key}`, {
+            headers: { authorization: `Bearer ${token}` },
+          });
+          const body = (await r.json().catch(() => null)) as any;
+          if (!r.ok || !body?.ok) return null;
+          return body;
+        };
+        const [directBody, limitsBody, ttlBody] = await Promise.all([
+          read("direct_drive_enabled"),
+          read("session_limits"),
+          read("stream_token_ttl_seconds"),
+        ]);
+        if (!alive) return;
+        if (directBody) {
+          const value = directBody.value && typeof directBody.value === "object" ? directBody.value : {};
+          setDirect({
+            enabled: value.enabled !== false,
+            updated_at: typeof directBody.updated_at === "string" ? directBody.updated_at : null,
+            updated_by: typeof directBody.updated_by === "string" ? directBody.updated_by : null,
+            updated_by_name: typeof directBody.updated_by_name === "string" ? directBody.updated_by_name : null,
+            missing: directBody.missing === true,
+          });
+        }
+        if (limitsBody) {
+          const value = limitsBody.value && typeof limitsBody.value === "object" ? limitsBody.value : {};
+          setLimits({
+            mode: value.mode === "enforce" ? "enforce" : "log",
+            max_concurrent_sessions: num(value.max_concurrent_sessions, EMPTY_LIMITS.max_concurrent_sessions),
+            max_concurrent_devices: num(value.max_concurrent_devices, EMPTY_LIMITS.max_concurrent_devices),
+            heartbeat_ttl_minutes: num(value.heartbeat_ttl_minutes, EMPTY_LIMITS.heartbeat_ttl_minutes),
+            ip_binding: value.ip_binding === true,
+            updated_at: typeof limitsBody.updated_at === "string" ? limitsBody.updated_at : null,
+            updated_by: typeof limitsBody.updated_by === "string" ? limitsBody.updated_by : null,
+            updated_by_name: typeof limitsBody.updated_by_name === "string" ? limitsBody.updated_by_name : null,
+            missing: limitsBody.missing === true,
+          });
+        }
+        if (ttlBody) {
+          const value = ttlBody.value && typeof ttlBody.value === "object" ? ttlBody.value : {};
+          setTtl({
+            seconds: num(value.seconds, EMPTY_TTL.seconds),
+            updated_at: typeof ttlBody.updated_at === "string" ? ttlBody.updated_at : null,
+            updated_by: typeof ttlBody.updated_by === "string" ? ttlBody.updated_by : null,
+            updated_by_name: typeof ttlBody.updated_by_name === "string" ? ttlBody.updated_by_name : null,
+            missing: ttlBody.missing === true,
+          });
+        }
+      } catch {
+        if (alive) setExtraError(s.loadError);
+      } finally {
+        if (alive) { setDirectLoading(false); setLimitsLoading(false); setTtlLoading(false); }
       }
     })();
     return () => { alive = false; };
@@ -206,6 +349,120 @@ export function Settings() {
     } finally {
       setGateSaving(false);
     }
+  };
+
+  const saveDirect = async (next: boolean) => {
+    if (directSaving) return;
+    if (!window.confirm(next ? s.directConfirmOn : s.directConfirmOff)) return;
+    setDirectSaving(true);
+    setExtraError("");
+    try {
+      const token = await getAccessToken();
+      if (!token) { setExtraError(s.saveError); return; }
+      const r = await apiFetch("/api/admin/app-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ key: "direct_drive_enabled", value: { enabled: next } }),
+      });
+      const body = (await r.json().catch(() => null)) as any;
+      if (!r.ok || !body?.ok) { setExtraError(body?.en || s.saveError); return; }
+      const value = body.value && typeof body.value === "object" ? body.value : {};
+      setDirect((d) => ({
+        ...d,
+        enabled: value.enabled !== false,
+        updated_at: typeof body.updated_at === "string" ? body.updated_at : null,
+        updated_by: typeof body.updated_by === "string" ? body.updated_by : null,
+        updated_by_name: typeof body.updated_by_name === "string" ? body.updated_by_name : null,
+        missing: false,
+      }));
+    } catch {
+      setExtraError(s.saveError);
+    } finally {
+      setDirectSaving(false);
+    }
+  };
+
+  const saveLimits = async () => {
+    if (limitsSaving) return;
+    if (!window.confirm(s.limitsConfirm)) return;
+    setLimitsSaving(true);
+    setExtraError("");
+    try {
+      const token = await getAccessToken();
+      if (!token) { setExtraError(s.saveError); return; }
+      const r = await apiFetch("/api/admin/app-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          key: "session_limits",
+          value: {
+            mode: limits.mode,
+            max_concurrent_sessions: limits.max_concurrent_sessions,
+            max_concurrent_devices: limits.max_concurrent_devices,
+            heartbeat_ttl_minutes: limits.heartbeat_ttl_minutes,
+            ip_binding: limits.ip_binding,
+          },
+        }),
+      });
+      const body = (await r.json().catch(() => null)) as any;
+      if (!r.ok || !body?.ok) { setExtraError(body?.en || s.saveError); return; }
+      const value = body.value && typeof body.value === "object" ? body.value : {};
+      setLimits((l) => ({
+        ...l,
+        mode: value.mode === "enforce" ? "enforce" : "log",
+        max_concurrent_sessions: num(value.max_concurrent_sessions, l.max_concurrent_sessions),
+        max_concurrent_devices: num(value.max_concurrent_devices, l.max_concurrent_devices),
+        heartbeat_ttl_minutes: num(value.heartbeat_ttl_minutes, l.heartbeat_ttl_minutes),
+        ip_binding: value.ip_binding === true,
+        updated_at: typeof body.updated_at === "string" ? body.updated_at : null,
+        updated_by: typeof body.updated_by === "string" ? body.updated_by : null,
+        updated_by_name: typeof body.updated_by_name === "string" ? body.updated_by_name : null,
+        missing: false,
+      }));
+    } catch {
+      setExtraError(s.saveError);
+    } finally {
+      setLimitsSaving(false);
+    }
+  };
+
+  const saveTtl = async () => {
+    if (ttlSaving) return;
+    if (!window.confirm(s.ttlConfirm)) return;
+    setTtlSaving(true);
+    setExtraError("");
+    try {
+      const token = await getAccessToken();
+      if (!token) { setExtraError(s.saveError); return; }
+      const r = await apiFetch("/api/admin/app-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ key: "stream_token_ttl_seconds", value: { seconds: ttl.seconds } }),
+      });
+      const body = (await r.json().catch(() => null)) as any;
+      if (!r.ok || !body?.ok) { setExtraError(body?.en || s.saveError); return; }
+      const value = body.value && typeof body.value === "object" ? body.value : {};
+      setTtl((t) => ({
+        ...t,
+        seconds: num(value.seconds, t.seconds),
+        updated_at: typeof body.updated_at === "string" ? body.updated_at : null,
+        updated_by: typeof body.updated_by === "string" ? body.updated_by : null,
+        updated_by_name: typeof body.updated_by_name === "string" ? body.updated_by_name : null,
+        missing: false,
+      }));
+    } catch {
+      setExtraError(s.saveError);
+    } finally {
+      setTtlSaving(false);
+    }
+  };
+
+  const changedAt = (updated_at: string | null, updated_by: string | null, updated_by_name: string | null) => {
+    if (!updated_at) return s.never;
+    const when = new Date(updated_at);
+    const whenText = Number.isNaN(when.getTime()) ? updated_at : when.toLocaleString();
+    const who = updated_by_name || updated_by || "";
+    return who ? `${whenText} (${s.by} ${who})` : whenText;
   };
 
   const lastChanged = (() => {
@@ -352,6 +609,164 @@ export function Settings() {
 
         {gateError && <p role="alert" className="text-sm font-bold" style={{ color: "#B3261E" }}>{gateError}</p>}
       </Section>
+
+      <Section title={s.directTitle}>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>{s.directDesc}</p>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={direct.enabled === true}
+            onClick={() => void saveDirect(!direct.enabled)}
+            disabled={directLoading || directSaving}
+            className="rounded-full border px-5 py-2.5 text-sm font-bold transition-colors disabled:opacity-50"
+            style={direct.enabled
+              ? { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }
+              : { background: "#fff", color: "var(--muted)", borderColor: "var(--border)" }}
+          >
+            {directSaving ? s.saving : direct.enabled ? s.directEnabled : s.directDisabled}
+          </button>
+          {directLoading && <span className="text-sm" style={{ color: "var(--muted)" }}>…</span>}
+        </div>
+
+        <div className="grid gap-1 text-sm" style={{ color: "var(--muted)" }}>
+          <p><strong>{s.lastChanged}:</strong> {directLoading ? "…" : changedAt(direct.updated_at, direct.updated_by, direct.updated_by_name)}</p>
+          <p>{s.ttlHint}</p>
+          <p>{s.failSafe}</p>
+        </div>
+      </Section>
+
+      <Section title={s.limitsTitle}>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>{s.limitsDesc}</p>
+
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm font-bold">
+            {s.limitsMode}
+            <select
+              value={limits.mode}
+              disabled={limitsLoading || limitsSaving}
+              onChange={(e) => setLimits((l) => ({ ...l, mode: e.target.value === "enforce" ? "enforce" : "log" }))}
+              className="rounded-lg border px-3 py-2 text-sm font-normal"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <option value="log">{s.limitsModeLog}</option>
+              <option value="enforce">{s.limitsModeEnforce}</option>
+            </select>
+          </label>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>{s.limitsModeHint}</p>
+
+          <label className="grid gap-1 text-sm font-bold">
+            {s.limitsSessions}
+            <input
+              type="number"
+              min={1}
+              value={limits.max_concurrent_sessions}
+              disabled={limitsLoading || limitsSaving}
+              onChange={(e) => setLimits((l) => ({ ...l, max_concurrent_sessions: num(e.target.value, l.max_concurrent_sessions) }))}
+              className="rounded-lg border px-3 py-2 text-sm font-normal"
+              style={{ borderColor: "var(--border)" }}
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm font-bold">
+            {s.limitsDevices}
+            <input
+              type="number"
+              min={1}
+              value={limits.max_concurrent_devices}
+              disabled={limitsLoading || limitsSaving}
+              onChange={(e) => setLimits((l) => ({ ...l, max_concurrent_devices: num(e.target.value, l.max_concurrent_devices) }))}
+              className="rounded-lg border px-3 py-2 text-sm font-normal"
+              style={{ borderColor: "var(--border)" }}
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm font-bold">
+            {s.limitsTtl}
+            <input
+              type="number"
+              min={5}
+              value={limits.heartbeat_ttl_minutes}
+              disabled={limitsLoading || limitsSaving}
+              onChange={(e) => setLimits((l) => ({ ...l, heartbeat_ttl_minutes: num(e.target.value, l.heartbeat_ttl_minutes) }))}
+              className="rounded-lg border px-3 py-2 text-sm font-normal"
+              style={{ borderColor: "var(--border)" }}
+            />
+          </label>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>{s.limitsTtlHint}</p>
+
+          <label className="flex items-center gap-3 text-sm font-bold">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={limits.ip_binding}
+              disabled={limitsLoading || limitsSaving}
+              onChange={(e) => setLimits((l) => ({ ...l, ip_binding: e.target.checked }))}
+            />
+            {s.limitsIp}
+          </label>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>{s.limitsIpHint}</p>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void saveLimits()}
+              disabled={limitsLoading || limitsSaving}
+              className="rounded-full border px-5 py-2.5 text-sm font-bold transition-colors disabled:opacity-50"
+              style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
+            >
+              {limitsSaving ? s.saving : s.limitsSubmit}
+            </button>
+            {limitsLoading && <span className="text-sm" style={{ color: "var(--muted)" }}>…</span>}
+          </div>
+
+          <div className="grid gap-1 text-sm" style={{ color: "var(--muted)" }}>
+            <p><strong>{s.lastChanged}:</strong> {limitsLoading ? "…" : changedAt(limits.updated_at, limits.updated_by, limits.updated_by_name)}</p>
+            <p>{s.limitsFailSafe}</p>
+          </div>
+        </div>
+      </Section>
+
+      <Section title={s.ttlTitle}>
+        <p className="text-sm" style={{ color: "var(--muted)" }}>{s.ttlDesc}</p>
+
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm font-bold">
+            {s.ttlSeconds}
+            <input
+              type="number"
+              min={300}
+              max={7200}
+              step={60}
+              value={ttl.seconds}
+              disabled={ttlLoading || ttlSaving}
+              onChange={(e) => setTtl((t) => ({ ...t, seconds: num(e.target.value, t.seconds) }))}
+              className="rounded-lg border px-3 py-2 text-sm font-normal"
+              style={{ borderColor: "var(--border)" }}
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void saveTtl()}
+              disabled={ttlLoading || ttlSaving}
+              className="rounded-full border px-5 py-2.5 text-sm font-bold transition-colors disabled:opacity-50"
+              style={{ background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" }}
+            >
+              {ttlSaving ? s.saving : s.ttlSubmit}
+            </button>
+            {ttlLoading && <span className="text-sm" style={{ color: "var(--muted)" }}>…</span>}
+          </div>
+
+          <div className="grid gap-1 text-sm" style={{ color: "var(--muted)" }}>
+            <p><strong>{s.lastChanged}:</strong> {ttlLoading ? "…" : changedAt(ttl.updated_at, ttl.updated_by, ttl.updated_by_name)}</p>
+          </div>
+        </div>
+      </Section>
+
+      {extraError && <p role="alert" className="text-sm font-bold" style={{ color: "#B3261E" }}>{extraError}</p>}
     </div>
   );
 }

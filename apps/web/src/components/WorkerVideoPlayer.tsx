@@ -14,6 +14,10 @@ export type WorkerVideoPlayerProps = {
   src: string;
   /** ISO expiry of the current token (drives the silent refresh). */
   expiresAt?: string;
+  /** Lifetime of the current token in seconds (server-decided). Used to
+   *  schedule the refresh proportionally — a short token must not be
+   *  refreshed on a fixed 5-minute lead, or it would loop. */
+  ttlSeconds?: number;
   /** videos.id — used only by the refresh endpoint. */
   videoId: string;
   native: boolean;
@@ -37,6 +41,21 @@ export type WorkerVideoPlayerProps = {
 
 /** Refresh a little before the token expires so playback never stops. */
 const REFRESH_LEAD_MS = 5 * 60 * 1000;
+/** Never refresh earlier than this, whatever the token lifetime is. */
+const MIN_REFRESH_LEAD_MS = 30 * 1000;
+
+/**
+ * How long before expiry the token is renewed.
+ *
+ * The lead is proportional to the token lifetime (a fifth of it), never more
+ * than the fixed 5 minutes and never less than 30 seconds — otherwise a short
+ * token (5 minutes) would be refreshed immediately and then again and again.
+ */
+function refreshLeadMs(ttlSeconds: number): number {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return REFRESH_LEAD_MS;
+  const proportional = Math.floor((ttlSeconds * 1000) / 5);
+  return Math.min(REFRESH_LEAD_MS, Math.max(MIN_REFRESH_LEAD_MS, proportional));
+}
 /** No first frame this long after a source swap → treat as stalled. */
 const CANPLAY_TIMEOUT_MS = 12_000;
 /** Buffering this long mid-playback → treat as stalled. */
@@ -45,6 +64,7 @@ const STALL_TIMEOUT_MS = 15_000;
 export function WorkerVideoPlayer({
   src,
   expiresAt,
+  ttlSeconds,
   videoId,
   native,
   watermark,
@@ -85,6 +105,9 @@ export function WorkerVideoPlayer({
 
   const [exp, setExp] = useState<number>(() => (expiresAt ? Date.parse(expiresAt) : 0));
   const expiresRef = useRef<number>(expiresAt ? Date.parse(expiresAt) : 0);
+  // Lifetime of the current token. The server decides it; the player only
+  // uses it to time the silent refresh.
+  const [ttl, setTtl] = useState<number>(ttlSeconds ?? 0);
   const fatalRef = useRef(false);
   const refreshRef = useRef<Promise<boolean> | null>(null);
   const resumeRef = useRef<{ t: number; play: boolean } | null>(null);
@@ -116,6 +139,7 @@ export function WorkerVideoPlayer({
           ok?: boolean;
           src?: string;
           expiresAt?: string;
+          ttlSeconds?: number;
         } | null;
         if (!r.ok || !body || body.ok !== true || typeof body.src !== "string") return false;
         const el = videoRef.current;
@@ -127,6 +151,7 @@ export function WorkerVideoPlayer({
           expiresRef.current = next;
           setExp(next);
         }
+        if (typeof body.ttlSeconds === "number") setTtl(body.ttlSeconds);
         return true;
       } catch {
         return false;
@@ -351,12 +376,12 @@ export function WorkerVideoPlayer({
   // ---- Silent token refresh before expiry --------------------------------
   useEffect(() => {
     if (exp <= 0) return;
-    const delay = Math.max(10_000, exp - Date.now() - REFRESH_LEAD_MS);
+    const delay = Math.max(10_000, exp - Date.now() - refreshLeadMs(ttl));
     const id = window.setTimeout(() => {
       void refreshToken();
     }, delay);
     return () => window.clearTimeout(id);
-  }, [exp, refreshToken]);
+  }, [exp, ttl, refreshToken]);
 
   // ---- Mid-playback buffering watchdog -----------------------------------
   useEffect(() => {

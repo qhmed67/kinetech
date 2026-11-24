@@ -18,8 +18,29 @@
 
 export const STREAM_TOKEN_VERSION = 2 as const;
 
-/** Worker stream grants live one hour; the client refreshes before expiry. */
+/** Worker stream grants live one hour; the client refreshes before expiry.
+ *  The server may shorten or extend this via app_settings
+ *  (`stream_token_ttl_seconds`), clamped to the window below. */
 export const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
+/** Shortest / longest grant lifetime the server will sign. */
+export const STREAM_TOKEN_TTL_MIN_SECONDS = 300;
+export const STREAM_TOKEN_TTL_MAX_SECONDS = 7200;
+
+/** Clamp a configured lifetime into the window the server is willing to sign. */
+export function clampStreamTokenTtl(value: unknown): number {
+  const raw =
+    value && typeof value === "object"
+      ? (value as { seconds?: unknown }).seconds
+      : value;
+  // A missing / empty setting keeps the previous default (fail-open).
+  if (raw === null || raw === undefined || raw === "") return STREAM_TOKEN_TTL_SECONDS;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return STREAM_TOKEN_TTL_SECONDS;
+  const i = Math.floor(n);
+  if (i < STREAM_TOKEN_TTL_MIN_SECONDS) return STREAM_TOKEN_TTL_MIN_SECONDS;
+  if (i > STREAM_TOKEN_TTL_MAX_SECONDS) return STREAM_TOKEN_TTL_MAX_SECONDS;
+  return i;
+}
 
 export type EncryptedFid = { iv: string; ct: string };
 
