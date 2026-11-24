@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  MIN_REFRESH_LEAD_MS,
+  REFRESH_LEAD_MS,
   STREAM_TOKEN_TTL_SECONDS,
   TEST_VECTOR,
+  clampStreamTokenTtl,
   encryptFid,
   decryptFid,
+  refreshLeadMs,
   signStreamToken,
   verifyStreamToken,
   type SignedStreamTokenPayload,
@@ -79,5 +83,48 @@ describe("stream token sign/verify", () => {
 
   it("honours the configured TTL", () => {
     expect(STREAM_TOKEN_TTL_SECONDS).toBe(3600);
+  });
+});
+
+describe("stream token lifetime clamping", () => {
+  it("keeps a value inside the signing window", () => {
+    expect(clampStreamTokenTtl(3600)).toBe(3600);
+    expect(clampStreamTokenTtl({ seconds: 900 })).toBe(900);
+  });
+
+  it("clamps too short and too long values to the window edges", () => {
+    expect(clampStreamTokenTtl(60)).toBe(300);
+    expect(clampStreamTokenTtl({ seconds: 99999 })).toBe(7200);
+  });
+
+  it("falls back to the default when the setting is missing or broken", () => {
+    expect(clampStreamTokenTtl(null)).toBe(STREAM_TOKEN_TTL_SECONDS);
+    expect(clampStreamTokenTtl(undefined)).toBe(STREAM_TOKEN_TTL_SECONDS);
+    expect(clampStreamTokenTtl("")).toBe(STREAM_TOKEN_TTL_SECONDS);
+    expect(clampStreamTokenTtl("not-a-number")).toBe(STREAM_TOKEN_TTL_SECONDS);
+    expect(clampStreamTokenTtl({})).toBe(STREAM_TOKEN_TTL_SECONDS);
+  });
+});
+
+describe("worker token refresh lead", () => {
+  it("refreshes a fifth of the lifetime before it expires", () => {
+    // 1 h lifetime -> 12 min lead, capped at the fixed 5 min lead.
+    expect(refreshLeadMs(3600)).toBe(REFRESH_LEAD_MS);
+    // 10 min lifetime -> 2 min lead (a fifth, inside the bounds).
+    expect(refreshLeadMs(600)).toBe(120_000);
+  });
+
+  it("never refreshes earlier than 30 s, so a short token cannot loop", () => {
+    // A 5-minute token would lead to a 60 s lead (a fifth of the lifetime);
+    // below 150 s the lead is floored at 30 s.
+    expect(refreshLeadMs(300)).toBe(60_000);
+    expect(refreshLeadMs(150)).toBe(MIN_REFRESH_LEAD_MS);
+    expect(refreshLeadMs(60)).toBe(MIN_REFRESH_LEAD_MS);
+  });
+
+  it("falls back to the fixed lead when the lifetime is unknown", () => {
+    expect(refreshLeadMs(0)).toBe(REFRESH_LEAD_MS);
+    expect(refreshLeadMs(-1)).toBe(REFRESH_LEAD_MS);
+    expect(refreshLeadMs(Number.NaN)).toBe(REFRESH_LEAD_MS);
   });
 });

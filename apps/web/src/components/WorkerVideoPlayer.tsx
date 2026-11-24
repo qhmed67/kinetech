@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/http";
 import { getAccessToken } from "../lib/accessToken";
 import { workerFailAgeMs } from "../lib/workerFailMarker";
+import { refreshLeadMs } from "../lib/streamToken";
 import "./workerPlayer.css";
 
 /** Same state machine the parent orchestrator owns (Worker → Direct → YouTube). */
@@ -39,23 +40,9 @@ export type WorkerVideoPlayerProps = {
   onFatal: (reason: string) => void;
 };
 
-/** Refresh a little before the token expires so playback never stops. */
-const REFRESH_LEAD_MS = 5 * 60 * 1000;
-/** Never refresh earlier than this, whatever the token lifetime is. */
-const MIN_REFRESH_LEAD_MS = 30 * 1000;
-
-/**
- * How long before expiry the token is renewed.
- *
- * The lead is proportional to the token lifetime (a fifth of it), never more
- * than the fixed 5 minutes and never less than 30 seconds — otherwise a short
- * token (5 minutes) would be refreshed immediately and then again and again.
- */
-function refreshLeadMs(ttlSeconds: number): number {
-  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return REFRESH_LEAD_MS;
-  const proportional = Math.floor((ttlSeconds * 1000) / 5);
-  return Math.min(REFRESH_LEAD_MS, Math.max(MIN_REFRESH_LEAD_MS, proportional));
-}
+/** The refresh lead lives in lib/streamToken.ts (`refreshLeadMs`) so it can be
+ *  unit-tested: the lead is a fifth of the token lifetime, at least 30 s and
+ *  at most 5 minutes. */
 /** No first frame this long after a source swap → treat as stalled. */
 const CANPLAY_TIMEOUT_MS = 12_000;
 /** Buffering this long mid-playback → treat as stalled. */

@@ -26,6 +26,25 @@ export const STREAM_TOKEN_TTL_SECONDS = 60 * 60;
 export const STREAM_TOKEN_TTL_MIN_SECONDS = 300;
 export const STREAM_TOKEN_TTL_MAX_SECONDS = 7200;
 
+/** How long before expiry the Worker token is renewed (fixed default). */
+export const REFRESH_LEAD_MS = 5 * 60 * 1000;
+/** Never refresh earlier than this, whatever the token lifetime is. */
+export const MIN_REFRESH_LEAD_MS = 30 * 1000;
+
+/**
+ * How long before expiry the token is renewed.
+ *
+ * The lead is proportional to the token lifetime (a fifth of it), never more
+ * than the fixed 5 minutes and never less than 30 seconds — otherwise a short
+ * token (5 minutes) would be refreshed immediately and then again and again.
+ * A missing / invalid lifetime falls back to the fixed 5-minute lead.
+ */
+export function refreshLeadMs(ttlSeconds: number): number {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) return REFRESH_LEAD_MS;
+  const proportional = Math.floor((ttlSeconds * 1000) / 5);
+  return Math.min(REFRESH_LEAD_MS, Math.max(MIN_REFRESH_LEAD_MS, proportional));
+}
+
 /** Clamp a configured lifetime into the window the server is willing to sign. */
 export function clampStreamTokenTtl(value: unknown): number {
   const raw =
