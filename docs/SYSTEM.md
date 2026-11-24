@@ -10,6 +10,24 @@ commands in §7 after every change.
 
 ---
 
+## 0. Current live state (verified 2026-11-24)
+
+| Thing | State | Consequence |
+|---|---|---|
+| R2 worker `kinetech-video` (`backend/video-worker`) | **DOES NOT EXIST on the Cloudflare account** (`wrangler deployments list` → error 10007) | the native/R2 playback path **cannot play** — there is nothing to serve the stream |
+| Drive prototype worker `kinetech-video-test` (`apps/worker-video`) | deployed (2026-11-22/23), holds the owner's **test** Drive key + `STREAM_TOKEN_SECRET` | it is the worker the *web* Worker tier would use — but the tier is off, so it is idle |
+| `app_settings.video_worker_enabled` | `{ "enabled": false }` | `/api/play` never returns a Worker URL. Deliberate for now |
+| `app_settings.direct_drive_enabled` | `{ "enabled": true }` | the Direct Drive tier **is** live — it hands the page the Drive file id + the server-held browser key. Restrict that key in Google Cloud (referrer + API scope) |
+| Live playback tiers today | **Direct Drive → YouTube** (the Worker tier is skipped) | the chain in §2 still applies; the first hop never happens until the R2 worker is deployed |
+| `app_settings.session_limits` | `{ "mode": "log", … }` | over-limit accounts are recorded, never blocked |
+| `app_settings.native_gate` | `min_supported_version "0.0.0"`, `force_update false` | **nobody is blocked** by the version gate |
+
+The deployment guide for the missing R2 worker:
+[`docs/R2-WORKER-SETUP.md`](R2-WORKER-SETUP.md).
+The status of the whole project: [`docs/HANDOFF.md`](HANDOFF.md).
+
+---
+
 ## 1. Components
 
 | Component | Where | Responsibility | Holds secrets |
@@ -169,11 +187,27 @@ drifts over the player on every tier.
 
 ### Retired / not used
 
-`VITE_DRIVE_BROWSER_KEY` is no longer read by any code (the test page asks
-for the key in the page). Delete it from Vercel — a `VITE_*` var is inlined
-into the public bundle. `EXPO_PUBLIC_GOOGLE_API_KEY` was removed from
+`VITE_DRIVE_BROWSER_KEY` is no longer read by any code — the Direct tier gets
+its key from the **server** (`getEnvVar("DRIVE_BROWSER_KEY")` in
+`apps/web/api/play.ts`, returned per request inside the `/api/play`
+response). Delete it from Vercel — a `VITE_*` var is inlined into the public
+bundle. `EXPO_PUBLIC_GOOGLE_API_KEY` was removed from
 `apps/mobile/.env.example` (unused, and `EXPO_PUBLIC_*` is shipped inside the
 app package).
+
+Two guards keep that true:
+`apps/web/src/lib/clientEnv.test.ts` (source level: only the three public
+Supabase variables are ever read from `import.meta.env`) and
+`apps/web/scripts/check-bundle-secrets.cjs` (artifact level: the npm
+`postbuild` hook **fails the build** when a key-shaped string reaches
+`dist/`).
+
+### Response headers (Vercel)
+
+`apps/web/vercel.json` sets `X-Content-Type-Options`, `X-Frame-Options:
+SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy` (`fullscreen=(self)` — the Plyr maximize button needs
+it) and HSTS. **No CSP yet** (by decision).
 
 ---
 
