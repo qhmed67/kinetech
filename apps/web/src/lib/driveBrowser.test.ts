@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+
+// Synthetic fixtures only: never put a real Drive file id or a real-looking
+// browser key in the public repository.
 import { directDriveUrl, directSrcHost, redactDirectUrl } from "./driveBrowser";
 
-const FID = "1a0p37O-VASxkdXIt-smWK3tw0x9-Tp7Y";
-const KEY = "AIzaTestKey";
+const FID = "1FakeDriveFileIdForUnitTestsOnly0";
+const KEY = "test-only-browser-key";
 
 describe("directDriveUrl", () => {
   it("builds the Drive API media URL with the key", () => {

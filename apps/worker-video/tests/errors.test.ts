@@ -71,7 +71,7 @@ describe("checkOriginAllowed", () => {
     const patterns = ["https://kinetechtest.vercel.app", "https://*.vercel.app"];
     expect(checkOriginAllowed("https://kinetechtest.vercel.app", patterns)).toBe(true);
     expect(
-      checkOriginAllowed("https://kinetechtest-aggtkiwi5-ahmed-youssefs-projects-925e7da2.vercel.app", patterns),
+      checkOriginAllowed("https://kinetechtest-aggtkiwi5-owner-team-scope-placeholder.vercel.app", patterns),
     ).toBe(true);
     expect(checkOriginAllowed("https://evilvercel.app", patterns)).toBe(false);
     expect(checkOriginAllowed("", patterns)).toBe(false);
