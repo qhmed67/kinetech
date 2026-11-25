@@ -43,7 +43,8 @@ def records(path):
 
 def registered_codes():
     try:
-        txt = open("docs/ERROR-CODES.md", encoding="utf-8").read()
+        registry = os.environ.get("ERROR_CODES_REGISTRY", "docs/API-ERROR-CODES.md")
+        txt = open(registry, encoding="utf-8").read()
     except OSError:
         return None
     return set(re.findall(r"^\|\s*([A-Z]{2,6}_[0-9]{3})\s*\|", txt, re.M))
@@ -75,7 +76,7 @@ def check(path):
     reg = registered_codes()
     if reg is not None:
         for c in sorted(codes - reg):
-            problems.append(f"error code {c} is logged but not registered in docs/ERROR-CODES.md")
+            problems.append(f"error code {c} is logged but not registered in the public error-code registry")
     if problems:
         print("check-logs: FAILED"); print("\n".join(problems[:30])); return 1
     print(f"check-logs: OK ({total} lines)"); return 0

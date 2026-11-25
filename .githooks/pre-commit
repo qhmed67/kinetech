@@ -3,5 +3,7 @@
 set -e
 cd "$(git rev-parse --show-toplevel)"
 [ -f scripts/verify.sh ] || exit 0
+echo "pre-commit: public surface check"
+bash scripts/check-public-surface.sh --staged
 echo "pre-commit: scripts/verify.sh quick"
 bash scripts/verify.sh quick

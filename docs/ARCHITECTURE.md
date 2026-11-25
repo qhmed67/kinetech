@@ -1,8 +1,8 @@
 # Architecture — rules, not a tour
 Loaded in EVERY session. Keep under ~120 lines. Fill the module map via `/bootstrap`.
 
-> The system tour (components, play sequence, env map, failure modes, runbook)
-> lives in [`docs/SYSTEM.md`](SYSTEM.md).
+> A short public overview of the components and the playback tiers lives in
+> [`docs/ARCHITECTURE-lite.md`](ARCHITECTURE-lite.md).
 
 ## Shape
 ```
@@ -35,7 +35,7 @@ A pure CRUD module with no business rules may skip `application/` and let presen
 ## Rules
 1. One business rule, one place. Search before writing; never duplicate logic across modules.
 2. Map at boundaries: DB rows, HTTP bodies and external payloads become domain/application types at the adapter edge. Never pass ORM models or request objects inward.
-3. Errors: domain throws/returns typed domain errors. Adapters translate them to HTTP codes / UI messages. Each has a code in docs/ERROR-CODES.md.
+3. Errors: domain throws/returns typed domain errors. Adapters translate them to HTTP codes / UI messages. Each has a code in docs/API-ERROR-CODES.md.
 4. Transactions and orchestration live in application. Domain stays pure and synchronous where possible.
 5. Inject time, randomness, ids, config and I/O (via ports/parameters). No hidden globals or singletons with state.
 6. Modules talk through public interfaces or events. No circular dependencies between modules. If A and B need each other, extract the shared concept or use an event.

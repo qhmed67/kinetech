@@ -22,7 +22,7 @@ describe("origin matching", () => {
   });
 
   it("matches the multi-label hyphenated preview host via *.vercel.app", () => {
-    const host = "https://kinetechtest-aggtkiwi5-ahmed-youssefs-projects-925e7da2.vercel.app";
+    const host = "https://kinetechtest-aggtkiwi5-owner-team-scope-placeholder.vercel.app";
     expect(matchOrigin(host, ["https://*.vercel.app"])).toBe(true);
     expect(matchOrigin(host, ["https://kinetechtest.vercel.app", "https://*.vercel.app"])).toBe(true);
     expect(matchOrigin("https://a-b.c.vercel.app", ["https://*.vercel.app"])).toBe(true);

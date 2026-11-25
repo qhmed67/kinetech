@@ -65,12 +65,12 @@ scripts/logs.sh check              # validate the file against this schema
 ```
 
 ## 8. Definition of "well logged"
-A new failure path is done when: it has an error code in docs/ERROR-CODES.md, it logs once with `error.code` + `cause` + useful `ctx`, and a test (or at least a manual run) shows the line appears with the correlation id.
+A new failure path is done when: it has an error code in docs/API-ERROR-CODES.md, it logs once with `error.code` + `cause` + useful `ctx`, and a test (or at least a manual run) shows the line appears with the correlation id.
 
 ## 9. Enforcement (what is checked by machines, not by good intentions)
 | Check | Tool | When |
 |---|---|---|
 | No print/console.log in changed source | `scripts/check-error-codes.sh` | every `verify` |
-| Every error code in changed source is registered in docs/ERROR-CODES.md | `scripts/check-error-codes.sh` | every `verify` |
+| Every error code in changed source is registered in docs/API-ERROR-CODES.md | `scripts/check-error-codes.sh` | every `verify` |
 | Emitted lines match the schema (fields, level, event name, error.code) and codes are registered | `scripts/check-logs.sh` | add one integration test that exercises the app then runs it |
 Limits: static checks cannot prove a log line carries the right `ctx`; the reviewer checks that. A new area prefix (e.g. `PAY_`) must be added to the registry first, otherwise its codes are not recognized by the static check.

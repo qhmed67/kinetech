@@ -13,7 +13,7 @@
 
 ## Process files
 
-- `docs/STABLE-VERSION.md` holds stable tags, SHAs, and rollback commands. Update it at every milestone and before every merge into `main`. Every PR includes a Rollback plan referencing it.
+- Every PR body carries its own Rollback plan (scope + exact command). Stable tags and SHAs are listed in the repository's releases and tags, not in a document in the tree.
 - Some paths are local-only working files (gitignored via `.git/info/exclude`, not listed here). They remain on each machine and are never committed or pushed.
 
 ## Verify

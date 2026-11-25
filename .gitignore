@@ -71,3 +71,29 @@ session-*.md
 # Owner checklists — kept on the machine only, never committed
 docs/MANUAL-TODO.md
 docs/HANDOFF.md
+
+# OWNER-ONLY — never commit these to this public repository.
+# Operational maps, weakness notes, owner checklists, credential locations and
+# personal notes live outside the repo (see the private folder on the machine).
+AGENTS.md
+docs/SYSTEM.md
+docs/HANDOFF.md
+docs/MANUAL-TODO.md
+docs/PLAYER-INVESTIGATION-HANDOFF.md
+docs/R2-WORKER-SETUP.md
+docs/video-pipeline-spec.md
+docs/ERROR-CODES.md
+docs/PRODUCT-RULES.md
+docs/USE-DOCUMENTATION.md
+docs/STABLE-VERSION.md
+docs/mobile/
+docs/plans/
+newPLanV2.md
+problem-v1.md
+react-native-plan-full.md
+session-*.md
+.opencode/
+.agents/
+opencode.json
+skills-lock.json
+books/

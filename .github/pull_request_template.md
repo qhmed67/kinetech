@@ -14,4 +14,4 @@ Commands run and results (lint, typecheck, tests, build). Mention manual verific
 - [ ] Rollback plan below
 
 ## Rollback plan
-See `docs/STABLE-VERSION.md`. Scope of rollback (web only / mobile only / shared package) and exact command.
+State the scope of the rollback (web only / mobile only / shared package) and the exact command. Keep it in this PR, not in a separate private doc.

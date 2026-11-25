@@ -44,3 +44,17 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+  public-surface:
+    name: Public surface
+    runs-on: ubuntu-latest
+    steps:
+      # No setup-node needed: the guard is a plain bash script.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Fails the build if a credential, a real infrastructure identifier or an
+      # owner-only document would become public. Values are never printed:
+      # only "path:line:type". The optional blocklist of real identifiers lives
+      # in the platform's secret store, one literal per line.
+      - run: bash scripts/check-public-surface.sh
+        env:
+          PUBLIC_SURFACE_BLOCKLIST: ${{ secrets.PUBLIC_SURFACE_BLOCKLIST }}

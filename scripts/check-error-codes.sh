@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# (1) Every error code used in changed source (PREFIX_NNN, PREFIX registered in docs/ERROR-CODES.md) must have a row in the registry.
+# (1) Every error code used in changed source (PREFIX_NNN, PREFIX registered in
+#     docs/API-ERROR-CODES.md) must have a row in the registry.
 # (2) No print/console.log-style diagnostics in changed non-test source (use the project logger). Escape hatch on a line: allow-print
 # Diff-aware like the other guards. GUARD_ALL=1 checks everything.
 set -uo pipefail
-REG="docs/ERROR-CODES.md"
+REG="${ERROR_CODES_REGISTRY:-docs/API-ERROR-CODES.md}"
 changed_files() {
   if [ "${GUARD_ALL:-0}" = 1 ] || ! git rev-parse --verify HEAD >/dev/null 2>&1; then git ls-files --cached --others --exclude-standard; return; fi
   local base="${GUARD_BASE:-$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)}"
