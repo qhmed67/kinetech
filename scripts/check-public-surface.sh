@@ -70,6 +70,19 @@ PATTERNS=(
   "jwt|eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}"
 )
 
+# ---------------------------------------------------------------------------
+# 2b. Scripts that must never appear in this repository.
+#     The product text is Arabic + English. A CJK, Hangul, Cyrillic or Thai
+#     character in a source file, a test, a document or a script is always an
+#     accident (a stray fragment from a generator) - it is never intentional.
+# ---------------------------------------------------------------------------
+STRAY_PATTERNS=(
+  "cjk|[\x{2E80}-\x{2EFF}\x{3000}-\x{303F}\x{3040}-\x{30FF}\x{3105}-\x{312F}\x{3190}-\x{33FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{A000}-\x{A4CF}\x{F900}-\x{FAFF}\x{FE30}-\x{FE4F}\x{FF00}-\x{FFEF}]"
+  "hangul|[\x{1100}-\x{11FF}\x{3130}-\x{318F}\x{A960}-\x{A97F}\x{AC00}-\x{D7AF}\x{D7B0}-\x{D7FF}]"
+  "cyrillic|[\x{0400}-\x{04FF}\x{0500}-\x{052F}\x{2DE0}-\x{2DFF}\x{A640}-\x{A69F}]"
+  "thai|[\x{0E00}-\x{0E7F}]"
+)
+
 # Files that legitimately contain a pattern as TEXT (the scanners themselves,
 # or a test asserting a scanner). They are never scanned.
 ALLOW=(
@@ -117,6 +130,30 @@ for f in "${FILES[@]}"; do
       [ -z "$ln" ] && continue
       report "$f:$ln:$type"
     done < <(grep -nIEo "$regex" "$f" 2>/dev/null | cut -d: -f1)
+  done
+done
+
+# 2b) stray scripts (CJK / Hangul / Cyrillic / Thai) -------------------------
+# grep -P first, perl as the fallback; both print the line number only.
+scan_stray() {
+  local file="$1" regex="$2"
+  if grep -Pq -- "$regex" "$file" 2>/dev/null; then
+    grep -PnI -- "$regex" "$file" 2>/dev/null | cut -d: -f1
+  elif command -v perl >/dev/null 2>&1; then
+    STRAY_RE="$regex" perl -ne 'print "$.\n" if /$ENV{STRAY_RE}/' "$file" 2>/dev/null
+  fi
+}
+for f in "${FILES[@]}"; do
+  [ -z "$f" ] && continue
+  [ -f "$f" ] || continue
+  is_allowed "$f" && continue
+  for entry in "${STRAY_PATTERNS[@]}"; do
+    type="${entry%%|*}"
+    regex="${entry#*|}"
+    while IFS= read -r ln; do
+      [ -z "$ln" ] && continue
+      report "$f:$ln:stray_$type"
+    done < <(scan_stray "$f" "$regex")
   done
 done
 
